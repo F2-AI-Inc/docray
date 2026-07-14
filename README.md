@@ -8,7 +8,29 @@ one-shot extraction and a server (`docray-server`) exposing a sync endpoint for
 small/fast documents and an async job queue for everything else. The full
 JSON contract is documented in the API and granularity sections below.
 
-## Prerequisites
+## Install
+
+**Homebrew (macOS/Linux):**
+
+```bash
+brew install f2-ai-inc/tap/docray
+docray extract your.pdf --granularity element
+```
+
+**Container (GHCR):**
+
+```bash
+docker run -d --rm -p 41619:41619 ghcr.io/f2-ai-inc/docray:latest
+# API on :41619, playground at /playground
+```
+
+**Prebuilt binaries:** download a `.tar.gz` for your platform from the
+[releases page](https://github.com/F2-AI-Inc/docray/releases) — the pdfium
+library is bundled; `bin/docray` works out of the box.
+
+## Building from source
+
+### Prerequisites
 
 - Rust stable (see [Docker](#docker) below for the exact version this repo
   is verified against — the toolchain's `rustup` default `stable` channel

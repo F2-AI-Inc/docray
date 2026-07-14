@@ -1,21 +1,24 @@
 # Quickstart
 
-## Prerequisites
-
-- Rust (stable, 1.88+)
-- The PDFium native library — fetched by a script, pinned to a known build:
+## Install
 
 ```bash
-git clone https://github.com/F2-AI-Inc/docray
-cd docray
-./scripts/fetch-pdfium.sh     # downloads pdfium into ./.pdfium (git-ignored)
+# Homebrew (macOS/Linux)
+brew install f2-ai-inc/tap/docray
+
+# or a container (server + playground included)
+docker run -d --rm -p 41619:41619 ghcr.io/f2-ai-inc/docray:latest
+
+# or grab a prebuilt archive from the releases page — pdfium is bundled
 ```
+
+Building from source instead? Clone the repo, run `./scripts/fetch-pdfium.sh`
+once, then `cargo build --release -p docray-cli -p docray-server`.
 
 ## Extract your first PDF
 
 ```bash
-cargo build --release -p docray-cli
-./target/release/docray extract your.pdf --granularity element | jq .
+docray extract your.pdf --granularity element | jq .
 ```
 
 ## Run the server + playground

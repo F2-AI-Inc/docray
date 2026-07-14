@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  # Must match scripts/fetch-pdfium.sh.
+  PDFIUM_VERSION: chromium/7934
+
+jobs:
+  binaries:
+    name: binaries · ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: macos-14, target: aarch64-apple-darwin, pdfium: pdfium-mac-arm64 }
+          - { os: macos-13, target: x86_64-apple-darwin, pdfium: pdfium-mac-x64 }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, pdfium: pdfium-linux-x64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, pdfium: pdfium-linux-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch pdfium
+        run: |
+          mkdir -p .pdfium
+          curl -fL "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION/\//%2F}/${{ matrix.pdfium }}.tgz" \
+            | tar -xz -C .pdfium
+      - name: Build
+        run: cargo build --release -p docray-cli -p docray-server
+      - name: Smoke test the archive layout
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          PKG="docray-$VERSION-${{ matrix.target }}"
+          mkdir -p "$PKG/bin" "$PKG/lib"
+          cp target/release/docray target/release/docray-server "$PKG/bin/"
+          cp .pdfium/lib/libpdfium.* "$PKG/lib/"
+          cp LICENSE-MIT LICENSE-APACHE README.md "$PKG/"
+          # Exe-relative pdfium lookup must work from an unrelated CWD.
+          (cd /tmp && "$GITHUB_WORKSPACE/$PKG/bin/docray" extract "$GITHUB_WORKSPACE/testdata/simple.pdf" | head -c 32 | grep -q schema_version)
+          tar -czf "$PKG.tar.gz" "$PKG"
+          shasum -a 256 "$PKG.tar.gz" > "$PKG.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.target }}
+          path: |
+            docray-*.tar.gz
+            docray-*.tar.gz.sha256
+
+  release:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { merge-multiple: true }
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "docray $GITHUB_REF_NAME" \
+            --generate-notes \
+            docray-*.tar.gz docray-*.tar.gz.sha256
+
+  image:
+    name: ghcr image · ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, arch: amd64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: push
+        run: |
+          IMAGE=ghcr.io/${GITHUB_REPOSITORY@L}
+          docker build -t "$IMAGE:$GITHUB_REF_NAME-${{ matrix.arch }}" .
+          docker push "$IMAGE:$GITHUB_REF_NAME-${{ matrix.arch }}"
+
+  manifest:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge multi-arch manifest
+        run: |
+          IMAGE=ghcr.io/${GITHUB_REPOSITORY@L}
+          docker buildx imagetools create \
+            -t "$IMAGE:$GITHUB_REF_NAME" -t "$IMAGE:latest" \
+            "$IMAGE:$GITHUB_REF_NAME-amd64" "$IMAGE:$GITHUB_REF_NAME-arm64"
+          docker buildx imagetools inspect "$IMAGE:$GITHUB_REF_NAME" | head -20
