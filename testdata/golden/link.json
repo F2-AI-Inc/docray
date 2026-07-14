@@ -1,0 +1,173 @@
+{
+  "schema_version": "1.1",
+  "source": {
+    "format": "pdf",
+    "sha256": "388fe3b4dccde80c9dffca6c4a2867f86ffe24e733a617768bc2d40fba054337",
+    "size_bytes": 776
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {
+      "title": null,
+      "author": null
+    }
+  },
+  "warnings": [],
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612.0,
+      "height": 792.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "id": "p1-e0",
+          "bbox": {
+            "x0": 72.0,
+            "y0": 61.14,
+            "x1": 115.332,
+            "y1": 74.532
+          },
+          "content": "click me",
+          "font": {
+            "name": "Helvetica",
+            "size": 12.0,
+            "bold": false,
+            "italic": false
+          },
+          "color": {
+            "fill": [
+              0,
+              0,
+              0
+            ],
+            "stroke": [
+              0,
+              0,
+              0
+            ]
+          },
+          "lines": [
+            {
+              "bbox": {
+                "x0": 72.0,
+                "y0": 61.14,
+                "x1": 115.332,
+                "y1": 74.532
+              },
+              "baseline_y": 72.0,
+              "words": [
+                {
+                  "content": "click",
+                  "bbox": {
+                    "x0": 72.0,
+                    "y0": 61.14,
+                    "x1": 95.328,
+                    "y1": 74.532
+                  },
+                  "chars": [
+                    {
+                      "content": "c",
+                      "bbox": {
+                        "x0": 72.0,
+                        "y0": 61.14,
+                        "x1": 78.0,
+                        "y1": 74.532
+                      },
+                      "unicode": 99
+                    },
+                    {
+                      "content": "l",
+                      "bbox": {
+                        "x0": 78.0,
+                        "y0": 61.14,
+                        "x1": 80.664,
+                        "y1": 74.532
+                      },
+                      "unicode": 108
+                    },
+                    {
+                      "content": "i",
+                      "bbox": {
+                        "x0": 80.664,
+                        "y0": 61.14,
+                        "x1": 83.328,
+                        "y1": 74.532
+                      },
+                      "unicode": 105
+                    },
+                    {
+                      "content": "c",
+                      "bbox": {
+                        "x0": 83.328,
+                        "y0": 61.14,
+                        "x1": 89.328,
+                        "y1": 74.532
+                      },
+                      "unicode": 99
+                    },
+                    {
+                      "content": "k",
+                      "bbox": {
+                        "x0": 89.328,
+                        "y0": 61.14,
+                        "x1": 95.328,
+                        "y1": 74.532
+                      },
+                      "unicode": 107
+                    }
+                  ]
+                },
+                {
+                  "content": "me",
+                  "bbox": {
+                    "x0": 98.664,
+                    "y0": 61.14,
+                    "x1": 115.332,
+                    "y1": 74.532
+                  },
+                  "chars": [
+                    {
+                      "content": "m",
+                      "bbox": {
+                        "x0": 98.664,
+                        "y0": 61.14,
+                        "x1": 108.66,
+                        "y1": 74.532
+                      },
+                      "unicode": 109
+                    },
+                    {
+                      "content": "e",
+                      "bbox": {
+                        "x0": 108.66,
+                        "y0": 61.14,
+                        "x1": 115.332,
+                        "y1": 74.532
+                      },
+                      "unicode": 101
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "annotation",
+          "id": "p1-e1",
+          "bbox": {
+            "x0": 72.0,
+            "y0": 67.0,
+            "x1": 130.0,
+            "y1": 82.0
+          },
+          "subtype": "link",
+          "uri": "https://example.com"
+        }
+      ]
+    }
+  ]
+}

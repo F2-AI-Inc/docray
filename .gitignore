@@ -1,0 +1,5 @@
+/target
+/.pdfium
+/data
+.DS_Store
+/book/book

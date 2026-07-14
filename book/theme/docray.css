@@ -1,0 +1,70 @@
+/* docray docs — light-table accents on top of mdBook's ayu theme */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600&family=Instrument+Serif:ital@0;1&display=swap");
+
+:root {
+  --docray-amber: #e8a33d;
+  --docray-film: #fffdf7;
+}
+
+.ayu {
+  --bg: #16130f;
+  --fg: #d8d2c6;
+  --sidebar-bg: #1d1915;
+  --sidebar-fg: #8f887a;
+  --sidebar-active: #e8a33d;
+  --links: #e8a33d;
+  --inline-code-color: #5cc8ff;
+  --quote-bg: #1d1915;
+  --quote-border: #e8a33d;
+  --table-border-color: rgba(255, 250, 240, 0.12);
+  --table-header-bg: #262019;
+  --table-alternate-bg: #1a1712;
+  --searchbar-bg: #262019;
+  --searchbar-fg: #d8d2c6;
+}
+
+body {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 15px;
+}
+
+h1, h2, h3 {
+  font-family: "Instrument Serif", serif;
+  font-weight: 400;
+  color: var(--docray-film);
+}
+h1 { font-style: italic; }
+h1 em, h2 em { color: var(--docray-amber); }
+
+.menu-title {
+  font-family: "Instrument Serif", serif;
+  font-style: italic;
+  font-size: 1.6em;
+  color: var(--docray-film);
+}
+
+/* amber tick-ruler under the menu bar, echoing the playground */
+#menu-bar {
+  border-bottom: 1px solid rgba(255, 250, 240, 0.09);
+  background-image: repeating-linear-gradient(90deg,
+    rgba(232, 163, 61, 0.35) 0, rgba(232, 163, 61, 0.35) 1px,
+    transparent 1px, transparent 100px);
+  background-size: 100% 6px;
+  background-repeat: no-repeat;
+  background-position: bottom;
+}
+
+blockquote {
+  border-left: 3px solid var(--docray-amber);
+}
+
+table th {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.8em;
+}
+
+pre {
+  box-shadow: 0 0 0 1px rgba(255, 250, 240, 0.09);
+}

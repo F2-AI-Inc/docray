@@ -1,0 +1,10 @@
+[package]
+name = "docray-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+docray-model = { path = "../docray-model" }
+serde.workspace = true
+thiserror.workspace = true

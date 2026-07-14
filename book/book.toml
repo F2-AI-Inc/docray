@@ -1,0 +1,16 @@
+[book]
+title = "docray"
+description = "X-ray for documents: lossless PDF-to-JSON extraction with bounding boxes"
+authors = []
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+additional-css = ["theme/docray.css"]
+git-repository-url = "https://github.com/F2-AI-Inc/docray"
+site-url = "/docray/"
+
+[output.html.search]
+enable = true

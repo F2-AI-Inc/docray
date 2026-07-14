@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docray · Playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #16130f;
+    --ink-2: #1d1915;
+    --ink-3: #262019;
+    --film: #fffdf7;
+    --amber: #e8a33d;
+    --amber-dim: #8a6a35;
+    --fg: #d8d2c6;
+    --fg-dim: #8f887a;
+    --hair: rgba(255, 250, 240, 0.09);
+    --c-text: #5cc8ff;
+    --c-image: #ff7ac2;
+    --c-path: #9dff70;
+    --c-annotation: #ffd166;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --serif: "Instrument Serif", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 50% -10%, rgba(232,163,61,0.07), transparent 60%),
+      var(--ink);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  }
+
+  /* ───────────────────────── header ───────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--hair);
+    flex: none;
+  }
+  .wordmark { display: flex; align-items: baseline; gap: 10px; user-select: none; }
+  .wordmark b {
+    font-family: var(--serif); font-weight: 400; font-style: italic;
+    font-size: 24px; color: var(--film);
+  }
+  .wordmark span { color: var(--amber); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; }
+  .doc-name { font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--film); opacity: 0.9;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 26vw; }
+  .kv { font-size: 10.5px; color: var(--fg-dim); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .ctl { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--fg-dim); }
+  select, .btn {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--ink-3); color: var(--fg);
+    border: 1px solid var(--hair); border-radius: 3px;
+    padding: 5px 10px; cursor: pointer;
+  }
+  select:focus, .btn:focus { outline: 1px solid var(--amber); outline-offset: 1px; }
+  .btn-amber { background: var(--amber); color: #241a08; border-color: transparent; font-weight: 600; }
+  .btn-amber:hover { filter: brightness(1.08); }
+  .btn[disabled] { opacity: 0.4; cursor: default; }
+  .ruler {
+    height: 8px; flex: none;
+    background-image: repeating-linear-gradient(90deg,
+      var(--hair) 0, var(--hair) 1px, transparent 1px, transparent 10px),
+      repeating-linear-gradient(90deg,
+      rgba(232,163,61,0.5) 0, rgba(232,163,61,0.5) 1px, transparent 1px, transparent 100px);
+    background-size: 100% 4px, 100% 8px;
+    background-repeat: no-repeat;
+    background-position: bottom, bottom;
+    opacity: 0.7;
+  }
+
+  /* ───────────────────────── drop zone (empty state) ───────────────────────── */
+  #empty { flex: 1; display: flex; align-items: flex-start; justify-content: center; overflow: auto; }
+  .drop {
+    max-width: 720px; margin-top: 14vh; padding: 70px 40px;
+    text-align: center; position: relative; cursor: pointer;
+  }
+  .drop .corner { position: absolute; width: 26px; height: 26px; border: 2px solid var(--amber); transition: all 0.25s ease; }
+  .drop .c1 { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+  .drop .c2 { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+  .drop .c3 { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+  .drop .c4 { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+  .drop:hover .corner, .drop.armed .corner { width: 40px; height: 40px; border-color: var(--film); }
+  .drop h1 { font-family: var(--serif); font-weight: 400; font-size: 42px; color: var(--film); margin: 0 0 8px; }
+  .drop h1 em { color: var(--amber); }
+  .drop p { color: var(--fg-dim); margin: 4px 0; }
+  .drop .hint { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 26px; }
+  input[type=file] { display: none; }
+  .status { text-align: center; font-size: 12px; color: var(--amber); min-height: 18px; letter-spacing: 0.06em; padding: 2px; flex: none; }
+  .status.err { color: #ff8f7a; }
+  .blink { animation: blink 1.1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+
+  /* ───────────────────────── workbench ───────────────────────── */
+  #bench { flex: 1; display: none; min-height: 0; }
+  #bench.on { display: flex; }
+
+  /* thumbnail rail */
+  #rail {
+    width: 128px; flex: none; overflow-y: auto;
+    border-right: 1px solid var(--hair);
+    padding: 12px 0 40px;
+  }
+  .thumb { padding: 6px 14px; cursor: pointer; text-align: center; }
+  .thumb canvas, .thumb .ph {
+    width: 92px; display: block; margin: 0 auto;
+    background: var(--film); box-shadow: 0 0 0 1px var(--hair);
+    opacity: 0.75; transition: opacity 0.15s, box-shadow 0.15s;
+  }
+  .thumb .ph { background: var(--ink-3); }
+  .thumb .n { font-size: 9.5px; color: var(--fg-dim); margin-top: 4px; }
+  .thumb.cur canvas, .thumb.cur .ph { opacity: 1; box-shadow: 0 0 0 2px var(--amber); }
+  .thumb.cur .n { color: var(--amber); }
+  .thumb .sc { display: inline-block; font-size: 8px; letter-spacing: 0.1em; color: #241a08; background: var(--c-annotation); padding: 0 4px; border-radius: 2px; margin-left: 4px; }
+
+  /* main column */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* toolbar */
+  #toolbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 16px; border-bottom: 1px solid var(--hair); flex: none;
+    font-size: 11.5px;
+  }
+  .nav { display: flex; align-items: center; gap: 6px; }
+  .nav .btn { padding: 3px 9px; }
+  .nav .pgno { font-family: var(--serif); font-style: italic; font-size: 17px; color: var(--amber); min-width: 96px; text-align: center; }
+  .zoom { display: flex; align-items: center; gap: 4px; color: var(--fg-dim); }
+  .zoom .btn { padding: 3px 8px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--mono); font-size: 10.5px;
+    padding: 3px 9px; border-radius: 2px; cursor: pointer;
+    background: transparent; border: 1px solid var(--hair); color: var(--fg-dim);
+    display: inline-flex; gap: 6px; align-items: center;
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 1px; }
+  .chip.on[data-t="text"] { color: var(--c-text); border-color: currentColor; }
+  .chip.on[data-t="image"] { color: var(--c-image); border-color: currentColor; }
+  .chip.on[data-t="path"] { color: var(--c-path); border-color: currentColor; }
+  .chip.on[data-t="annotation"] { color: var(--c-annotation); border-color: currentColor; }
+  .chip .dot[data-t="text"] { background: var(--c-text); }
+  .chip .dot[data-t="image"] { background: var(--c-image); }
+  .chip .dot[data-t="path"] { background: var(--c-path); }
+  .chip .dot[data-t="annotation"] { background: var(--c-annotation); }
+  .badge-scan {
+    font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #241a08; background: var(--c-annotation);
+    padding: 2px 8px; border-radius: 2px; font-weight: 600;
+  }
+
+  /* panels */
+  #panels { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .panel + .panel { border-left: 1px dashed var(--hair); }
+  .tabs {
+    display: flex; gap: 2px; padding: 6px 10px 0; flex: none;
+    border-bottom: 1px solid var(--hair);
+  }
+  .tab {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    background: none; border: none; color: var(--fg-dim); cursor: pointer;
+    padding: 6px 12px; border-bottom: 2px solid transparent;
+  }
+  .tab.on { color: var(--amber); border-bottom-color: var(--amber); }
+  .tab:hover { color: var(--fg); }
+  .panel-body { flex: 1; overflow: auto; position: relative; padding: 18px; }
+  .panel-body.center { display: flex; justify-content: center; align-items: flex-start; }
+
+  .film-frame { position: relative; flex: none; box-shadow: 0 0 0 1px var(--hair), 0 18px 50px -18px rgba(0,0,0,0.85), 0 0 60px -20px rgba(232,163,61,0.18); }
+  .film-frame canvas { display: block; background: var(--film); }
+  .film-frame.xray canvas { filter: grayscale(0.9) brightness(0.42) contrast(0.9); }
+  .overlay { position: absolute; inset: 0; }
+  .overlay rect { stroke-width: 1; vector-effect: non-scaling-stroke; cursor: crosshair; transition: fill-opacity 0.12s; }
+  .overlay rect.t-text       { stroke: var(--c-text);       fill: var(--c-text); }
+  .overlay rect.t-image      { stroke: var(--c-image);      fill: var(--c-image); }
+  .overlay rect.t-path       { stroke: var(--c-path);       fill: var(--c-path); }
+  .overlay rect.t-annotation { stroke: var(--c-annotation); fill: var(--c-annotation); }
+  .overlay.filled rect { fill-opacity: 0.16; }
+  .overlay.wire rect { fill-opacity: 0; }
+  .overlay rect:hover { fill-opacity: 0.38; }
+  .overlay rect.flash { animation: flash 1.2s ease; }
+  @keyframes flash { 0%, 60% { fill-opacity: 0.55; } }
+  .overlay rect.hid { display: none; }
+
+  /* text view */
+  .tv { max-width: 720px; margin: 0 auto; }
+  .tv-el { border-left: 2px solid var(--hair); padding: 4px 12px; margin-bottom: 10px; cursor: pointer; }
+  .tv-el:hover { background: var(--ink-3); }
+  .tv-el .meta { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .tv-el .body { color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+  .tv-el .geo { font-size: 10px; color: var(--fg-dim); }
+  .tv-el[data-t="text"] { border-left-color: var(--c-text); }
+  .tv-el[data-t="image"] { border-left-color: var(--c-image); }
+  .tv-el[data-t="path"] { border-left-color: var(--c-path); }
+  .tv-el[data-t="annotation"] { border-left-color: var(--c-annotation); }
+  .tv-el.hid { display: none; }
+
+  /* json view */
+  .jv { font-size: 11.5px; line-height: 1.55; margin: 0; }
+  .jv .el-span.flash-bg { animation: flashbg 1.6s ease; }
+  @keyframes flashbg { 0%, 50% { background: rgba(232,163,61,0.22); } }
+  .j-k { color: var(--amber); }
+  .j-s { color: var(--c-text); }
+  .j-n { color: var(--c-path); }
+  .j-b { color: var(--c-image); }
+  .j-x { color: var(--fg-dim); }
+  .jv-actions { position: sticky; top: 0; float: right; z-index: 5; }
+
+  /* tooltip */
+  #tip {
+    position: fixed; z-index: 70; pointer-events: none;
+    background: var(--ink); border: 1px solid var(--amber-dim); border-radius: 3px;
+    padding: 8px 10px; font-size: 10.5px; max-width: 380px;
+    display: none; box-shadow: 0 10px 30px -10px rgba(0,0,0,0.9);
+  }
+  #tip .t-type { letter-spacing: 0.18em; text-transform: uppercase; font-size: 9px; }
+  #tip .t-body { color: var(--fg); margin-top: 4px; word-break: break-word; white-space: pre-wrap; }
+  #tip .t-geo { color: var(--fg-dim); margin-top: 4px; }
+
+  @media (max-width: 980px) {
+    #panels { grid-template-columns: 1fr; }
+    .panel + .panel { border-left: 0; border-top: 1px dashed var(--hair); }
+    #rail { width: 84px; }
+    .thumb canvas, .thumb .ph { width: 60px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark"><b>docray</b><span>playground</span></div>
+  <span class="doc-name" id="doc-name"></span>
+  <span class="kv" id="doc-kv"></span>
+  <div class="spacer"></div>
+  <div class="ctl">
+    <label for="gran">granularity</label>
+    <select id="gran">
+      <option value="char" selected>char — lossless</option>
+      <option value="word">word — tuples</option>
+      <option value="element">element — compact</option>
+    </select>
+  </div>
+  <button class="btn" id="docjson" disabled>document json</button>
+  <button class="btn btn-amber" id="pick">upload pdf</button>
+  <input type="file" id="file" accept="application/pdf">
+</header>
+<div class="ruler"></div>
+<div class="status" id="status"></div>
+
+<div id="empty">
+  <div class="drop" id="drop">
+    <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
+    <h1>Put a document <em>on the table</em>.</h1>
+    <p>Two panels, five lenses — source, boxes, x-ray, text, json.</p>
+    <p>Click any box and the JSON finds itself.</p>
+    <p class="hint">drop a pdf anywhere · or click to browse</p>
+  </div>
+</div>
+
+<div id="bench">
+  <div id="rail"></div>
+  <div id="main">
+    <div id="toolbar">
+      <div class="nav">
+        <button class="btn" id="prev">‹</button>
+        <span class="pgno" id="pgno">pg. 1 / 1</span>
+        <button class="btn" id="next">›</button>
+      </div>
+      <div class="zoom">
+        <button class="btn" id="zoom-out">−</button>
+        <span id="zoom-pct">fit</span>
+        <button class="btn" id="zoom-in">+</button>
+      </div>
+      <span class="badge-scan" id="scan-badge" style="display:none">scanned</span>
+      <div class="spacer"></div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div id="panels"></div>
+  </div>
+</div>
+
+<div id="tip"></div>
+
+<script type="module">
+"use strict";
+// pdf.js >= 4.2.67: 3.x is vulnerable to CVE-2024-4367 (font-matrix JS
+// execution). 4.x ships as ESM, hence the module script.
+import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+
+const $ = (s, r) => (r || document).querySelector(s);
+const TYPES = ["text", "image", "path", "annotation"];
+const VIEWS = [
+  ["source", "source"], ["boxes", "boxes"], ["xray", "x-ray"],
+  ["text", "text"], ["json", "json"],
+];
+
+// `gen` is a generation token: every upload bumps it; async work still in
+// flight for an older generation abandons before touching DOM or caches.
+const state = {
+  gen: 0, file: null, fileName: "",
+  extraction: null, pdf: null,
+  pageIdx: 0, zoom: 1,
+  filters: new Set(TYPES),
+  panelModes: ["source", "boxes"],
+  renderCache: new Map(), // "pageNo@zoom@fit" -> {canvas, cssW, cssH, k}
+};
+
+/* ── status ── */
+function status(msg, err) {
+  const el = $("#status");
+  el.textContent = msg || "";
+  el.className = "status" + (err ? " err" : "");
+}
+
+/* ── upload plumbing ── */
+$("#pick").onclick = () => $("#file").click();
+$("#drop").onclick = () => $("#file").click();
+$("#file").onchange = e => {
+  const f = e.target.files[0];
+  e.target.value = ""; // allow re-selecting the same file after a failure
+  if (f) load(f);
+};
+["dragover", "dragenter"].forEach(ev =>
+  document.addEventListener(ev, e => { e.preventDefault(); $("#drop").classList.add("armed"); }));
+["dragleave", "drop"].forEach(ev =>
+  document.addEventListener(ev, e => { e.preventDefault(); $("#drop").classList.remove("armed"); }));
+document.addEventListener("drop", e => {
+  const f = e.dataTransfer && e.dataTransfer.files[0];
+  if (f) load(f);
+});
+$("#gran").onchange = () => { if (state.file) load(state.file, state.pageIdx); };
+
+let inflight = null;
+
+async function load(file, keepPageIdx) {
+  const gen = ++state.gen;
+  if (inflight) inflight.abort();
+  inflight = new AbortController();
+  // The current document is NOT torn down yet: a failed upload must leave the
+  // previous workbench fully functional. Teardown happens on success below.
+
+  const gran = $("#gran").value;
+  status("extracting · " + gran + " …");
+  $("#status").classList.add("blink");
+
+  const t0 = performance.now();
+  let extraction, rawSize;
+  try {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    const q = gran === "char" ? "" : "?granularity=" + gran;
+    const res = await fetch("/v1/extract" + q, {
+      method: "POST", body: fd, signal: inflight.signal,
+    });
+    const body = await res.text();
+    rawSize = body.length;
+    if (!res.ok) {
+      let code = "http_" + res.status;
+      try { code = JSON.parse(body).error.code; } catch (_) {}
+      throw new Error(code);
+    }
+    extraction = JSON.parse(body);
+  } catch (e) {
+    if (gen !== state.gen) return; // superseded
+    $("#status").classList.remove("blink");
+    status("extraction failed · " + e.message, true);
+    restoreRetainedDocument(gen);
+    return;
+  }
+  if (gen !== state.gen) return;
+
+  let pdf;
+  try {
+    const data = new Uint8Array(await file.arrayBuffer());
+    // isEvalSupported: defense in depth on top of the >=4.2.67 pin.
+    pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+  } catch (e) {
+    if (gen !== state.gen) return;
+    $("#status").classList.remove("blink");
+    status("pdf render failed · " + e.message, true);
+    restoreRetainedDocument(gen);
+    return;
+  }
+  if (gen !== state.gen) { pdf.destroy(); return; }
+
+  const ms = Math.round(performance.now() - t0);
+  $("#status").classList.remove("blink");
+
+  // Success: replace the old document wholesale.
+  if (state.pdf) state.pdf.destroy();
+  state.renderCache.clear();
+  cacheBytes = 0;
+  state.file = file;
+  state.fileName = file.name;
+  state.extraction = extraction;
+  state.pdf = pdf;
+  state.pageIdx = Math.min(keepPageIdx || 0, extraction.pages.length - 1);
+  state.zoom = 1;
+  $("#zoom-pct").textContent = "fit";
+
+  const els = extraction.pages.reduce((n, p) => n + p.elements.length, 0);
+  $("#doc-name").textContent = file.name;
+  $("#doc-name").title = file.name;
+  $("#doc-kv").textContent =
+    `${extraction.document.page_count} pg · ${els.toLocaleString()} els · ` +
+    `${ms} ms · ${fmtBytes(rawSize)} · v${extraction.schema_version}/${extraction.granularity || "char"}`;
+  $("#docjson").disabled = false;
+  status((extraction.warnings || []).length
+    ? extraction.warnings.length + " warning(s) — see document json" : "");
+
+  $("#empty").style.display = "none";
+  $("#bench").classList.add("on");
+  // Reset the one-off docjson mode if a previous document left it active.
+  if (state.panelModes[1] === "docjson") state.panelModes[1] = "boxes";
+  buildChips();
+  buildPanels();
+  buildRail(gen);
+  goto(state.pageIdx, gen);
+}
+
+function fmtBytes(n) {
+  return n > 1048576 ? (n / 1048576).toFixed(1) + " MB"
+       : n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B";
+}
+
+/* A failed upload bumped `gen`, which abandoned any in-flight renders of the
+   retained document (blank frames, placeholder thumbs). Re-render everything
+   under the new generation so the old document stays fully usable. */
+function restoreRetainedDocument(gen) {
+  if (!state.extraction || !state.pdf || gen !== state.gen) return;
+  buildRail(gen);
+  renderPanels(gen);
+}
+
+/* ── thumbnail rail (lazy) ── */
+let railObserver = null;
+
+function buildRail(gen) {
+  const rail = $("#rail");
+  rail.innerHTML = "";
+  if (railObserver) railObserver.disconnect(); // don't leak across uploads
+  const observer = railObserver = new IntersectionObserver(entries => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      observer.unobserve(en.target);
+      renderThumb(en.target, gen);
+    }
+  }, { root: rail, rootMargin: "400px 0px" });
+
+  state.extraction.pages.forEach((p, i) => {
+    const t = document.createElement("div");
+    t.className = "thumb" + (i === state.pageIdx ? " cur" : "");
+    t.dataset.idx = i;
+    const ratio = p.width > 0 ? p.height / p.width : 1.294;
+    t.innerHTML = `<div class="ph" style="height:${Math.round(92 * ratio)}px"></div>
+      <div class="n">${p.page_number}${p.scanned ? '<span class="sc">scan</span>' : ""}</div>`;
+    t.onclick = () => goto(i, state.gen);
+    rail.appendChild(t);
+    observer.observe(t);
+  });
+}
+
+async function renderThumb(el, gen) {
+  if (gen !== state.gen || !state.pdf) return;
+  try {
+    const page = await state.pdf.getPage(Number(el.dataset.idx) + 1);
+    if (gen !== state.gen) return;
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: 92 / base.width });
+    // 1.5x supersampling: crisp enough on retina at ~44 KB/thumb, so even a
+    // 500-page rail stays around 25-50 MB of canvas backing store.
+    const ss = 1.5;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(vp.width * ss);
+    canvas.height = Math.floor(vp.height * ss);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ss, ss);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    if (gen !== state.gen) return;
+    const ph = el.querySelector(".ph");
+    if (ph) ph.replaceWith(canvas);
+  } catch (_) { /* thumbnail failure is cosmetic */ }
+}
+
+/* ── filter chips ── */
+function buildChips() {
+  state.filters = new Set(TYPES);
+  const counts = {};
+  TYPES.forEach(t => counts[t] = 0);
+  state.extraction.pages.forEach(p => p.elements.forEach(el => {
+    if (counts[el.type] !== undefined) counts[el.type]++;
+  }));
+  $("#chips").innerHTML = TYPES.map(t => `
+    <button class="chip on" data-t="${t}">
+      <span class="dot" data-t="${t}"></span>${t} ${counts[t].toLocaleString()}
+    </button>`).join("");
+  $("#chips").querySelectorAll(".chip").forEach(chip => {
+    chip.onclick = () => {
+      chip.classList.toggle("on");
+      const t = chip.dataset.t;
+      chip.classList.contains("on") ? state.filters.add(t) : state.filters.delete(t);
+      applyFilters();
+    };
+  });
+}
+
+function applyFilters() {
+  document.querySelectorAll(".overlay rect").forEach(r =>
+    r.classList.toggle("hid", !state.filters.has(r.dataset.t)));
+  document.querySelectorAll(".tv-el").forEach(el =>
+    el.classList.toggle("hid", !state.filters.has(el.dataset.t)));
+}
+
+/* ── navigation & zoom ── */
+function goto(idx, gen) {
+  if (!state.extraction) return;
+  state.pageIdx = Math.max(0, Math.min(idx, state.extraction.pages.length - 1));
+  $("#pgno").textContent = `pg. ${state.pageIdx + 1} / ${state.extraction.pages.length}`;
+  $("#scan-badge").style.display = state.extraction.pages[state.pageIdx].scanned ? "" : "none";
+  document.querySelectorAll(".thumb").forEach(t =>
+    t.classList.toggle("cur", Number(t.dataset.idx) === state.pageIdx));
+  const cur = document.querySelector(".thumb.cur");
+  if (cur) cur.scrollIntoView({ block: "nearest" });
+  renderPanels(gen);
+}
+$("#prev").onclick = () => goto(state.pageIdx - 1, state.gen);
+$("#next").onclick = () => goto(state.pageIdx + 1, state.gen);
+document.addEventListener("keydown", e => {
+  if (["SELECT", "INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+  if (e.key === "ArrowLeft") goto(state.pageIdx - 1, state.gen);
+  if (e.key === "ArrowRight") goto(state.pageIdx + 1, state.gen);
+});
+$("#zoom-in").onclick = () => setZoom(state.zoom * 1.25);
+$("#zoom-out").onclick = () => setZoom(state.zoom / 1.25);
+function setZoom(z) {
+  state.zoom = Math.max(0.4, Math.min(z, 4));
+  $("#zoom-pct").textContent = state.zoom === 1 ? "fit" : Math.round(state.zoom * 100) + "%";
+  renderPanels(state.gen);
+}
+
+/* ── panels ── */
+function panelEl(i) { return $("#panels").children[i]; }
+
+function buildPanels() {
+  const host = $("#panels");
+  host.innerHTML = "";
+  for (let i = 0; i < 2; i++) {
+    const p = document.createElement("div");
+    p.className = "panel";
+    p.innerHTML = `
+      <div class="tabs">${VIEWS.map(([v, label]) =>
+        `<button class="tab${state.panelModes[i] === v ? " on" : ""}" data-v="${v}">${label}</button>`).join("")}
+      </div>
+      <div class="panel-body"></div>`;
+    p.querySelectorAll(".tab").forEach(tab => {
+      tab.onclick = () => {
+        state.panelModes[i] = tab.dataset.v;
+        p.querySelectorAll(".tab").forEach(t2 => t2.classList.toggle("on", t2 === tab));
+        renderPanel(i, state.gen);
+      };
+    });
+    host.appendChild(p);
+  }
+}
+
+function renderPanels(gen) {
+  renderPanel(0, gen);
+  renderPanel(1, gen);
+}
+
+async function renderPanel(i, gen) {
+  if (!state.extraction) return;
+  const mode = state.panelModes[i];
+  const body = panelEl(i).querySelector(".panel-body");
+  const pageJson = state.extraction.pages[state.pageIdx];
+
+  if (mode === "docjson") return; // one-off view, managed by its own button
+
+  if (mode === "json") {
+    body.className = "panel-body";
+    body.innerHTML = "";
+    const actions = document.createElement("div");
+    actions.className = "jv-actions";
+    const copy = document.createElement("button");
+    copy.className = "btn";
+    copy.textContent = "copy";
+    copy.onclick = () => navigator.clipboard.writeText(JSON.stringify(pageJson, null, 2));
+    actions.appendChild(copy);
+    const pre = document.createElement("pre");
+    pre.className = "jv";
+    pre.innerHTML = pageJsonHtml(pageJson);
+    body.append(actions, pre);
+    pre.querySelectorAll(".el-span").forEach(span => {
+      span.style.cursor = "pointer";
+      span.onclick = () => {
+        if (!crossFlashBox(Number(span.dataset.idx))) {
+          status("box not visible — its type is filtered out or no boxes/x-ray panel is open");
+          setTimeout(() => status(""), 2500);
+        }
+      };
+    });
+    return;
+  }
+
+  if (mode === "text") {
+    body.className = "panel-body";
+    body.innerHTML = `<div class="tv">${pageJson.elements.map((el, idx) => {
+      const b = normBBox(el.bbox) || { x0: 0, y0: 0, x1: 0, y1: 0 };
+      const text = elementText(el);
+      return `<div class="tv-el${state.filters.has(el.type) ? "" : " hid"}" data-t="${el.type}" data-idx="${idx}">
+        <div class="meta" style="color: var(--c-${el.type})">${el.type}${el.id ? " · " + escapeHtml(el.id) : ""}${el.font ? " · " + escapeHtml(el.font.name) + " " + el.font.size : ""}</div>
+        ${text ? `<div class="body">${escapeHtml(text)}</div>` : ""}
+        <div class="geo">[${b.x0}, ${b.y0}] → [${b.x1}, ${b.y1}]</div>
+      </div>`;
+    }).join("") || '<p style="color:var(--fg-dim)">no elements on this page</p>'}</div>`;
+    body.querySelectorAll(".tv-el").forEach(el => {
+      el.onclick = () => {
+        const idx = Number(el.dataset.idx);
+        if (!crossFlashBox(idx)) crossJson(idx, i);
+      };
+    });
+    return;
+  }
+
+  // canvas modes: source / boxes / xray
+  body.className = "panel-body center";
+  body.innerHTML = "";
+  const frame = document.createElement("div");
+  frame.className = "film-frame" + (mode === "xray" ? " xray" : "");
+  const canvas = document.createElement("canvas");
+  frame.appendChild(canvas);
+  body.appendChild(frame);
+
+  // Per-panel request token: covers everything the coarse checks below can't
+  // (zoom changes mid-render, rapid re-renders of the same page/mode) so a
+  // stale request can never touch the panel body a newer one now owns.
+  const req = (panelReq[i] = (panelReq[i] || 0) + 1);
+  const wantPage = state.pageIdx;
+  const rendered = await pageBitmap(gen, body.clientWidth - 40);
+  // Abandon if anything changed while rendering (upload, nav, tab switch, zoom).
+  if (req !== panelReq[i] || gen !== state.gen ||
+      mode !== state.panelModes[i] || wantPage !== state.pageIdx) return;
+  if (!rendered) {
+    frame.remove();
+    body.innerHTML = '<p style="color:var(--fg-dim)">render failed</p>';
+    return;
+  }
+
+  canvas.width = rendered.canvas.width;
+  canvas.height = rendered.canvas.height;
+  canvas.style.width = rendered.cssW + "px";
+  canvas.style.height = rendered.cssH + "px";
+  canvas.getContext("2d").drawImage(rendered.canvas, 0, 0);
+
+  if (mode !== "source") {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "overlay " + (mode === "boxes" ? "filled" : "wire"));
+    svg.setAttribute("viewBox", `0 0 ${rendered.cssW} ${rendered.cssH}`);
+    frame.appendChild(svg);
+    drawOverlay(svg, pageJson, rendered.k);
+  }
+}
+
+/* Render-cache accounting: capped by BYTES of canvas backing store, not entry
+   count — one 400%-zoom A4 canvas at DPR 2 is ~120 MB on its own. */
+let cacheBytes = 0;
+const CACHE_BYTE_CAP = 256 * 1024 * 1024;
+const panelReq = [0, 0];
+
+function cachePut(key, entry) {
+  entry.bytes = entry.canvas.width * entry.canvas.height * 4;
+  // A single over-cap canvas is returned to the caller but never cached.
+  if (entry.bytes > CACHE_BYTE_CAP) return;
+  // Same-key replacement (two panels racing on one page) must not double-count.
+  const prev = state.renderCache.get(key);
+  if (prev) {
+    cacheBytes -= prev.bytes;
+    state.renderCache.delete(key);
+  }
+  state.renderCache.set(key, entry);
+  cacheBytes += entry.bytes;
+  for (const k of state.renderCache.keys()) {
+    if (cacheBytes <= CACHE_BYTE_CAP) break;
+    cacheBytes -= state.renderCache.get(k).bytes;
+    state.renderCache.delete(k);
+  }
+}
+
+/* Renders (or reuses) the current page's bitmap at the current zoom. */
+async function pageBitmap(gen, fitWidth) {
+  // Everything key-relevant is captured at entry: if the user navigates or
+  // zooms mid-render, the cache entry must still describe THIS request.
+  const pageNo = state.pageIdx + 1;
+  const pageJson = state.extraction.pages[state.pageIdx];
+  const zoom = state.zoom;
+  const key = pageNo + "@" + zoom.toFixed(2) + "@" + Math.round(fitWidth);
+  if (state.renderCache.has(key)) {
+    // True LRU: re-insert on hit so hot entries survive eviction.
+    const hit = state.renderCache.get(key);
+    state.renderCache.delete(key);
+    state.renderCache.set(key, hit);
+    return hit;
+  }
+  try {
+    const page = await state.pdf.getPage(pageNo);
+    if (gen !== state.gen) return null;
+    const base = page.getViewport({ scale: 1 });
+    const scale = (Math.min(Math.max(fitWidth, 240), 900) / base.width) * zoom;
+    const vp = page.getViewport({ scale });
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(vp.width * dpr);
+    canvas.height = Math.floor(vp.height * dpr);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    if (gen !== state.gen) return null;
+    const entry = {
+      canvas, cssW: vp.width, cssH: vp.height,
+      // DPS coords are PDF points in the rotated page space, matching
+      // pdf.js's default (rotation-applied) viewport — one scalar maps them.
+      k: pageJson.width > 0 ? vp.width / pageJson.width : 1,
+    };
+    cachePut(key, entry);
+    return entry;
+  } catch (_) {
+    return null;
+  }
+}
+
+function drawOverlay(svg, pageJson, k) {
+  const NS = "http://www.w3.org/2000/svg";
+  pageJson.elements.forEach((el, idx) => {
+    const b = normBBox(el.bbox);
+    if (!b) return;
+    const r = document.createElementNS(NS, "rect");
+    r.setAttribute("x", b.x0 * k);
+    r.setAttribute("y", b.y0 * k);
+    r.setAttribute("width", Math.max((b.x1 - b.x0) * k, 0.5));
+    r.setAttribute("height", Math.max((b.y1 - b.y0) * k, 0.5));
+    r.setAttribute("class", "t-" + el.type + (state.filters.has(el.type) ? "" : " hid"));
+    r.dataset.t = el.type;
+    r.dataset.idx = idx;
+    r.addEventListener("mousemove", ev => tip(ev, el));
+    r.addEventListener("mouseleave", hideTip);
+    r.addEventListener("click", ev => {
+      ev.stopPropagation();
+      crossJson(idx, panelIndexOf(svg));
+    });
+    svg.appendChild(r);
+  });
+}
+
+function panelIndexOf(node) {
+  return node.closest(".panel") === panelEl(0) ? 0 : 1;
+}
+
+/* ── cross-panel sync ──
+   Click a box → the other panel switches to json and flashes that element.
+   Click a json element → a visible boxes/x-ray panel flashes that box.
+   Click a text entry → flash the box if visible, else jump the other panel's json. */
+function otherPanel(i) { return i === 0 ? 1 : 0; }
+
+function crossJson(idx, fromPanel) {
+  const to = otherPanel(fromPanel ?? 0);
+  if (state.panelModes[to] !== "json") {
+    state.panelModes[to] = "json";
+    const p = panelEl(to);
+    p.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.v === "json"));
+    Promise.resolve(renderPanel(to, state.gen)).then(() => flashJson(to, idx));
+    return true;
+  }
+  flashJson(to, idx);
+  return true;
+}
+
+function flashJson(panelIdx, elIdx) {
+  const span = panelEl(panelIdx).querySelector(`.el-span[data-idx="${elIdx}"]`);
+  if (!span) return;
+  span.scrollIntoView({ block: "center", behavior: "smooth" });
+  span.classList.remove("flash-bg");
+  void span.offsetWidth; // restart the CSS animation
+  span.classList.add("flash-bg");
+}
+
+function crossFlashBox(idx) {
+  for (const i of [0, 1]) {
+    if (state.panelModes[i] === "boxes" || state.panelModes[i] === "xray") {
+      const r = panelEl(i).querySelector(`.overlay rect[data-idx="${idx}"]`);
+      // A filtered-out box can't visibly flash — report failure so callers
+      // fall back to something the user can actually see.
+      if (r && !r.classList.contains("hid")) {
+        r.classList.remove("flash");
+        requestAnimationFrame(() => r.classList.add("flash"));
+        r.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/* ── page JSON with per-element anchors ──
+   Elements serialize individually so each gets a clickable, flashable span;
+   the page's scalar fields serialize normally around them. */
+function pageJsonHtml(pageJson) {
+  const head = { ...pageJson };
+  delete head.elements;
+  const headJson = JSON.stringify(head, null, 2);
+  const opening = headJson.replace(/\n\}$/, ',\n  "elements": [\n');
+  const parts = pageJson.elements.map((el, idx) => {
+    const j = JSON.stringify(el, null, 2).split("\n").map(l => "    " + l).join("\n");
+    return `<span class="el-span" data-idx="${idx}">${colorJson(j)}</span>`;
+  });
+  return colorJson(opening) + parts.join(",\n") + "\n  ]\n}";
+}
+
+/* bbox arrives as {x0,..} at char level or [x0,y0,x1,y1] at word/element */
+function normBBox(b) {
+  if (!b) return null;
+  if (Array.isArray(b)) return { x0: b[0], y0: b[1], x1: b[2], y1: b[3] };
+  return b;
+}
+
+function elementText(el) {
+  return el.content !== undefined ? el.content
+       : el.text !== undefined ? el.text
+       : el.words ? el.words.map(w => Array.isArray(w) ? w[0] : w.content).join(" ")
+       : el.uri || "";
+}
+
+/* ── tooltip ── */
+function tip(ev, el) {
+  const t = $("#tip");
+  const b = normBBox(el.bbox) || { x0: 0, y0: 0, x1: 0, y1: 0 };
+  const text = elementText(el);
+  t.innerHTML = `
+    <div class="t-type" style="color: var(--c-${el.type})">${el.type}${el.id ? " · " + escapeHtml(el.id) : ""}</div>
+    ${text ? `<div class="t-body">${escapeHtml(String(text).slice(0, 220))}</div>` : ""}
+    <div class="t-geo">[${b.x0}, ${b.y0}] → [${b.x1}, ${b.y1}]${el.font ? " · " + escapeHtml(el.font.name) + " " + el.font.size : ""}</div>`;
+  t.style.display = "block";
+  const pad = 14;
+  const x = Math.min(ev.clientX + pad, innerWidth - t.offsetWidth - pad);
+  const y = Math.min(ev.clientY + pad, innerHeight - t.offsetHeight - pad);
+  t.style.left = x + "px";
+  t.style.top = y + "px";
+}
+function hideTip() { $("#tip").style.display = "none"; }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ── document JSON (one-off view in the right panel) ── */
+$("#docjson").onclick = () => {
+  if (!state.extraction) return;
+  const p = panelEl(1);
+  state.panelModes[1] = "docjson";
+  p.querySelectorAll(".tab").forEach(t => t.classList.remove("on"));
+  const body = p.querySelector(".panel-body");
+  body.className = "panel-body";
+  body.innerHTML = "";
+  const actions = document.createElement("div");
+  actions.className = "jv-actions";
+  const copy = document.createElement("button");
+  copy.className = "btn";
+  copy.textContent = "copy all";
+  copy.onclick = () => navigator.clipboard.writeText(JSON.stringify(state.extraction, null, 2));
+  actions.appendChild(copy);
+  const pre = document.createElement("pre");
+  pre.className = "jv";
+  // Envelope-focused: element bodies are summarized; full element JSON lives
+  // in the per-page json view.
+  const slim = {
+    ...state.extraction,
+    pages: state.extraction.pages.map(pg => ({
+      ...pg, elements: `[${pg.elements.length} elements - open a page json view]`,
+    })),
+  };
+  pre.innerHTML = colorJson(JSON.stringify(slim, null, 2));
+  body.append(actions, pre);
+};
+
+/* tiny json syntax tinting — tokenizes the RAW json so string contents are
+   escaped inside the replacer. Unmatched remainder is JSON structure only. */
+function colorJson(src) {
+  return src.replace(
+    /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+    (m, str, colon) => {
+      if (str) {
+        const esc = escapeHtml(str);
+        return colon ? `<span class="j-k">${esc}</span>${colon}` : `<span class="j-s">${esc}</span>`;
+      }
+      if (m === "true" || m === "false") return `<span class="j-b">${m}</span>`;
+      if (m === "null") return `<span class="j-x">null</span>`;
+      return `<span class="j-n">${m}</span>`;
+    });
+}
+</script>
+</body>
+</html>

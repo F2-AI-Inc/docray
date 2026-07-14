@@ -1,0 +1,62 @@
+{
+  "granularity": "element",
+  "schema_version": "1.2",
+  "source": {
+    "format": "pdf",
+    "sha256": "15be0d17e8a4fbfe6bbb2130b9064dda0c6febf2a23cc5853b4e90aa9abd8893",
+    "size_bytes": 719
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612.0,
+      "height": 792.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            61.1,
+            134.0,
+            74.5
+          ],
+          "text": "Hello World",
+          "font": {
+            "name": "Helvetica",
+            "size": 12.0
+          }
+        },
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            95.7,
+            154.0,
+            115.8
+          ],
+          "text": "Bold Title",
+          "font": {
+            "name": "Helvetica-Bold",
+            "size": 18.0,
+            "bold": true
+          }
+        },
+        {
+          "type": "path",
+          "bbox": [
+            98.5,
+            640.5,
+            301.5,
+            693.5
+          ]
+        }
+      ]
+    }
+  ]
+}

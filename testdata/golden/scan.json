@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.1",
+  "source": {
+    "format": "pdf",
+    "sha256": "be040847548b451768d2df0861e10af1d9cb3c896e877586a6310645be00c007",
+    "size_bytes": 795
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {
+      "title": null,
+      "author": null
+    }
+  },
+  "warnings": [],
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612.0,
+      "height": 792.0,
+      "rotation": 0,
+      "scanned": true,
+      "elements": [
+        {
+          "type": "image",
+          "id": "p1-e0",
+          "bbox": {
+            "x0": 0.0,
+            "y0": 0.0,
+            "x1": 612.0,
+            "y1": 792.0
+          },
+          "quad": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              612.0,
+              0.0
+            ],
+            [
+              612.0,
+              792.0
+            ],
+            [
+              0.0,
+              792.0
+            ]
+          ],
+          "pixel_width": 2,
+          "pixel_height": 2,
+          "colorspace": "DeviceGray",
+          "content_hash": "81f9456ee0bb909b7fb7c887c21c21f9fc45430e881dd5d92450609410fc3936"
+        }
+      ]
+    }
+  ]
+}

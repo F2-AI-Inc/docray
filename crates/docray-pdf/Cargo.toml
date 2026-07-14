@@ -1,0 +1,19 @@
+[package]
+name = "docray-pdf"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+docray-model = { path = "../docray-model" }
+docray-core = { path = "../docray-core" }
+# Pinned exactly: this crate's extraction logic (coordinate spaces, accessor
+# return types, the object/annotation traits) is tightly coupled to pdfium-render
+# 0.8.37's FFI surface. A `cargo update` floating to a new 0.8.x could silently
+# change that surface and break geometry/goldens, so require an intentional bump.
+pdfium-render = "=0.8.37"
+sha2 = "0.10"
+serde_json.workspace = true
+
+[dev-dependencies]
+lopdf = "0.34"

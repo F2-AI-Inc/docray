@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Must match the pin in scripts/fetch-pdfium.sh; keyed into the cache below.
+  PDFIUM_VERSION: chromium/7934
+
+jobs:
+  test:
+    name: test · clippy · fmt · determinism
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: PDFium cache
+        id: pdfium-cache
+        uses: actions/cache@v4
+        with:
+          path: .pdfium
+          key: pdfium-${{ runner.os }}-${{ env.PDFIUM_VERSION }}
+
+      - name: Fetch PDFium
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: ./scripts/fetch-pdfium.sh
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build worker CLI
+        run: cargo build -p docray-cli
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Fixture determinism
+        run: |
+          cargo run -p docray-pdf --example gen_fixtures
+          git diff --exit-code testdata/ \
+            || { echo "::error::fixture regeneration changed committed testdata"; exit 1; }
+
+  docker:
+    name: docker build + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t docray:ci .
+
+      - name: Smoke test
+        run: |
+          # Explicit port: decouples the smoke test from the image's default.
+          docker run -d --rm -e DOCRAY_PORT=41619 -p 41619:41619 --name docray-smoke docray:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:41619/healthz && break
+            sleep 1
+          done
+          curl -sf http://localhost:41619/healthz
+          curl -sf -F file=@testdata/simple.pdf http://localhost:41619/v1/extract \
+            | grep -q '"schema_version":"1.1"'
+          docker stop docray-smoke

@@ -1,0 +1,33 @@
+{
+  "family": "docray",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "5120",
+  "executionRoleArn": "arn:aws:iam::<account>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "docray",
+      "image": "<account>.dkr.ecr.<region>.amazonaws.com/docray:latest",
+      "portMappings": [{ "containerPort": 41619, "protocol": "tcp" }],
+      "environment": [
+        { "name": "DOCRAY_WORKERS", "value": "2" },
+        { "name": "DOCRAY_MEM_LIMIT_BYTES", "value": "2147483648" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -sf http://localhost:41619/healthz || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/docray",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "docray"
+        }
+      }
+    }
+  ]
+}
