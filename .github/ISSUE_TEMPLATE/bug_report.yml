@@ -1,0 +1,50 @@
+name: Bug report
+description: Extraction produced wrong output, crashed, or hung
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! The single most useful thing you can attach is a **minimal PDF
+        that reproduces the problem**. If your document is confidential, try
+        reproducing with a fixture from `testdata/` or a synthetic PDF —
+        `crates/docray-pdf/examples/gen_fixtures.rs` shows how we generate ours.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, what did you get instead?
+      placeholder: |
+        Ran `docray extract report.pdf --granularity element` and the bbox for ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: >
+        The JSON snippet, the stderr error object, the `warnings` array, or the
+        playground screenshot showing misplaced boxes.
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: docray version / commit
+      placeholder: "main @ 256436f"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Glyph metrics can differ per OS (font substitution) — this matters.
+      options: [Linux, macOS, Windows, Docker (Linux)]
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The document's `warnings` array doesn't already explain the behavior
+        - label: I can share a PDF that reproduces this (attach it, or describe its structure if confidential)

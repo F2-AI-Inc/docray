@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose new extraction capability, API surface, or output shape
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The consumer-side problem, not just the feature — who reads the output and what do they need from it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: >
+        If it changes the JSON, sketch the shape. Note that the no-parameter
+        (`char`) response is frozen — new output is additive or parameter-gated.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including "post-process docray's existing output" — why isn't that enough?
