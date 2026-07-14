@@ -14,8 +14,11 @@ Everything you need to place a box on a rendered page:
 - Coordinates are reported **after page rotation** — a 612×792 page with
   `/Rotate 90` reports `width: 792, height: 612` and boxes in that rotated,
   visible space. What you see is what the coordinates mean.
-- All values are rounded to 3 decimals; output is deterministic
-  (byte-identical for identical input).
+- All values are rounded to 3 decimals; output is deterministic —
+  byte-identical for identical input on a given platform and PDFium build.
+  (Documents using non-embedded fonts pick up the platform's substitute
+  font metrics, so coordinates can differ by fractions of a point across
+  operating systems.)
 - Bounding boxes are objects — `{"x0", "y0", "x1", "y1"}` — never bare
   arrays at this level.
 

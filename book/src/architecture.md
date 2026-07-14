@@ -42,8 +42,9 @@ A segfault in the parser costs one request, never the service.
 
 ## Extraction guarantees
 
-- **Deterministic**: identical input bytes → byte-identical JSON, enforced by
-  golden-file tests and double-extraction checks in CI.
+- **Deterministic**: identical input bytes → byte-identical JSON on a given
+  platform and PDFium build, enforced by golden-file tests and
+  double-extraction checks in CI (Linux is the canonical golden platform).
 - **Lossless at `char` level**: every text run, glyph box, image, path, and
   annotation the PDF physically contains, including content nested inside
   (possibly deeply nested) Form XObjects, with ancestor transforms composed

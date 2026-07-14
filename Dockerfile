@@ -10,7 +10,7 @@ RUN cargo build --release -p docray-cli -p docray-server
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/* \
     && useradd -r -u 10001 docray
-COPY --from=build /src/target/release/dps /usr/local/bin/docray
+COPY --from=build /src/target/release/docray /usr/local/bin/docray
 COPY --from=build /src/target/release/docray-server /usr/local/bin/docray-server
 COPY --from=build /src/.pdfium/lib /opt/pdfium
 ENV DOCRAY_PDFIUM_DIR=/opt/pdfium \
