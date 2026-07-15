@@ -53,6 +53,33 @@ jobs:
           git diff --exit-code testdata/ \
             || { echo "::error::fixture regeneration changed committed testdata"; exit 1; }
 
+  wasm:
+    name: wasm build + parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32-unknown-unknown
+          cargo install wasm-pack --locked
+          cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - uses: Swatinem/rust-cache@v2
+      - name: PDFium cache (native, for the reference CLI)
+        uses: actions/cache@v4
+        with:
+          path: .pdfium
+          key: pdfium-${{ runner.os }}-${{ env.PDFIUM_VERSION }}
+      - name: Fetch native PDFium
+        run: test -d .pdfium/lib || ./scripts/fetch-pdfium.sh
+      - name: Build reference CLI + wasm (nodejs target)
+        run: |
+          cargo build --release -p docray-cli
+          ./scripts/build-wasm.sh --target nodejs
+      - name: Parity matrix (WASM vs native)
+        run: node scripts/wasm-parity.cjs web/wasm-nodejs target/release/docray
+
   docker:
     name: docker build + smoke
     runs-on: ubuntu-latest
