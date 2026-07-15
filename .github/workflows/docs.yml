@@ -3,7 +3,7 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ["book/**", ".github/workflows/docs.yml"]
+    paths: ["book/**", "web/**", "crates/docray-wasm/**", "scripts/build-wasm.sh", "scripts/build-try.sh", ".github/workflows/docs.yml"]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,18 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build book
         run: mdbook build book
+      - name: Rust toolchain (wasm)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32-unknown-unknown
+          cargo install wasm-pack --locked
+          cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - uses: Swatinem/rust-cache@v2
+      - name: Build in-browser playground
+        run: |
+          ./scripts/build-wasm.sh
+          ./scripts/build-try.sh
+          cp -r web/try book/book/try
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,5 +1,12 @@
 # Quickstart
 
+## Try it without installing
+
+The playground runs entirely in your browser — extraction happens locally
+via WebAssembly and **your document never leaves your machine**:
+**[try.docray →](../try/)** *(also embedded in every docray-server at
+`/playground`)*
+
 ## Install
 
 ```bash
