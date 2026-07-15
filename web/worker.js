@@ -54,6 +54,11 @@ function errorEnvelope(e) {
   return { code: "crash", message: String(e && e.message || e) };
 }
 
+// A pathological PDF can emit JSON orders of magnitude larger than itself;
+// refuse to clone anything huge into the page (mirrors the server's
+// streaming output cap).
+const OUTPUT_CAP_BYTES = 256 * 1024 * 1024;
+
 self.onmessage = async ev => {
   const { id, cmd, bytes, granularity, cap } = ev.data;
   if (cmd !== "extract") return;
@@ -61,6 +66,11 @@ self.onmessage = async ev => {
     const docray = await initOnce();
     const t0 = performance.now();
     const json = docray.extract(new Uint8Array(bytes), granularity || "", cap || 0);
+    if (json.length > OUTPUT_CAP_BYTES) {
+      postMessage({ id, ok: false, error: { code: "output_too_large",
+        message: "extraction produced " + json.length + " chars (cap " + OUTPUT_CAP_BYTES + ")" } });
+      return;
+    }
     postMessage({ id, ok: true, json, ms: Math.round(performance.now() - t0) });
   } catch (e) {
     postMessage({ id, ok: false, error: errorEnvelope(e) });

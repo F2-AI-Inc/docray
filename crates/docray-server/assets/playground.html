@@ -359,36 +359,49 @@ $("#gran").onchange = () => { if (state.file) load(state.file, state.pageIdx); }
    "server": POST to this deployment's /v1/extract (native speed, subprocess
    isolation server-side).
    "browser": docray compiled to WASM inside a Web Worker — the document
-   never leaves the machine. The worker is treated like the native CLI
-   subprocess: if it dies (emscripten abort/OOM), it is reported and
-   respawned, never reused. Availability is probed at boot; the selector
-   only appears when both engines exist. */
+   never leaves the machine. The worker follows the native subprocess model
+   COMPLETELY: a request binds to one worker instance, and any failure,
+   timeout, abort, or supersession is fatal to that instance (terminate +
+   lazy respawn). Cancelling a synchronous extraction IS killing its worker.
+   Availability is probed once at boot; load() awaits that probe. */
 const BROWSER_INPUT_CAP = 100 * 1024 * 1024;
+const BROWSER_OUTPUT_NOTE = "output_too_large"; // enforced inside worker.js
 const BROWSER_TIMEOUT_MS = 120_000;
 const engines = { available: [], current: null };
-let worker = null, workerSeq = 0;
-const workerPending = new Map();
 
-function killWorker(reason) {
-  if (worker) { worker.terminate(); worker = null; }
-  for (const [, p] of workerPending) {
-    p.reject(new Error(reason || "worker terminated"));
-  }
-  workerPending.clear();
+let workerInstance = null; // {w: Worker, busy: {reject} | null}
+let workerSeq = 0;
+
+function spawnWorker() {
+  const inst = { w: new Worker("worker.js"), busy: null };
+  inst.w.onmessage = ev => {
+    const { id, ok, json, ms, error } = ev.data || {};
+    if (!inst.busy || inst.busy.id !== id) return; // stale/ready messages
+    const req = inst.busy;
+    inst.busy = null;
+    if (ok) {
+      req.resolve({ json, ms });
+    } else {
+      // Any worker-reported failure of code "crash" means the wasm state is
+      // suspect (panic, emscripten abort, init failure) — retire the instance.
+      if (error && error.code === "crash") retireWorker(inst);
+      req.reject(new Error(error.code + (error.message ? " · " + error.message : "")));
+    }
+  };
+  inst.w.onerror = () => {
+    const req = inst.busy;
+    retireWorker(inst);
+    if (req) req.reject(new Error("crash · extraction worker died"));
+  };
+  return inst;
 }
 
-function browserWorker() {
-  if (worker) return worker;
-  worker = new Worker("worker.js");
-  worker.onmessage = ev => {
-    const { id, ok, json, ms, error } = ev.data || {};
-    const p = workerPending.get(id);
-    if (!p) return;
-    workerPending.delete(id);
-    ok ? p.resolve({ json, ms }) : p.reject(new Error(error.code + (error.message ? " · " + error.message : "")));
-  };
-  worker.onerror = () => killWorker("crash · extraction worker died (respawning)");
-  return worker;
+/* Terminates a SPECIFIC instance; a newer instance is never collateral. */
+function retireWorker(inst) {
+  if (!inst) return;
+  inst.busy = null;
+  inst.w.terminate();
+  if (workerInstance === inst) workerInstance = null;
 }
 
 function browserExtract(bytes, gran, signal) {
@@ -396,22 +409,47 @@ function browserExtract(bytes, gran, signal) {
     return Promise.reject(new Error("too_large · in-browser engine caps input at " + fmtBytes(BROWSER_INPUT_CAP)));
   }
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) return reject(new DOMException("aborted", "AbortError"));
+    if (!workerInstance) workerInstance = spawnWorker();
+    if (workerInstance.busy) {
+      // One extraction at a time by design; a competing request means the
+      // old one was superseded — kill its worker like a hung subprocess.
+      retireWorker(workerInstance);
+      workerInstance = spawnWorker();
+    }
+    const inst = workerInstance;
     const id = ++workerSeq;
+    let settled = false;
+    const finish = (fn, clean) => v => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (clean && inst.busy && inst.busy.id === id) inst.busy = null;
+      fn(v);
+    };
+    const req = {
+      id,
+      resolve: finish(resolve, true),
+      reject: finish(reject, true),
+    };
     const timer = setTimeout(() => {
-      workerPending.delete(id);
-      killWorker(); // a hung worker is a dead worker, same as a hung subprocess
-      reject(new Error("timeout · extraction exceeded " + BROWSER_TIMEOUT_MS / 1000 + "s"));
+      retireWorker(inst); // a hung worker is a dead worker
+      req.reject(new Error("timeout · extraction exceeded " + BROWSER_TIMEOUT_MS / 1000 + "s"));
     }, BROWSER_TIMEOUT_MS);
-    const settle = fn => v => { clearTimeout(timer); fn(v); };
-    workerPending.set(id, { resolve: settle(resolve), reject: settle(reject) });
     if (signal) signal.addEventListener("abort", () => {
-      workerPending.delete(id); clearTimeout(timer);
-      reject(new DOMException("aborted", "AbortError"));
-    });
-    browserWorker().postMessage(
-      { id, cmd: "extract", bytes, granularity: gran === "char" ? "" : gran, cap: BROWSER_INPUT_CAP },
-      [bytes],
-    );
+      retireWorker(inst); // cancelling a synchronous extraction = killing it
+      req.reject(new DOMException("aborted", "AbortError"));
+    }, { once: true });
+    inst.busy = req;
+    try {
+      inst.w.postMessage(
+        { id, cmd: "extract", bytes, granularity: gran === "char" ? "" : gran, cap: BROWSER_INPUT_CAP },
+        [bytes],
+      );
+    } catch (e) {
+      retireWorker(inst);
+      req.reject(e);
+    }
   });
 }
 
@@ -444,37 +482,49 @@ async function probeEngines() {
     sel.innerHTML = engines.available.map(e =>
       `<option value="${e}">${e === "server" ? "server — native" : "in-browser — private"}</option>`).join("");
     sel.value = engines.current;
-    sel.onchange = () => { engines.current = sel.value; if (state.file) load(state.file, state.pageIdx); };
+    sel.onchange = () => {
+      engines.current = sel.value;
+      // Re-run the most recently REQUESTED file (not just the last success),
+      // so switching mid-extraction re-dispatches on the chosen engine.
+      const f = state.requestedFile || state.file;
+      if (f) load(f, state.pageIdx);
+    };
     $("#engine-ctl").style.display = "";
   }
   if (!engines.current) status("no extraction engine reachable — is the server running?", true);
-  if (engines.current === "browser") browserWorker(); // pre-warm module fetch/compile
+  if (engines.current === "browser" && !workerInstance) workerInstance = spawnWorker(); // pre-warm
 }
-probeEngines();
+const enginesReady = probeEngines();
 
 let inflight = null;
 
 async function load(file, keepPageIdx) {
   const gen = ++state.gen;
   if (inflight) inflight.abort();
-  inflight = new AbortController();
+  const ctrl = (inflight = new AbortController());
+  state.requestedFile = file;
   // The current document is NOT torn down yet: a failed upload must leave the
   // previous workbench fully functional. Teardown happens on success below.
 
   const gran = $("#gran").value;
-  const engine = engines.current;
-  status("extracting · " + gran + " · " + (engine || "no engine") + " …");
+  status("extracting · " + gran + " …");
   $("#status").classList.add("blink");
 
   const t0 = performance.now();
-  let extraction, rawSize;
+  let extraction, rawSize, engine;
   try {
+    await enginesReady; // a file dropped before the boot probe finishes waits for it
+    engine = engines.current;
+    if (gen !== state.gen || ctrl.signal.aborted) return; // superseded during probe
     if (!engine) throw new Error("no extraction engine reachable");
     let body;
     if (engine === "browser") {
-      ({ json: body } = await browserExtract(await file.arrayBuffer(), gran, inflight.signal));
+      const bytes = await file.arrayBuffer();
+      // The buffer read is async: a newer upload may own `inflight` now.
+      if (gen !== state.gen || ctrl.signal.aborted) return;
+      ({ json: body } = await browserExtract(bytes, gran, ctrl.signal));
     } else {
-      body = await serverExtract(file, gran, inflight.signal);
+      body = await serverExtract(file, gran, ctrl.signal);
     }
     rawSize = body.length;
     extraction = JSON.parse(body);
