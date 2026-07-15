@@ -23,11 +23,13 @@ async function main() {
       file.endsWith(".wasm") ? path.join(pdfiumDir, "pdfium.wasm") : file,
   });
 
-  // wasm-bindgen's node target exposes the Rust instance exports as `__wasm`.
-  // pdfium-render needs that object so it can install its Rust file callbacks
+  // Older wasm-bindgen node output exposed the Rust instance as `__wasm`;
+  // 0.2.126 keeps it private but exports the callback wrappers on the package.
+  // Either object gives pdfium-render the read/write callbacks it installs
   // into Pdfium's Emscripten function table.
   const docray = require(path.join(__dirname, "pkg/docray_wasm.js"));
-  if (!docray.initialize_pdfium_render(pdfium, docray.__wasm, false)) {
+  const localWasmModule = docray.__wasm ?? docray;
+  if (!docray.initialize_pdfium_render(pdfium, localWasmModule, false)) {
     throw new Error("pdfium-render rejected the Emscripten Pdfium module");
   }
 
