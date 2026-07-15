@@ -19,7 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install mdBook
         run: |
           mkdir -p ~/.local/bin
@@ -40,14 +40,14 @@ jobs:
           curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz \
             | sudo tar -xz -C /opt && sudo ln -sf /opt/binaryen-version_130/bin/wasm-opt /usr/local/bin/wasm-opt
           wasm-opt --version
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Build in-browser playground
         run: |
           ./scripts/build-wasm.sh
           ./scripts/build-try.sh
           cp -r web/try book/book/try
       - name: PDFium cache (native, for the parity reference)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .pdfium
           key: pdfium-${{ runner.os }}-docs-parity
@@ -57,8 +57,8 @@ jobs:
           cargo build --release -p docray-cli
           ./scripts/build-wasm.sh --target nodejs
           node scripts/wasm-parity.cjs web/wasm-nodejs target/release/docray
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: book/book
 
@@ -70,4 +70,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

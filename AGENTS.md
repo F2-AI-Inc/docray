@@ -115,6 +115,17 @@ fixture regeneration diff-free, and golden changes justified line-by-line in
 the PR description. CI must be green. Small, reviewable PRs over big-bang
 changes; the PR template checklist mirrors this section.
 
+## CI/workflow security rules
+
+- GitHub-hosted runners only — never self-hosted.
+- Every action is pinned to a full commit SHA with a version comment;
+  Dependabot maintains the pins. Never add an action pinned to a tag/branch.
+- Never introduce `pull_request_target`, `workflow_run`, or `issue_comment`
+  triggered workflows that act on externally controllable input — that class
+  of trigger has a history of secret-exfiltration exploits. Stick to `push`,
+  `pull_request`, tags, and `workflow_dispatch`.
+- Workflows declare least-privilege `permissions:` blocks explicitly.
+
 ## Releasing
 
 Tag `vX.Y.Z` on a green `main` (`git tag vX.Y.Z && git push origin vX.Y.Z`).
