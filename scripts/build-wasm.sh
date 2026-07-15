@@ -9,7 +9,8 @@ PDFIUM_URL="https://github.com/paulocoutinhox/pdfium-lib/releases/download/${PDF
 CACHE_DIR="${ROOT}/.pdfium-wasm"
 ARCHIVE="${CACHE_DIR}/wasm-${PDFIUM_RELEASE}.tgz"
 EXTRACT_DIR="${CACHE_DIR}/${PDFIUM_RELEASE}"
-OUT_DIR="${ROOT}/web/wasm"
+OUT_DIR="" # computed after arg parsing: web and nodejs artifacts are
+           # different module formats and must never overwrite each other
 
 usage() {
   echo "usage: scripts/build-wasm.sh [--target web|nodejs]" >&2
@@ -68,6 +69,7 @@ rm -rf "$EXTRACT_DIR"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
 
+OUT_DIR="${ROOT}/web/wasm-${TARGET}"
 rm -rf "$OUT_DIR"
 WASM_PACK_CACHE="${WASM_PACK_CACHE:-${CACHE_DIR}/wasm-pack-cache}" \
   wasm-pack build "${ROOT}/crates/docray-wasm" \
