@@ -68,6 +68,7 @@ function compareText(label, a, b) {
 exact("schema_version", native.schema_version, wasm.schema_version);
 exact("source", native.source, wasm.source);
 exact("document", native.document, wasm.document);
+exact("warnings", native.warnings, wasm.warnings);
 exact("page_count", native.pages.length, wasm.pages.length);
 
 for (let pi = 0; pi < Math.min(native.pages.length, wasm.pages.length); pi += 1) {
