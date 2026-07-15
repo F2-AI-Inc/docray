@@ -251,6 +251,10 @@
   <span class="doc-name" id="doc-name"></span>
   <span class="kv" id="doc-kv"></span>
   <div class="spacer"></div>
+  <div class="ctl" id="engine-ctl" style="display:none">
+    <label for="engine">engine</label>
+    <select id="engine"></select>
+  </div>
   <div class="ctl">
     <label for="gran">granularity</label>
     <select id="gran">
@@ -351,6 +355,103 @@ document.addEventListener("drop", e => {
 });
 $("#gran").onchange = () => { if (state.file) load(state.file, state.pageIdx); };
 
+/* ── extraction engines ──
+   "server": POST to this deployment's /v1/extract (native speed, subprocess
+   isolation server-side).
+   "browser": docray compiled to WASM inside a Web Worker — the document
+   never leaves the machine. The worker is treated like the native CLI
+   subprocess: if it dies (emscripten abort/OOM), it is reported and
+   respawned, never reused. Availability is probed at boot; the selector
+   only appears when both engines exist. */
+const BROWSER_INPUT_CAP = 100 * 1024 * 1024;
+const BROWSER_TIMEOUT_MS = 120_000;
+const engines = { available: [], current: null };
+let worker = null, workerSeq = 0;
+const workerPending = new Map();
+
+function killWorker(reason) {
+  if (worker) { worker.terminate(); worker = null; }
+  for (const [, p] of workerPending) {
+    p.reject(new Error(reason || "worker terminated"));
+  }
+  workerPending.clear();
+}
+
+function browserWorker() {
+  if (worker) return worker;
+  worker = new Worker("worker.js");
+  worker.onmessage = ev => {
+    const { id, ok, json, ms, error } = ev.data || {};
+    const p = workerPending.get(id);
+    if (!p) return;
+    workerPending.delete(id);
+    ok ? p.resolve({ json, ms }) : p.reject(new Error(error.code + (error.message ? " · " + error.message : "")));
+  };
+  worker.onerror = () => killWorker("crash · extraction worker died (respawning)");
+  return worker;
+}
+
+function browserExtract(bytes, gran, signal) {
+  if (bytes.byteLength > BROWSER_INPUT_CAP) {
+    return Promise.reject(new Error("too_large · in-browser engine caps input at " + fmtBytes(BROWSER_INPUT_CAP)));
+  }
+  return new Promise((resolve, reject) => {
+    const id = ++workerSeq;
+    const timer = setTimeout(() => {
+      workerPending.delete(id);
+      killWorker(); // a hung worker is a dead worker, same as a hung subprocess
+      reject(new Error("timeout · extraction exceeded " + BROWSER_TIMEOUT_MS / 1000 + "s"));
+    }, BROWSER_TIMEOUT_MS);
+    const settle = fn => v => { clearTimeout(timer); fn(v); };
+    workerPending.set(id, { resolve: settle(resolve), reject: settle(reject) });
+    if (signal) signal.addEventListener("abort", () => {
+      workerPending.delete(id); clearTimeout(timer);
+      reject(new DOMException("aborted", "AbortError"));
+    });
+    browserWorker().postMessage(
+      { id, cmd: "extract", bytes, granularity: gran === "char" ? "" : gran, cap: BROWSER_INPUT_CAP },
+      [bytes],
+    );
+  });
+}
+
+async function serverExtract(file, gran, signal) {
+  const fd = new FormData();
+  fd.append("file", file, file.name);
+  const q = gran === "char" ? "" : "?granularity=" + gran;
+  const res = await fetch("/v1/extract" + q, { method: "POST", body: fd, signal });
+  const body = await res.text();
+  if (!res.ok) {
+    let code = "http_" + res.status;
+    try { code = JSON.parse(body).error.code; } catch (_) {}
+    throw new Error(code);
+  }
+  return body;
+}
+
+async function probeEngines() {
+  const [server, browser] = await Promise.all([
+    fetch("/healthz").then(r => r.ok).catch(() => false),
+    fetch("wasm/docray_wasm.js", { method: "HEAD" }).then(r => r.ok).catch(() => false),
+  ]);
+  if (server) engines.available.push("server");
+  if (browser) engines.available.push("browser");
+  // Server-hosted deployments default to native speed; the static demo has
+  // exactly one engine and the document never leaves the browser.
+  engines.current = engines.available[0] || null;
+  if (engines.available.length > 1) {
+    const sel = $("#engine");
+    sel.innerHTML = engines.available.map(e =>
+      `<option value="${e}">${e === "server" ? "server — native" : "in-browser — private"}</option>`).join("");
+    sel.value = engines.current;
+    sel.onchange = () => { engines.current = sel.value; if (state.file) load(state.file, state.pageIdx); };
+    $("#engine-ctl").style.display = "";
+  }
+  if (!engines.current) status("no extraction engine reachable — is the server running?", true);
+  if (engines.current === "browser") browserWorker(); // pre-warm module fetch/compile
+}
+probeEngines();
+
 let inflight = null;
 
 async function load(file, keepPageIdx) {
@@ -361,28 +462,24 @@ async function load(file, keepPageIdx) {
   // previous workbench fully functional. Teardown happens on success below.
 
   const gran = $("#gran").value;
-  status("extracting · " + gran + " …");
+  const engine = engines.current;
+  status("extracting · " + gran + " · " + (engine || "no engine") + " …");
   $("#status").classList.add("blink");
 
   const t0 = performance.now();
   let extraction, rawSize;
   try {
-    const fd = new FormData();
-    fd.append("file", file, file.name);
-    const q = gran === "char" ? "" : "?granularity=" + gran;
-    const res = await fetch("/v1/extract" + q, {
-      method: "POST", body: fd, signal: inflight.signal,
-    });
-    const body = await res.text();
-    rawSize = body.length;
-    if (!res.ok) {
-      let code = "http_" + res.status;
-      try { code = JSON.parse(body).error.code; } catch (_) {}
-      throw new Error(code);
+    if (!engine) throw new Error("no extraction engine reachable");
+    let body;
+    if (engine === "browser") {
+      ({ json: body } = await browserExtract(await file.arrayBuffer(), gran, inflight.signal));
+    } else {
+      body = await serverExtract(file, gran, inflight.signal);
     }
+    rawSize = body.length;
     extraction = JSON.parse(body);
   } catch (e) {
-    if (gen !== state.gen) return; // superseded
+    if (gen !== state.gen || e.name === "AbortError") return; // superseded
     $("#status").classList.remove("blink");
     status("extraction failed · " + e.message, true);
     restoreRetainedDocument(gen);
@@ -424,7 +521,7 @@ async function load(file, keepPageIdx) {
   $("#doc-name").title = file.name;
   $("#doc-kv").textContent =
     `${extraction.document.page_count} pg · ${els.toLocaleString()} els · ` +
-    `${ms} ms · ${fmtBytes(rawSize)} · v${extraction.schema_version}/${extraction.granularity || "char"}`;
+    `${ms} ms · ${engine} · ${fmtBytes(rawSize)} · v${extraction.schema_version}/${extraction.granularity || "char"}`;
   $("#docjson").disabled = false;
   status((extraction.warnings || []).length
     ? extraction.warnings.length + " warning(s) — see document json" : "");
