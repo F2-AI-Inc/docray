@@ -114,3 +114,14 @@ Before opening a PR: `cargo fmt`, clippy clean, full workspace suite green,
 fixture regeneration diff-free, and golden changes justified line-by-line in
 the PR description. CI must be green. Small, reviewable PRs over big-bang
 changes; the PR template checklist mirrors this section.
+
+## Releasing
+
+Tag `vX.Y.Z` on a green `main` (`git tag vX.Y.Z && git push origin vX.Y.Z`).
+The Release workflow builds 4-platform binary archives (pdfium bundled,
+smoke-tested from a foreign CWD), publishes a GitHub Release with checksums,
+and pushes multi-arch images to `ghcr.io/f2-ai-inc/docray`. Then update
+`Formula/docray.rb` in `F2-AI-Inc/homebrew-tap` with the new version and the
+four sha256s from the release assets. Intel macOS binaries cross-compile
+from the arm64 runner — do not reintroduce `macos-13` runners (30+ minute
+queues).
