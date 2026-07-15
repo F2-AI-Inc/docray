@@ -20,13 +20,17 @@ jobs:
       matrix:
         include:
           - { os: macos-14, target: aarch64-apple-darwin, pdfium: pdfium-mac-arm64 }
-          - { os: macos-13, target: x86_64-apple-darwin, pdfium: pdfium-mac-x64 }
+          # Intel binary cross-compiles from the arm64 runner (macos-13 Intel
+          # runners queue for 30+ min); the smoke test runs under Rosetta 2.
+          - { os: macos-14, target: x86_64-apple-darwin, pdfium: pdfium-mac-x64 }
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, pdfium: pdfium-linux-x64 }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, pdfium: pdfium-linux-arm64 }
     steps:
       - uses: actions/checkout@v4
       - name: Rust toolchain
-        run: rustup toolchain install stable --profile minimal
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Fetch pdfium
         run: |
@@ -34,13 +38,13 @@ jobs:
           curl -fL "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION/\//%2F}/${{ matrix.pdfium }}.tgz" \
             | tar -xz -C .pdfium
       - name: Build
-        run: cargo build --release -p docray-cli -p docray-server
+        run: cargo build --release --target ${{ matrix.target }} -p docray-cli -p docray-server
       - name: Smoke test the archive layout
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           PKG="docray-$VERSION-${{ matrix.target }}"
           mkdir -p "$PKG/bin" "$PKG/lib"
-          cp target/release/docray target/release/docray-server "$PKG/bin/"
+          cp "target/${{ matrix.target }}/release/docray" "target/${{ matrix.target }}/release/docray-server" "$PKG/bin/"
           cp .pdfium/lib/libpdfium.* "$PKG/lib/"
           cp LICENSE-MIT LICENSE-APACHE README.md "$PKG/"
           # Exe-relative pdfium lookup must work from an unrelated CWD.
