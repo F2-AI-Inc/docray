@@ -124,7 +124,17 @@ changes; the PR template checklist mirrors this section.
   triggered workflows that act on externally controllable input — that class
   of trigger has a history of secret-exfiltration exploits. Stick to `push`,
   `pull_request`, tags, and `workflow_dispatch`.
-- Workflows declare least-privilege `permissions:` blocks explicitly.
+- Workflows declare least-privilege `permissions:` blocks explicitly. Write
+  permissions (releases, packages, pages) exist only in workflows triggered
+  exclusively by maintainer actions (tag/main pushes) — never grant write to
+  anything an external user can trigger.
+- **No AI bots/apps attached to this repository.** Do not install GitHub
+  Apps that act as coding agents with repo permissions, and never add a
+  workflow that routes externally controllable text (issues, comments, PR
+  bodies) into AI tooling holding a token — prompt injection plus a write
+  token is a supply-chain incident. Coding agents are welcome as LOCAL
+  tools under a human contributor's own credentials (that is what this
+  file is for); they are not welcome as repo-resident automation.
 
 ## Releasing
 
