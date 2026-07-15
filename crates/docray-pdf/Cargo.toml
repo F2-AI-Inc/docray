@@ -7,13 +7,21 @@ version.workspace = true
 [dependencies]
 docray-model = { path = "../docray-model" }
 docray-core = { path = "../docray-core" }
+sha2 = "0.10"
+serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Pinned exactly: this crate's extraction logic (coordinate spaces, accessor
 # return types, the object/annotation traits) is tightly coupled to pdfium-render
 # 0.8.37's FFI surface. A `cargo update` floating to a new 0.8.x could silently
 # change that surface and break geometry/goldens, so require an intentional bump.
 pdfium-render = "=0.8.37"
-sha2 = "0.10"
-serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# WASM is single-owner and extraction does not use pdfium-render's image
+# conversion/rendering APIs. Keep only the API version matching the native pin;
+# omitting `thread_safe` and `image` removes their unused code and dependencies.
+pdfium-render = { version = "=0.8.37", default-features = false, features = ["pdfium_7543"] }
 
 [dev-dependencies]
 lopdf = "0.34"

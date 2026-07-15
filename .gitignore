@@ -1,5 +1,7 @@
 /target
 /.pdfium
+/.pdfium-wasm
+/web/wasm
 /data
 .DS_Store
 /book/book
