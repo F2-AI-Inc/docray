@@ -68,3 +68,29 @@ table th {
 pre {
   box-shadow: 0 0 0 1px rgba(255, 250, 240, 0.09);
 }
+
+/* "Try docray" sidebar entry (injected by docray.js). The scrollbox is an
+   absolutely-positioned overlay filling the sidebar, so the entry is pinned
+   above it and the scrollbox pushed down to make room. */
+#mdbook-sidebar .sidebar-scrollbox { top: 78px; }
+#try-docray-link {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  display: block;
+  margin: 12px 12px 16px;
+  padding: 10px 12px;
+  background: var(--docray-amber);
+  color: #241a08 !important;
+  border-radius: 3px;
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.3;
+}
+#try-docray-link:hover { filter: brightness(1.08); }
+#try-docray-link span {
+  display: block;
+  font-weight: 400;
+  font-size: 0.78em;
+  opacity: 0.85;
+}

@@ -2,7 +2,7 @@
 
 There are two ways to use the playground:
 
-- **Hosted, fully in-browser** at [`/try`](../try/) on this site — extraction
+- **Hosted, fully in-browser** at [`/try`](try/index.html) on this site — extraction
   runs as WebAssembly inside a Web Worker; documents never leave your
   machine. Inputs cap at 100 MB.
 - **Embedded in `docray-server`** at `/playground` — extraction uses the

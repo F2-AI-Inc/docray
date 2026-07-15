@@ -34,13 +34,29 @@ jobs:
           rustup target add wasm32-unknown-unknown
           cargo install wasm-pack --locked
           cargo install wasm-bindgen-cli --version 0.2.126 --locked
-          sudo apt-get install -y -qq binaryen  # wasm-opt: 3.3MB -> 0.7MB module
+          # Pinned binaryen: apt's older wasm-opt emits modules whose function
+          # table cannot grow, which breaks pdfium-render's callback install
+          # (WebAssembly.Table.grow RangeError). v130 is verified.
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz \
+            | sudo tar -xz -C /opt && sudo ln -sf /opt/binaryen-version_130/bin/wasm-opt /usr/local/bin/wasm-opt
+          wasm-opt --version
       - uses: Swatinem/rust-cache@v2
       - name: Build in-browser playground
         run: |
           ./scripts/build-wasm.sh
           ./scripts/build-try.sh
           cp -r web/try book/book/try
+      - name: PDFium cache (native, for the parity reference)
+        uses: actions/cache@v4
+        with:
+          path: .pdfium
+          key: pdfium-${{ runner.os }}-docs-parity
+      - name: Runtime-gate the optimized module (never deploy broken wasm)
+        run: |
+          test -d .pdfium/lib || ./scripts/fetch-pdfium.sh
+          cargo build --release -p docray-cli
+          ./scripts/build-wasm.sh --target nodejs
+          node scripts/wasm-parity.cjs web/wasm-nodejs target/release/docray
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
