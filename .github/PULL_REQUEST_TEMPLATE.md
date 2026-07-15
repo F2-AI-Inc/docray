@@ -10,6 +10,8 @@
 
 ## Gates (all must pass locally — CI re-checks)
 
+- [ ] Commits are signed off (`git commit -s`, [DCO](https://developercertificate.org/))
+
 - [ ] `cargo fmt --check`
 - [ ] `cargo clippy --all-targets -- -D warnings`
 - [ ] `cargo build -p docray-cli && cargo test --workspace`

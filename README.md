@@ -310,10 +310,19 @@ v1 targets a single ECS Fargate task (see
    only holds if the task itself has enough memory above the workers'
    combined limit to avoid being killed first.
 
-## License
+## Contributing
+
+Contributions welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md)
+(setup, gates, DCO sign-off). Security reports go through
+[SECURITY.md](SECURITY.md), never public issues.
+
+## License & disclaimer
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT license](LICENSE-MIT) at your option. Unless you explicitly state
+[MIT license](LICENSE-MIT) at your option. docray is provided **"AS IS",
+without warranty of any kind**; F2 AI, Inc. and the contributors accept no
+liability for its use — including its behavior on untrusted or malformed
+documents. Validate it for your own use case. See [NOTICE](NOTICE). Unless you explicitly state
 otherwise, any contribution intentionally submitted for inclusion in docray
 by you, as defined in the Apache-2.0 license, shall be dual licensed as
 above, without any additional terms or conditions.
