@@ -56,8 +56,9 @@ function errorEnvelope(e) {
 
 // A pathological PDF can emit JSON orders of magnitude larger than itself;
 // refuse to clone anything huge into the page (mirrors the server's
-// streaming output cap).
-const OUTPUT_CAP_BYTES = 256 * 1024 * 1024;
+// streaming output cap). Measured in UTF-16 code units (string .length):
+// 128M units bounds the in-memory string at ~256MB regardless of content.
+const OUTPUT_CAP_UNITS = 128 * 1024 * 1024;
 
 self.onmessage = async ev => {
   const { id, cmd, bytes, granularity, cap } = ev.data;
@@ -66,9 +67,9 @@ self.onmessage = async ev => {
     const docray = await initOnce();
     const t0 = performance.now();
     const json = docray.extract(new Uint8Array(bytes), granularity || "", cap || 0);
-    if (json.length > OUTPUT_CAP_BYTES) {
+    if (json.length > OUTPUT_CAP_UNITS) {
       postMessage({ id, ok: false, error: { code: "output_too_large",
-        message: "extraction produced " + json.length + " chars (cap " + OUTPUT_CAP_BYTES + ")" } });
+        message: "extraction produced " + json.length + " code units (cap " + OUTPUT_CAP_UNITS + ")" } });
       return;
     }
     postMessage({ id, ok: true, json, ms: Math.round(performance.now() - t0) });

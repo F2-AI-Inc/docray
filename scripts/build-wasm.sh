@@ -8,7 +8,7 @@ PDFIUM_SHA256="153871da7e958a9440c84648eb45ddd9ad603efda9fcd8f021766dba5a9157a2"
 PDFIUM_URL="https://github.com/paulocoutinhox/pdfium-lib/releases/download/${PDFIUM_RELEASE}/wasm.tgz"
 CACHE_DIR="${ROOT}/.pdfium-wasm"
 ARCHIVE="${CACHE_DIR}/wasm-${PDFIUM_RELEASE}.tgz"
-EXTRACT_DIR="${CACHE_DIR}/${PDFIUM_RELEASE}"
+EXTRACT_DIR="" # per-target, computed after arg parsing (parallel-build safe)
 OUT_DIR="" # computed after arg parsing: web and nodejs artifacts are
            # different module formats and must never overwrite each other
 
@@ -65,6 +65,7 @@ if [[ "$actual_sha256" != "$PDFIUM_SHA256" ]]; then
   exit 1
 fi
 
+EXTRACT_DIR="${CACHE_DIR}/${PDFIUM_RELEASE}-${TARGET}"
 rm -rf "$EXTRACT_DIR"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
