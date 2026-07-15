@@ -437,6 +437,7 @@ function browserExtract(bytes, gran, signal) {
       req.reject(new Error("timeout · extraction exceeded " + BROWSER_TIMEOUT_MS / 1000 + "s"));
     }, BROWSER_TIMEOUT_MS);
     if (signal) signal.addEventListener("abort", () => {
+      if (settled) return; // listener outlives settlement; never punish an idle worker
       retireWorker(inst); // cancelling a synchronous extraction = killing it
       req.reject(new DOMException("aborted", "AbortError"));
     }, { once: true });
@@ -532,6 +533,7 @@ async function load(file, keepPageIdx) {
     if (gen !== state.gen || e.name === "AbortError") return; // superseded
     $("#status").classList.remove("blink");
     status("extraction failed · " + e.message, true);
+    state.requestedFile = state.file; // engine switches re-run the DISPLAYED doc again
     restoreRetainedDocument(gen);
     return;
   }
@@ -540,6 +542,7 @@ async function load(file, keepPageIdx) {
   let pdf;
   try {
     const data = new Uint8Array(await file.arrayBuffer());
+    if (gen !== state.gen || ctrl.signal.aborted) return; // superseded during read
     // isEvalSupported: defense in depth on top of the >=4.2.67 pin.
     pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
   } catch (e) {
