@@ -3,7 +3,6 @@ name = "docray-wasm"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
-publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
