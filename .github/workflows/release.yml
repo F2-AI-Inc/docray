@@ -26,7 +26,7 @@ jobs:
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, pdfium: pdfium-linux-x64 }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, pdfium: pdfium-linux-arm64 }
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal
@@ -83,7 +83,7 @@ jobs:
           - { os: ubuntu-latest, arch: amd64 }
           - { os: ubuntu-24.04-arm, arch: arm64 }
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
