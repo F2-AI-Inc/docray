@@ -209,3 +209,49 @@ fn job_granularity_is_stored_and_forwarded_to_the_worker_cli() {
     assert_eq!(v["granularity"], "word");
     assert_eq!(v["pages"][0]["elements"][0]["words"][0][0], "Hello");
 }
+
+#[test]
+fn lean_job_roundtrips_stored_format_and_content_type() {
+    let server = TestServer::start();
+    let client = reqwest::blocking::Client::new();
+    let r = upload(
+        &server.base,
+        "/v1/jobs?format=lean&granularity=word",
+        fixture("simple.pdf"),
+    );
+    assert_eq!(r.status(), 202);
+    let id = r.json::<serde_json::Value>().unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut status = String::new();
+    for _ in 0..100 {
+        let v: serde_json::Value = client
+            .get(format!("{}/v1/jobs/{id}", server.base))
+            .send()
+            .unwrap()
+            .json()
+            .unwrap();
+        status = v["status"].as_str().unwrap().to_string();
+        if status == "succeeded" || status == "failed" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(status, "succeeded");
+
+    let r = client
+        .get(format!("{}/v1/jobs/{id}/result", server.base))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.headers().get("content-type").unwrap(),
+        "text/plain; charset=utf-8"
+    );
+    assert!(r
+        .text()
+        .unwrap()
+        .starts_with("#docray word v1.2 pages=1\n#legend "));
+}

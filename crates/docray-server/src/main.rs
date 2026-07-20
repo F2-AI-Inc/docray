@@ -6,7 +6,7 @@ mod worker;
 use config::Config;
 use futures::FutureExt;
 use http::AppState;
-use jobs::JobStore;
+use jobs::{ClaimedJob, JobStore};
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::sync::Arc;
@@ -29,8 +29,13 @@ async fn main() {
             // marked failed rather than stranded 'running' (which, with 1 worker,
             // would starve the queue forever).
             loop {
-                let (id, input_path, granularity) = match store.claim_next() {
-                    Ok(Some(pair)) => pair,
+                let ClaimedJob {
+                    id,
+                    input_path,
+                    granularity,
+                    format,
+                } = match store.claim_next() {
+                    Ok(Some(job)) => job,
                     Ok(None) => {
                         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                         continue;
@@ -41,8 +46,14 @@ async fn main() {
                         continue;
                     }
                 };
-                let work =
-                    AssertUnwindSafe(process_job(&cfg, &store, &id, &input_path, granularity));
+                let work = AssertUnwindSafe(process_job(
+                    &cfg,
+                    &store,
+                    &id,
+                    &input_path,
+                    granularity,
+                    format,
+                ));
                 if work.catch_unwind().await.is_err() {
                     if let Err(e) = store.mark_failed(&id, "crash", "worker task panicked") {
                         eprintln!("worker: mark_failed after panic for {id} failed: {e}");
@@ -96,12 +107,20 @@ async fn process_job(
     id: &str,
     input_path: &str,
     granularity: Option<docray_model::Granularity>,
+    format: docray_model::OutputFormat,
 ) {
-    let outcome = run_extraction(cfg, Path::new(input_path), None, granularity).await;
+    let outcome = run_extraction(cfg, Path::new(input_path), None, granularity, format).await;
     let marked = match outcome {
-        WorkerOutcome::Success(json) => {
-            let result_path = cfg.data_dir.join("results").join(format!("{id}.json"));
-            match std::fs::write(&result_path, &json) {
+        WorkerOutcome::Success(bytes) => {
+            let extension = match format {
+                docray_model::OutputFormat::Json => "json",
+                docray_model::OutputFormat::Lean => "lean.txt",
+            };
+            let result_path = cfg
+                .data_dir
+                .join("results")
+                .join(format!("{id}.{extension}"));
+            match std::fs::write(&result_path, &bytes) {
                 Ok(()) => store.mark_succeeded(id, result_path.to_str().unwrap()),
                 Err(e) => store.mark_failed(id, "io_error", &e.to_string()),
             }

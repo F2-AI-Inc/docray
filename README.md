@@ -98,7 +98,7 @@ curl -sf http://localhost:41619/v1/jobs/<job_id>/result
 ```bash
 cargo run -p docray-cli -- extract file.pdf --pretty
 # or, once built:
-docray extract file.pdf [--max-pages N] [--pretty] [--granularity element|word|char]
+docray extract file.pdf [--max-pages N] [--pretty] [--granularity element|word|char] [--format json|lean]
 ```
 
 ### Granularity
@@ -160,6 +160,27 @@ always present for text; `bold` and `italic` are omitted when false. Text
 null or `[0,0,0]`. Empty `warnings` arrays are omitted, but every non-empty
 warnings array is retained at every explicit granularity level.
 
+### Output formats
+
+JSON remains the default and preserves the existing byte contract. For an LLM
+reading `element` or `word` output, `--format lean` emits deterministic
+line-oriented text and implies `element` when granularity is omitted:
+
+```text
+$ docray extract file.pdf --format lean
+#docray element v1.2 pages=1
+#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#page 1 612x792
+T 72 61.1 134 74.5 Helvetica 12 - Hello World
+```
+
+On the measured corpus, lean used 26–39% fewer tokens than compact element
+JSON and 14.6% fewer at word granularity. It omits the provenance envelope and
+stroke color; use JSON when those or `char` granularity are required. HTTP
+uses `?format=lean` and returns `text/plain; charset=utf-8`; jobs persist the
+format through the result endpoint. The complete specification is in the
+[output formats guide](book/src/output-formats.md).
+
 Exit codes:
 
 | Code | Meaning            |
@@ -170,6 +191,7 @@ Exit codes:
 | 4    | parse_failure      |
 | 5    | io_error           |
 | 6    | too_many_pages     |
+| 7    | bad_format         |
 
 On failure, `docray` prints `{"error": {"code": ..., "message": ...}}` to
 stderr and exits with the corresponding code above.

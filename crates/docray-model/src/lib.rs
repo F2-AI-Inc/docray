@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::fmt::Write as _;
 use std::str::FromStr;
 
 pub fn round3(v: f64) -> f64 {
@@ -195,6 +196,40 @@ impl Serialize for Granularity {
     }
 }
 
+/// Wire representation requested by CLI and HTTP consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Json,
+    Lean,
+}
+
+impl OutputFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OutputFormat::Json => "json",
+            OutputFormat::Lean => "lean",
+        }
+    }
+}
+
+impl fmt::Display for OutputFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for OutputFormat {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "json" => Ok(OutputFormat::Json),
+            "lean" => Ok(OutputFormat::Lean),
+            _ => Err(format!("expected json or lean; got {value:?}")),
+        }
+    }
+}
+
 /// The explicit-granularity response. It deliberately borrows char data so
 /// that char mode can retain every lossless nested field while only changing
 /// the envelope version/discriminator.
@@ -310,6 +345,188 @@ pub struct CompactTextColor {
     pub fill: Option<[u8; 3]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stroke: Option<[u8; 3]>,
+}
+
+const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+
+impl CompactExtraction {
+    /// Renders the deterministic, line-oriented reading format. Compact
+    /// extractions can only have element or word granularity.
+    pub fn to_lean(&self) -> String {
+        debug_assert!(matches!(
+            self.granularity,
+            Granularity::Element | Granularity::Word
+        ));
+
+        let mut output = String::new();
+        write!(
+            output,
+            "#docray {} v{} pages={}",
+            self.granularity, self.schema_version, self.document.page_count
+        )
+        .expect("writing to a String cannot fail");
+        if !self.warnings.is_empty() {
+            write!(output, " warnings={}", self.warnings.len())
+                .expect("writing to a String cannot fail");
+        }
+        output.push('\n');
+        output.push_str(match self.granularity {
+            Granularity::Element => ELEMENT_LEGEND,
+            Granularity::Word => WORD_LEGEND,
+            Granularity::Char => unreachable!("char does not use compact output"),
+        });
+        output.push('\n');
+
+        for warning in &self.warnings {
+            writeln!(output, "#warning {}", collapse_warning(warning))
+                .expect("writing to a String cannot fail");
+        }
+
+        for page in &self.pages {
+            write!(
+                output,
+                "#page {} {}x{}",
+                page.page_number,
+                lean_number(page.width),
+                lean_number(page.height)
+            )
+            .expect("writing to a String cannot fail");
+            if page.rotation != 0 {
+                write!(output, " rot={}", page.rotation).expect("writing to a String cannot fail");
+            }
+            if page.scanned {
+                output.push_str(" scanned");
+            }
+            output.push('\n');
+
+            for element in &page.elements {
+                match element {
+                    CompactElement::Text(text) => {
+                        let bbox = lean_bbox(&text.bbox);
+                        let font = lean_font_name(&text.font.name);
+                        let size = lean_number(text.font.size);
+                        let style = lean_style(text);
+                        match &text.content {
+                            CompactTextContent::Element { text } => {
+                                writeln!(
+                                    output,
+                                    "T {bbox} {font} {size} {style} {}",
+                                    escape_text(text)
+                                )
+                                .expect("writing to a String cannot fail");
+                            }
+                            CompactTextContent::Word { words } => {
+                                writeln!(output, "T {bbox} {font} {size} {style}")
+                                    .expect("writing to a String cannot fail");
+                                for word in words {
+                                    writeln!(
+                                        output,
+                                        "w {} {} {} {} {}",
+                                        lean_number(word.1),
+                                        lean_number(word.2),
+                                        lean_number(word.3),
+                                        lean_number(word.4),
+                                        escape_text(&word.0)
+                                    )
+                                    .expect("writing to a String cannot fail");
+                                }
+                            }
+                        }
+                    }
+                    CompactElement::Image(image) => {
+                        writeln!(output, "I {}", lean_bbox(&image.bbox))
+                            .expect("writing to a String cannot fail");
+                    }
+                    CompactElement::Path(path) => {
+                        writeln!(output, "P {}", lean_bbox(&path.bbox))
+                            .expect("writing to a String cannot fail");
+                    }
+                    CompactElement::Annotation(annotation) => {
+                        writeln!(
+                            output,
+                            "A {} {} {}",
+                            lean_bbox(&annotation.bbox),
+                            annotation.subtype,
+                            annotation.uri.as_deref().unwrap_or("-")
+                        )
+                        .expect("writing to a String cannot fail");
+                    }
+                }
+            }
+        }
+
+        output
+    }
+}
+
+fn lean_number(value: f64) -> String {
+    let value = round1(value);
+    let rendered = format!("{value:.1}");
+    rendered.strip_suffix(".0").unwrap_or(&rendered).to_string()
+}
+
+fn lean_bbox(bbox: &[f64; 4]) -> String {
+    bbox.iter()
+        .map(|value| lean_number(*value))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn lean_font_name(name: &str) -> String {
+    if name.is_empty() {
+        return "-".to_string();
+    }
+    name.chars()
+        .map(|ch| if ch.is_whitespace() { '_' } else { ch })
+        .collect()
+}
+
+fn lean_style(text: &CompactTextElement) -> String {
+    let mut style = String::new();
+    if text.font.bold {
+        style.push('b');
+    }
+    if text.font.italic {
+        style.push('i');
+    }
+    if style.is_empty() {
+        style.push('-');
+    }
+    if let Some(fill) = text.color.as_ref().and_then(|color| color.fill) {
+        write!(style, "#{:02x}{:02x}{:02x}", fill[0], fill[1], fill[2])
+            .expect("writing to a String cannot fail");
+    }
+    style
+}
+
+fn escape_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn collapse_warning(warning: &str) -> String {
+    let mut collapsed = String::with_capacity(warning.len());
+    let mut in_break = false;
+    for ch in warning.chars() {
+        if matches!(ch, '\r' | '\n' | '\t') {
+            if !in_break {
+                collapsed.push(' ');
+            }
+            in_break = true;
+        } else {
+            collapsed.push(ch);
+            in_break = false;
+        }
+    }
+    collapsed
 }
 
 fn is_false(value: &bool) -> bool {

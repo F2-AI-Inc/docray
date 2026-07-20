@@ -4,10 +4,12 @@ docray emits three output shapes. **This is the most important decision you
 make as a consumer** — it changes payload size by more than an order of
 magnitude.
 
-> **The short version: if an LLM reads this JSON, use `element`.**
-> It carries the text, position, and style of every element at ~7% of the
-> lossless payload. Only move to `word` when you need word-level highlighting,
-> and to `char` when you need the full archival hierarchy.
+> **The short version: if an LLM reads the output, use `element`, then select
+> the token-lean [`lean` output format](output-formats.md) when you do not need
+> the JSON provenance envelope.** It carries the text, position, and style of
+> every element at ~7% of the lossless payload. Only move to `word` when you
+> need word-level highlighting, and to `char` when you need the full archival
+> hierarchy.
 
 ## The three levels
 
@@ -80,6 +82,10 @@ hashes, path stroke properties. This is the archival shape — see
   granularity.
 - Compact responses report `"schema_version": "1.2"` and echo the
   `"granularity"` you asked for.
+
+Granularity controls which information is retained; output format controls
+how that information is encoded. See [output formats](output-formats.md) for
+the measured JSON-versus-lean tradeoff and complete lean specification.
 
 ## Deliberate non-optimizations
 

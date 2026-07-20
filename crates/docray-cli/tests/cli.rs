@@ -40,6 +40,47 @@ fn explicit_char_has_v1_2_envelope_and_lossless_hierarchy() {
 }
 
 #[test]
+fn lean_defaults_to_element_and_emits_fixed_header_lines() {
+    let assert = dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .args(["--format", "lean"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let mut lines = stdout.lines();
+    assert_eq!(lines.next(), Some("#docray element v1.2 pages=1"));
+    assert_eq!(
+        lines.next(),
+        Some(
+            "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin"
+        )
+    );
+}
+
+#[test]
+fn lean_char_exits_7_with_bad_format_envelope() {
+    dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .args(["--format", "lean", "--granularity", "char"])
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("\"code\":\"bad_format\""));
+}
+
+#[test]
+fn unknown_output_format_exits_7_with_bad_format_envelope() {
+    dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .args(["--format", "toon"])
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("\"code\":\"bad_format\""));
+}
+
+#[test]
 fn unsupported_format_exits_2_with_error_json() {
     dps()
         .arg("extract")

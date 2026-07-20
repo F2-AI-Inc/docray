@@ -6,6 +6,7 @@
 
 - [Quickstart](quickstart.md)
 - [Choosing a granularity](granularity.md)
+- [Output formats](output-formats.md)
 - [The JSON contract](json-contract.md)
 - [CLI reference](cli.md)
 - [HTTP API](http-api.md)

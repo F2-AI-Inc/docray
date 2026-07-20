@@ -153,6 +153,35 @@ fn extract_granularity_element_and_invalid_value() {
     assert_eq!(v["error"]["code"], "bad_granularity");
 }
 
+#[test]
+fn extract_lean_content_type_default_and_char_rejection() {
+    let server = TestServer::start();
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?format=lean",
+        fixture("simple.pdf"),
+    );
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.headers().get("content-type").unwrap(),
+        "text/plain; charset=utf-8"
+    );
+    assert!(r
+        .text()
+        .unwrap()
+        .starts_with("#docray element v1.2 pages=1\n#legend "));
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?format=lean&granularity=char",
+        fixture("simple.pdf"),
+    );
+    assert_eq!(r.status(), 400);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "bad_format");
+}
+
 // An encrypted/password-protected PDF must map to 422 encrypted_pdf.
 #[test]
 fn encrypted_pdf_returns_422() {

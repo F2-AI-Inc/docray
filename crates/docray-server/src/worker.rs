@@ -1,5 +1,5 @@
 use crate::config::Config;
-use docray_model::Granularity;
+use docray_model::{Granularity, OutputFormat};
 use serde_json::Value;
 use std::path::Path;
 use std::process::Stdio;
@@ -19,6 +19,7 @@ pub async fn run_extraction(
     input: &Path,
     max_pages: Option<u32>,
     granularity: Option<Granularity>,
+    format: OutputFormat,
 ) -> WorkerOutcome {
     let mut cmd = Command::new(&cfg.cli_path);
     cmd.arg("extract").arg(input);
@@ -27,6 +28,9 @@ pub async fn run_extraction(
     }
     if let Some(level) = granularity {
         cmd.args(["--granularity", level.as_str()]);
+    }
+    if format == OutputFormat::Lean {
+        cmd.args(["--format", format.as_str()]);
     }
     if let Some(dir) = &cfg.pdfium_dir {
         cmd.env("DOCRAY_PDFIUM_DIR", dir);
@@ -153,7 +157,7 @@ pub async fn run_extraction(
     match status {
         Ok(s) if s.success() => WorkerOutcome::Success(out),
         Ok(s) => match s.code() {
-            Some(code @ 2..=6) => {
+            Some(code @ 2..=7) => {
                 let parsed: Option<Value> = serde_json::from_slice(&err).ok();
                 let (c, m) = parsed
                     .as_ref()
