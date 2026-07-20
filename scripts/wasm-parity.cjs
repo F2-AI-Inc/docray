@@ -21,6 +21,22 @@ function exact(failures, label, a, b) {
   }
 }
 
+
+/* Numeric-aware lean line comparison: numbers must agree within the same 2pt
+   tolerance the JSON comparator uses (native and wasm pdfium builds have
+   sub-point glyph-metric variance); everything non-numeric must match
+   exactly, so any real format/content divergence still fails. */
+function leanLineClose(a, b) {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  const num = /-?\d+(?:\.\d+)?/g;
+  if (a.replace(num, "#") !== b.replace(num, "#")) return false;
+  const an = a.match(num) || [];
+  const bn = b.match(num) || [];
+  if (an.length !== bn.length) return false;
+  return an.every((x, i) => Math.abs(Number(x) - Number(bn[i])) <= 2);
+}
+
 function compare(native, wasm) {
   const failures = [];
   let geometryComparisons = 0;
@@ -173,6 +189,30 @@ async function main() {
     const native = JSON.parse(nativeRun.stdout);
     const wasm = JSON.parse(docray.extract(fs.readFileSync(fixturePath), "", 0));
     results.push({ fixture, ...compare(native, wasm) });
+
+    // Lean output must match wasm-vs-native: same Rust renderer over the
+    // same extraction. Structure/content compare exactly; numbers within
+    // the JSON comparator's 2pt tolerance (pdfium builds differ sub-point).
+    const leanNative = spawnSync(nativeCli, ["extract", fixturePath, "--format", "lean"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (leanNative.status !== 0) {
+      throw new Error(`native lean failed for ${fixture}: ${leanNative.stderr.trim()}`);
+    }
+    const leanWasm = docray.extract_lean(fs.readFileSync(fixturePath), "element", 0);
+    const leanLines = { native: leanNative.stdout.split("\n").length, wasm: leanWasm.split("\n").length };
+    const nNorm = leanNative.stdout.split("\n");
+    const wNorm = leanWasm.split("\n");
+    let firstDiff = -1;
+    for (let i = 0; i < Math.max(nNorm.length, wNorm.length); i++) {
+      if (!leanLineClose(nNorm[i], wNorm[i])) { firstDiff = i; break; }
+    }
+    const leanOk = firstDiff === -1;
+    results.push({ fixture: fixture + " (lean)", ok: leanOk, failures: leanOk ? [] : [
+      `lean differs at line ${firstDiff}: native=${JSON.stringify(nNorm[firstDiff])} wasm=${JSON.stringify(wNorm[firstDiff])}`,
+    ], failure_count: leanOk ? 0 : 1 });
   }
 
   const ok = results.every((result) => result.ok);

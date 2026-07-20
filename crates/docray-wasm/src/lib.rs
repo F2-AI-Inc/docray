@@ -10,7 +10,7 @@
 //! docray-server's native subprocess isolation.
 
 use docray_core::{ExtractError, Extractor};
-use docray_model::Granularity;
+use docray_model::{GranularExtraction, Granularity};
 use docray_pdf::PdfExtractor;
 use wasm_bindgen::prelude::*;
 
@@ -26,6 +26,53 @@ use wasm_bindgen::prelude::*;
 pub fn extract(bytes: &[u8], granularity: &str, max_input_bytes: usize) -> Result<String, JsValue> {
     install_panic_hook();
     extract_inner(bytes, granularity, max_input_bytes).map_err(WasmError::into_js)
+}
+
+/// Extracts a PDF and returns the token-lean line format (see the docs'
+/// Output formats page). `granularity` accepts "element", "word", or the
+/// empty string (implies element, matching the CLI/HTTP surfaces). "char" is
+/// rejected with the stable `bad_format` error code, like everywhere else.
+#[wasm_bindgen]
+pub fn extract_lean(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+) -> Result<String, JsValue> {
+    install_panic_hook();
+    extract_lean_inner(bytes, granularity, max_input_bytes).map_err(WasmError::into_js)
+}
+
+fn extract_lean_inner(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+) -> Result<String, WasmError> {
+    if max_input_bytes != 0 && bytes.len() > max_input_bytes {
+        return Err(WasmError::new(
+            "too_large",
+            format!(
+                "input is {} bytes, limit is {max_input_bytes} bytes",
+                bytes.len()
+            ),
+        ));
+    }
+    let granularity = match granularity {
+        "" | "element" => Granularity::Element,
+        "word" => Granularity::Word,
+        other => {
+            return Err(WasmError::new(
+                "bad_format",
+                format!("lean format requires element or word granularity, got {other:?}"),
+            ))
+        }
+    };
+    let extraction = PdfExtractor
+        .extract(bytes, None)
+        .map_err(WasmError::from_extract)?;
+    match extraction.with_granularity(granularity) {
+        GranularExtraction::Compact(compact) => Ok(compact.to_lean()),
+        GranularExtraction::Char(_) => unreachable!("char is rejected above"),
+    }
 }
 
 fn extract_inner(

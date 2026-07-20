@@ -62,11 +62,13 @@ const OUTPUT_CAP_UNITS = 128 * 1024 * 1024;
 
 self.onmessage = async ev => {
   const { id, cmd, bytes, granularity, cap } = ev.data;
-  if (cmd !== "extract") return;
+  if (cmd !== "extract" && cmd !== "extract_lean") return;
   try {
     const docray = await initOnce();
     const t0 = performance.now();
-    const json = docray.extract(new Uint8Array(bytes), granularity || "", cap || 0);
+    const json = cmd === "extract_lean"
+      ? docray.extract_lean(new Uint8Array(bytes), granularity || "", cap || 0)
+      : docray.extract(new Uint8Array(bytes), granularity || "", cap || 0);
     if (json.length > OUTPUT_CAP_UNITS) {
       postMessage({ id, ok: false, error: { code: "output_too_large",
         message: "extraction produced " + json.length + " code units (cap " + OUTPUT_CAP_UNITS + ")" } });
