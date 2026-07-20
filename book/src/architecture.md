@@ -15,7 +15,7 @@
                    │  timeout · memory rlimit ·   │
                    │  output cap                  │
                    └──────────────┬───────────────┘
-                                  │ JSON on stdout
+                                  │ JSON or lean text on stdout
                                   ▼
                         response / stored result
 ```

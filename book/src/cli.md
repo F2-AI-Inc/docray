@@ -28,7 +28,7 @@ with a stable exit code:
 
 | Exit | Code | Meaning |
 |---:|---|---|
-| 0 | — | success (warnings, if any, are inside the JSON) |
+| 0 | — | success (warnings, if any, are inside the JSON / `#warning` lines in lean) |
 | 2 | `unsupported_format` | input is not a PDF |
 | 3 | `encrypted_pdf` | password-protected |
 | 4 | `parse_failure` | document could not be opened |
