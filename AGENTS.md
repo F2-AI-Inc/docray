@@ -51,9 +51,10 @@ Docker build/smoke test.
 4. **Coordinates** are top-left origin, y-down, PDF points, **after page
    rotation**, rounded via `round3`. Compact granularities round to 1
    decimal.
-5. **Stable error contract.** CLI exit codes (0/2/3/4/5/6) and error code
+5. **Stable error contract.** CLI exit codes (0/2/3/4/5/6/7) and error code
    strings (`unsupported_format`, `encrypted_pdf`, `parse_failure`,
-   `io_error`, `too_many_pages`, `timeout`, `crash`, `output_too_large`) are
+   `io_error`, `too_many_pages`, `bad_format`, `timeout`, `crash`,
+   `output_too_large`) are
    parsed by machines. Do not change them; add new ones deliberately.
 6. **Hostile input is the norm.** The server must never parse a PDF
    in-process — extraction happens in the spawned CLI worker under a

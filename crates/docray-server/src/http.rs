@@ -8,7 +8,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use docray_model::Granularity;
+use docray_model::{Granularity, OutputFormat};
 use serde::Deserialize;
 use std::path::Path;
 use std::str::FromStr;
@@ -85,17 +85,49 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 #[derive(Deserialize)]
-struct GranularityQuery {
+struct OutputQuery {
     granularity: Option<String>,
+    format: Option<String>,
 }
 
-fn requested_granularity(
-    query: Result<Query<GranularityQuery>, QueryRejection>,
-) -> Result<Option<Granularity>, String> {
-    let query = query.map_err(|error| error.to_string())?;
-    match query.0.granularity {
-        Some(value) => Granularity::from_str(&value).map(Some),
-        None => Ok(None),
+#[derive(Debug)]
+struct OutputQueryError {
+    code: &'static str,
+    message: String,
+}
+
+fn requested_output(
+    query: Result<Query<OutputQuery>, QueryRejection>,
+) -> Result<(Option<Granularity>, OutputFormat), OutputQueryError> {
+    let query = query.map_err(|error| OutputQueryError {
+        code: "bad_granularity",
+        message: error.to_string(),
+    })?;
+    let granularity = match query.0.granularity {
+        Some(value) => {
+            Granularity::from_str(&value)
+                .map(Some)
+                .map_err(|message| OutputQueryError {
+                    code: "bad_granularity",
+                    message,
+                })?
+        }
+        None => None,
+    };
+    let format = match query.0.format {
+        Some(value) => OutputFormat::from_str(&value).map_err(|message| OutputQueryError {
+            code: "bad_format",
+            message,
+        })?,
+        None => OutputFormat::Json,
+    };
+    match (format, granularity) {
+        (OutputFormat::Lean, None) => Ok((Some(Granularity::Element), format)),
+        (OutputFormat::Lean, Some(Granularity::Char)) => Err(OutputQueryError {
+            code: "bad_format",
+            message: "lean format requires element or word granularity".to_string(),
+        }),
+        _ => Ok((granularity, format)),
     }
 }
 
@@ -126,11 +158,21 @@ pub async fn read_upload(multipart: &mut Multipart, max_bytes: u64) -> Result<Ve
     ))
 }
 
-pub fn outcome_to_response(outcome: WorkerOutcome) -> Response {
+fn content_type(format: OutputFormat) -> &'static str {
+    match format {
+        OutputFormat::Json => "application/json",
+        OutputFormat::Lean => "text/plain; charset=utf-8",
+    }
+}
+
+pub fn outcome_to_response(outcome: WorkerOutcome, format: OutputFormat) -> Response {
     match outcome {
-        WorkerOutcome::Success(json) => {
-            (StatusCode::OK, [("content-type", "application/json")], json).into_response()
-        }
+        WorkerOutcome::Success(bytes) => (
+            StatusCode::OK,
+            [("content-type", content_type(format))],
+            bytes,
+        )
+            .into_response(),
         WorkerOutcome::Failed { code, message } => {
             let status = match code.as_str() {
                 "unsupported_format" => StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -160,14 +202,12 @@ pub fn outcome_to_response(outcome: WorkerOutcome) -> Response {
 
 async fn sync_extract(
     State(state): State<AppState>,
-    query: Result<Query<GranularityQuery>, QueryRejection>,
+    query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let granularity = match requested_granularity(query) {
+    let (granularity, format) = match requested_output(query) {
         Ok(value) => value,
-        Err(message) => {
-            return error_response(StatusCode::BAD_REQUEST, "bad_granularity", &message)
-        }
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
     // axum rejects a malformed multipart request (e.g. bad/missing boundary)
     // before the handler body runs, with a plaintext body. Taking the extractor
@@ -227,9 +267,10 @@ async fn sync_extract(
         tmp.path(),
         Some(state.cfg.sync_max_pages),
         granularity,
+        format,
     )
     .await;
-    outcome_to_response(outcome)
+    outcome_to_response(outcome, format)
 }
 
 /// Stream the multipart `file` field straight to `path`, chunk by chunk, so a
@@ -299,14 +340,12 @@ async fn stream_upload_to_file(
 
 async fn create_job(
     State(state): State<AppState>,
-    query: Result<Query<GranularityQuery>, QueryRejection>,
+    query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let granularity = match requested_granularity(query) {
+    let (granularity, format) = match requested_output(query) {
         Ok(value) => value,
-        Err(message) => {
-            return error_response(StatusCode::BAD_REQUEST, "bad_granularity", &message)
-        }
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
     // Same rejection-to-JSON mapping the sync route uses (see `sync_extract`):
     // length/limit rejections -> 413 too_large, anything else -> 400.
@@ -342,7 +381,7 @@ async fn create_job(
 
     if let Err(e) = state
         .jobs
-        .create(&id, input_path.to_str().unwrap(), granularity)
+        .create(&id, input_path.to_str().unwrap(), granularity, format)
     {
         let _ = std::fs::remove_file(&input_path);
         return error_response(
@@ -392,7 +431,14 @@ async fn job_result(
             match std::fs::read(job.result_path.as_deref().unwrap_or("")) {
                 Ok(bytes) => (
                     StatusCode::OK,
-                    [("content-type", "application/json")],
+                    [(
+                        "content-type",
+                        if job.format == OutputFormat::Lean.as_str() {
+                            content_type(OutputFormat::Lean)
+                        } else {
+                            content_type(OutputFormat::Json)
+                        },
+                    )],
                     bytes,
                 )
                     .into_response(),
@@ -409,5 +455,34 @@ async fn job_result(
             "store_error",
             &e.to_string(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn query(granularity: Option<&str>, format: Option<&str>) -> Query<OutputQuery> {
+        Query(OutputQuery {
+            granularity: granularity.map(str::to_string),
+            format: format.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn lean_query_implies_element_and_rejects_char() {
+        assert_eq!(
+            requested_output(Ok(query(None, Some("lean")))).unwrap(),
+            (Some(Granularity::Element), OutputFormat::Lean)
+        );
+
+        let error = requested_output(Ok(query(Some("char"), Some("lean")))).unwrap_err();
+        assert_eq!(error.code, "bad_format");
+    }
+
+    #[test]
+    fn invalid_format_query_has_stable_error_code() {
+        let error = requested_output(Ok(query(None, Some("toon")))).unwrap_err();
+        assert_eq!(error.code, "bad_format");
     }
 }

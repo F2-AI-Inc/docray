@@ -1,4 +1,4 @@
-use docray_model::Granularity;
+use docray_model::{Granularity, OutputFormat};
 use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
@@ -14,6 +14,14 @@ pub struct JobRow {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub result_path: Option<String>,
+    pub format: String,
+}
+
+pub struct ClaimedJob {
+    pub id: String,
+    pub input_path: String,
+    pub granularity: Option<Granularity>,
+    pub format: OutputFormat,
 }
 
 fn now() -> i64 {
@@ -34,6 +42,7 @@ impl JobStore {
                 error_message TEXT,
                 input_path TEXT NOT NULL,
                 granularity TEXT,
+                format TEXT NOT NULL DEFAULT 'json',
                 result_path TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -51,6 +60,19 @@ impl JobStore {
         if !has_granularity {
             conn.execute("ALTER TABLE jobs ADD COLUMN granularity TEXT", [])
                 .expect("cannot migrate job schema");
+        }
+        let has_format = conn
+            .prepare("PRAGMA table_info(jobs)")
+            .expect("cannot inspect job schema")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("cannot read job schema")
+            .any(|column| column.expect("cannot read job schema column") == "format");
+        if !has_format {
+            conn.execute(
+                "ALTER TABLE jobs ADD COLUMN format TEXT NOT NULL DEFAULT 'json'",
+                [],
+            )
+            .expect("cannot migrate job schema");
         }
         JobStore {
             conn: Mutex::new(conn),
@@ -72,38 +94,51 @@ impl JobStore {
         id: &str,
         input_path: &str,
         granularity: Option<Granularity>,
+        format: OutputFormat,
     ) -> Result<(), rusqlite::Error> {
         let t = now();
         self.conn().execute(
-            "INSERT INTO jobs (id, status, input_path, granularity, created_at, updated_at)
-             VALUES (?1, 'queued', ?2, ?3, ?4, ?4)",
-            rusqlite::params![id, input_path, granularity.map(Granularity::as_str), t],
+            "INSERT INTO jobs (id, status, input_path, granularity, format, created_at, updated_at)
+             VALUES (?1, 'queued', ?2, ?3, ?4, ?5, ?5)",
+            rusqlite::params![
+                id,
+                input_path,
+                granularity.map(Granularity::as_str),
+                format.as_str(),
+                t
+            ],
         )?;
         Ok(())
     }
 
     /// Atomically claim the oldest queued job. `Ok(None)` means the queue is
     /// empty; `Err` means the store failed (distinct so callers don't spin).
-    pub fn claim_next(
-        &self,
-    ) -> Result<Option<(String, String, Option<Granularity>)>, rusqlite::Error> {
+    pub fn claim_next(&self) -> Result<Option<ClaimedJob>, rusqlite::Error> {
         let conn = self.conn();
-        let claimed: Option<(String, String, Option<String>)> = conn
+        let claimed: Option<(String, String, Option<String>, String)> = conn
             .query_row(
                 "UPDATE jobs SET status = 'running', updated_at = ?1
              WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1)
-             RETURNING id, input_path, granularity",
+             RETURNING id, input_path, granularity, format",
                 rusqlite::params![now()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
-        Ok(claimed.map(|(id, input_path, level)| {
+        Ok(claimed.map(|(id, input_path, level, format)| {
             let granularity = level.map(|value| {
                 value
                     .parse()
                     .expect("job granularity is validated before it reaches the store")
             });
-            (id, input_path, granularity)
+            let format = format
+                .parse()
+                .expect("job format is validated before it reaches the store");
+            ClaimedJob {
+                id,
+                input_path,
+                granularity,
+                format,
+            }
         }))
     }
 
@@ -128,7 +163,7 @@ impl JobStore {
     pub fn get(&self, id: &str) -> Result<Option<JobRow>, rusqlite::Error> {
         self.conn()
             .query_row(
-                "SELECT id, status, error_code, error_message, result_path FROM jobs WHERE id=?1",
+                "SELECT id, status, error_code, error_message, result_path, format FROM jobs WHERE id=?1",
                 rusqlite::params![id],
                 |row| {
                     Ok(JobRow {
@@ -137,6 +172,7 @@ impl JobStore {
                         error_code: row.get(2)?,
                         error_message: row.get(3)?,
                         result_path: row.get(4)?,
+                        format: row.get(5)?,
                     })
                 },
             )
@@ -205,10 +241,12 @@ mod tests {
         let store = JobStore::new(&dir.join("t.sqlite"));
         let input = dir.join("in.pdf");
         std::fs::write(&input, b"x").unwrap();
-        store.create("old", input.to_str().unwrap(), None).unwrap();
+        store
+            .create("old", input.to_str().unwrap(), None, OutputFormat::Json)
+            .unwrap();
         store.mark_failed("old", "crash", "boom").unwrap();
         store
-            .create("fresh", input.to_str().unwrap(), None)
+            .create("fresh", input.to_str().unwrap(), None, OutputFormat::Json)
             .unwrap();
 
         // TTL 0 expires everything terminal that is at least 1s old; backdate 'old'.
@@ -235,7 +273,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = Arc::new(JobStore::new(&dir.join("t.sqlite")));
         for i in 0..10 {
-            store.create(&format!("job-{i}"), "in.pdf", None).unwrap();
+            store
+                .create(&format!("job-{i}"), "in.pdf", None, OutputFormat::Json)
+                .unwrap();
         }
 
         let claimed = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -244,8 +284,8 @@ mod tests {
             let store = store.clone();
             let claimed = claimed.clone();
             handles.push(std::thread::spawn(move || {
-                while let Some((id, _, _)) = store.claim_next().unwrap() {
-                    claimed.lock().unwrap().push(id);
+                while let Some(job) = store.claim_next().unwrap() {
+                    claimed.lock().unwrap().push(job.id);
                 }
             }));
         }
@@ -275,13 +315,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = JobStore::new(&dir.join("t.sqlite"));
         store
-            .create("word", "in.pdf", Some(Granularity::Word))
+            .create(
+                "word",
+                "in.pdf",
+                Some(Granularity::Word),
+                OutputFormat::Lean,
+            )
             .unwrap();
 
-        let (id, input_path, granularity) = store.claim_next().unwrap().unwrap();
-        assert_eq!(id, "word");
-        assert_eq!(input_path, "in.pdf");
-        assert_eq!(granularity, Some(Granularity::Word));
+        let job = store.claim_next().unwrap().unwrap();
+        assert_eq!(job.id, "word");
+        assert_eq!(job.input_path, "in.pdf");
+        assert_eq!(job.granularity, Some(Granularity::Word));
+        assert_eq!(job.format, OutputFormat::Lean);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -151,6 +151,44 @@ fn compact_simple_goldens_match() {
 }
 
 #[test]
+fn lean_simple_goldens_match_on_linux() {
+    if !cfg!(target_os = "linux") {
+        eprintln!(
+            "note: lean goldens are skipped off Linux; JSON goldens already guard geometry with tolerance"
+        );
+        return;
+    }
+
+    ensure_pdfium_dir();
+    let update = std::env::var("UPDATE_GOLDEN").is_ok();
+    let bytes = fs::read(testdata().join("simple.pdf")).unwrap();
+    let out = PdfExtractor.extract(&bytes, None).unwrap();
+    for (level, suffix) in [
+        (Granularity::Word, "word"),
+        (Granularity::Element, "element"),
+    ] {
+        let lean = match out.with_granularity(level) {
+            docray_model::GranularExtraction::Compact(compact) => compact.to_lean(),
+            docray_model::GranularExtraction::Char(_) => unreachable!(),
+        };
+        let golden_path = testdata()
+            .join("golden")
+            .join(format!("simple.{suffix}.lean.txt"));
+        if update {
+            fs::write(&golden_path, lean).unwrap();
+        } else {
+            let expected = fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+                panic!("missing golden {golden_path:?} - run with UPDATE_GOLDEN=1 on Linux")
+            });
+            assert_eq!(
+                lean, expected,
+                "lean golden mismatch for simple.{suffix} (byte-exact on Linux)"
+            );
+        }
+    }
+}
+
+#[test]
 fn compact_styles_omit_defaults_but_keep_bold() {
     ensure_pdfium_dir();
     let bytes = fs::read(testdata().join("simple.pdf")).unwrap();
