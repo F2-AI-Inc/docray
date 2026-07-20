@@ -443,12 +443,19 @@ impl CompactExtraction {
                             .expect("writing to a String cannot fail");
                     }
                     CompactElement::Annotation(annotation) => {
+                        // URIs are PDF-controlled: escape like text so a crafted
+                        // URI containing a newline cannot inject fake element
+                        // lines into the output an LLM reads.
                         writeln!(
                             output,
                             "A {} {} {}",
                             lean_bbox(&annotation.bbox),
                             annotation.subtype,
-                            annotation.uri.as_deref().unwrap_or("-")
+                            annotation
+                                .uri
+                                .as_deref()
+                                .map(escape_text)
+                                .unwrap_or_else(|| "-".to_string())
                         )
                         .expect("writing to a String cannot fail");
                     }
