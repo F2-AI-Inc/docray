@@ -316,7 +316,7 @@ const $ = (s, r) => (r || document).querySelector(s);
 const TYPES = ["text", "image", "path", "annotation"];
 const VIEWS = [
   ["source", "source"], ["boxes", "boxes"], ["xray", "x-ray"],
-  ["text", "text"], ["json", "json"], ["lean", "lean"],
+  ["text", "text"], ["json", "json"], ["lean", "llm format"],
 ];
 
 // `gen` is a generation token: every upload bumps it; async work still in
@@ -798,25 +798,49 @@ async function renderPanel(i, gen) {
 
   if (mode === "lean") {
     body.className = "panel-body";
-    body.innerHTML = '<p style="color:var(--fg-dim)">rendering lean …</p>';
+    body.innerHTML = '<p style="color:var(--fg-dim)">rendering …</p>';
     const req = (panelReq[i] = (panelReq[i] || 0) + 1);
     try {
       const text = await fetchLean();
       if (req !== panelReq[i] || gen !== state.gen || mode !== state.panelModes[i]) return;
+      // Slice the CURRENT page's section out of the canonical document bytes:
+      // header + legend lines, then this page's block. Whole lines only —
+      // what's shown is exactly what the CLI/API emit, never re-rendered.
+      const lines = text.split("\n");
+      const firstPage = lines.findIndex(l => l.startsWith("#page "));
+      const head = lines.slice(0, firstPage === -1 ? lines.length : firstPage);
+      const marker = "#page " + (state.pageIdx + 1) + " ";
+      let start = lines.findIndex(l => l.startsWith(marker));
+      let pageBlock = [];
+      if (start !== -1) {
+        let end = start + 1;
+        while (end < lines.length && !lines[end].startsWith("#page ")) end++;
+        pageBlock = lines.slice(start, end);
+      }
+      const pageText = head.concat(pageBlock).join("\n");
+
       body.innerHTML = "";
       const actions = document.createElement("div");
       actions.className = "jv-actions";
-      const copy = document.createElement("button");
-      copy.className = "btn";
-      copy.textContent = "copy";
-      copy.onclick = () => navigator.clipboard.writeText(text);
-      actions.appendChild(copy);
+      for (const [label, payload] of [["copy page", pageText], ["copy document", text]]) {
+        const btn = document.createElement("button");
+        btn.className = "btn";
+        btn.style.marginLeft = "6px";
+        btn.textContent = label;
+        btn.onclick = () => navigator.clipboard.writeText(payload);
+        actions.appendChild(btn);
+      }
+      const note = document.createElement("p");
+      note.style.cssText = "color:var(--fg-dim);font-size:11px;margin:0 0 12px;max-width:60ch";
+      note.innerHTML = 'docray\u2019s <b style="color:var(--fg)">lean</b> format: the same content as the JSON, ' +
+        '25\u201340% fewer tokens \u2014 built for feeding documents to LLMs. ' +
+        'Available via <code>--format lean</code> and <code>?format=lean</code>. ' +
+        '<a href="https://f2-ai-inc.github.io/docray/output-formats.html" target="_blank" rel="noopener" style="color:var(--amber)">docs \u2197</a>' +
+        ($("#gran").value === "char" ? "<br>(showing element granularity \u2014 lean has no char level)" : "");
       const pre = document.createElement("pre");
       pre.className = "jv";
-      const gran = $("#gran").value === "word" ? "word" : "element";
-      pre.textContent = ($("#gran").value === "char"
-        ? "(lean is a compact reading format — showing element granularity)\n" : "") + text;
-      body.append(actions, pre);
+      pre.textContent = pageText;
+      body.append(actions, note, pre);
     } catch (e) {
       if (req !== panelReq[i] || gen !== state.gen) return;
       body.innerHTML = "";
