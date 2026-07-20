@@ -316,7 +316,7 @@ const $ = (s, r) => (r || document).querySelector(s);
 const TYPES = ["text", "image", "path", "annotation"];
 const VIEWS = [
   ["source", "source"], ["boxes", "boxes"], ["xray", "x-ray"],
-  ["text", "text"], ["json", "json"],
+  ["text", "text"], ["json", "json"], ["lean", "lean"],
 ];
 
 // `gen` is a generation token: every upload bumps it; async work still in
@@ -404,7 +404,7 @@ function retireWorker(inst) {
   if (workerInstance === inst) workerInstance = null;
 }
 
-function browserExtract(bytes, gran, signal) {
+function browserExtract(bytes, gran, signal, cmd = "extract") {
   if (bytes.byteLength > BROWSER_INPUT_CAP) {
     return Promise.reject(new Error("too_large · in-browser engine caps input at " + fmtBytes(BROWSER_INPUT_CAP)));
   }
@@ -444,7 +444,7 @@ function browserExtract(bytes, gran, signal) {
     inst.busy = req;
     try {
       inst.w.postMessage(
-        { id, cmd: "extract", bytes, granularity: gran === "char" ? "" : gran, cap: BROWSER_INPUT_CAP },
+        { id, cmd, bytes, granularity: gran === "char" ? "" : gran, cap: BROWSER_INPUT_CAP },
         [bytes],
       );
     } catch (e) {
@@ -452,6 +452,28 @@ function browserExtract(bytes, gran, signal) {
       req.reject(e);
     }
   });
+}
+
+/* Canonical lean bytes for the whole document: same Rust renderer as the
+   CLI/API — the lens never re-implements the format in JS. Lean requires
+   element|word; when the UI is on char granularity the lens shows element
+   (the same implication the CLI/HTTP surfaces make). */
+async function fetchLean() {
+  const gran = $("#gran").value === "word" ? "word" : "element";
+  if (state.leanCache && state.leanCache[gran]) return state.leanCache[gran];
+  let text;
+  if (engines.current === "browser") {
+    const bytes = await state.file.arrayBuffer();
+    ({ json: text } = await browserExtract(bytes, gran, null, "extract_lean"));
+  } else {
+    const fd = new FormData();
+    fd.append("file", state.file, state.file.name);
+    const res = await fetch(`/v1/extract?format=lean&granularity=${gran}`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error("lean fetch failed: http " + res.status);
+    text = await res.text();
+  }
+  state.leanCache[gran] = text;
+  return text;
 }
 
 async function serverExtract(file, gran, signal) {
@@ -564,6 +586,7 @@ async function load(file, keepPageIdx) {
   state.file = file;
   state.fileName = file.name;
   state.extraction = extraction;
+  state.leanCache = {}; // canonical lean bytes, keyed by granularity
   state.pdf = pdf;
   state.pageIdx = Math.min(keepPageIdx || 0, extraction.pages.length - 1);
   state.zoom = 1;
@@ -770,6 +793,38 @@ async function renderPanel(i, gen) {
         }
       };
     });
+    return;
+  }
+
+  if (mode === "lean") {
+    body.className = "panel-body";
+    body.innerHTML = '<p style="color:var(--fg-dim)">rendering lean …</p>';
+    const req = (panelReq[i] = (panelReq[i] || 0) + 1);
+    try {
+      const text = await fetchLean();
+      if (req !== panelReq[i] || gen !== state.gen || mode !== state.panelModes[i]) return;
+      body.innerHTML = "";
+      const actions = document.createElement("div");
+      actions.className = "jv-actions";
+      const copy = document.createElement("button");
+      copy.className = "btn";
+      copy.textContent = "copy";
+      copy.onclick = () => navigator.clipboard.writeText(text);
+      actions.appendChild(copy);
+      const pre = document.createElement("pre");
+      pre.className = "jv";
+      const gran = $("#gran").value === "word" ? "word" : "element";
+      pre.textContent = ($("#gran").value === "char"
+        ? "(lean is a compact reading format — showing element granularity)\n" : "") + text;
+      body.append(actions, pre);
+    } catch (e) {
+      if (req !== panelReq[i] || gen !== state.gen) return;
+      body.innerHTML = "";
+      const p = document.createElement("p");
+      p.style.color = "var(--fg-dim)";
+      p.textContent = "lean render failed · " + e.message;
+      body.appendChild(p);
+    }
     return;
   }
 

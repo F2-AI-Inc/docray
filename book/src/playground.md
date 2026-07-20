@@ -25,6 +25,8 @@ Drop a PDF on it and every page appears with:
   - **x-ray** — the page dimmed with wireframe boxes over it
   - **text** — the extracted content, element by element
   - **json** — the page's JSON, syntax-highlighted, with a copy button
+  - **lean** — the whole document in the token-lean format (canonical bytes
+    from the same renderer as `--format lean`), with a copy button
 - **Cross-panel sync** — click any box and the opposite panel jumps to and
   flashes that exact element's JSON; click a JSON element and its box flashes
   on the page.
