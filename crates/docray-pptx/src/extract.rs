@@ -121,8 +121,11 @@ fn slide_size(presentation: &Node) -> Result<(f64, f64), ExtractError> {
     let size = presentation
         .first_descendant("sldSz")
         .ok_or_else(|| parse_failure("ppt/presentation.xml has no p:sldSz"))?;
-    let width = attr_f64(size, "cx")?;
-    let height = attr_f64(size, "cy")?;
+    let width = size.attr("cx").and_then(parse_finite_number);
+    let height = size.attr("cy").and_then(parse_finite_number);
+    let (Some(width), Some(height)) = (width, height) else {
+        return Err(parse_failure("ppt/presentation.xml has invalid slide size"));
+    };
     if width <= 0.0 || height <= 0.0 {
         return Err(parse_failure("ppt/presentation.xml has invalid slide size"));
     }
@@ -332,8 +335,9 @@ fn extract_children(
                     continue;
                 }
                 let Some(group) = parse_group_transform(child) else {
+                    let name = object_name(child, "unnamed group");
                     warnings.push(format!(
-                        "page {page_number}: group has missing transform, subtree skipped"
+                        "page {page_number}: group {name:?} has invalid or missing transform, subtree skipped"
                     ));
                     continue;
                 };
@@ -380,12 +384,17 @@ fn extract_shape(
     let master_shape = placeholder
         .as_ref()
         .and_then(|key| context.master.and_then(|root| find_placeholder(root, key)));
-    let xfrm = shape_transform(shape)
-        .or_else(|| layout_shape.and_then(shape_transform))
-        .or_else(|| master_shape.and_then(shape_transform));
+    let own_xfrm = shape.child("spPr").and_then(|node| node.child("xfrm"));
+    let xfrm = match own_xfrm {
+        Some(node) => parse_xfrm(node),
+        None => layout_shape
+            .and_then(shape_transform)
+            .or_else(|| master_shape.and_then(shape_transform)),
+    };
     let Some(xfrm) = xfrm else {
+        let name = object_name(shape, "unnamed shape");
         warnings.push(format!(
-            "page {page_number}: shape geometry could not be resolved, shape skipped"
+            "page {page_number}: shape {name:?} geometry could not be resolved, shape skipped"
         ));
         return;
     };
@@ -453,8 +462,9 @@ fn extract_path(
     warnings: &mut Vec<String>,
 ) {
     let Some(xfrm) = shape_transform(shape) else {
+        let name = object_name(shape, "unnamed connector");
         warnings.push(format!(
-            "page {page_number}: connector geometry could not be resolved, connector skipped"
+            "page {page_number}: connector {name:?} geometry could not be resolved, connector skipped"
         ));
         return;
     };
@@ -484,7 +494,7 @@ fn path_from_shape(
         stroke_width: properties
             .and_then(|node| node.child("ln"))
             .and_then(|line| line.attr("w"))
-            .and_then(|value| value.parse::<f64>().ok())
+            .and_then(parse_finite_number)
             .map(|width| round3(width / EMU_PER_POINT)),
     }
 }
@@ -501,8 +511,9 @@ fn extract_picture(
     warnings: &mut Vec<String>,
 ) -> Result<(), ExtractError> {
     let Some(xfrm) = shape_transform(picture) else {
+        let name = object_name(picture, "unnamed picture");
         warnings.push(format!(
-            "page {page_number}: picture geometry could not be resolved, picture skipped"
+            "page {page_number}: picture {name:?} geometry could not be resolved, picture skipped"
         ));
         return Ok(());
     };
@@ -621,38 +632,52 @@ fn extract_graphic_frame(
         ));
         return;
     };
+    let table_name = object_name(frame, "unnamed table");
     let Some(frame_xfrm) = frame_transform(frame) else {
         warnings.push(format!(
-            "page {page_number}: table frame geometry could not be resolved, table skipped"
+            "page {page_number}: table {table_name:?} frame geometry could not be resolved, table skipped"
         ));
         return;
     };
-    let columns: Vec<f64> = table
-        .first_descendant("tblGrid")
-        .map(|grid| {
-            grid.children_named("gridCol")
-                .filter_map(|column| column.attr("w")?.parse::<f64>().ok())
-                .collect()
-        })
-        .unwrap_or_default();
+    let columns: Option<Vec<f64>> = table.first_descendant("tblGrid").and_then(|grid| {
+        grid.children_named("gridCol")
+            .map(|column| {
+                column
+                    .attr("w")
+                    .and_then(parse_finite_number)
+                    .filter(|width| *width >= 0.0)
+            })
+            .collect::<Option<Vec<_>>>()
+    });
     let rows: Vec<&Node> = table.children_named("tr").collect();
-    let heights: Vec<f64> = rows
+    let heights: Option<Vec<f64>> = rows
         .iter()
         .map(|row| {
             row.attr("h")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0.0)
+                .and_then(parse_finite_number)
+                .filter(|height| *height >= 0.0)
         })
         .collect();
+    let (Some(columns), Some(heights)) = (columns, heights) else {
+        warnings.push(format!(
+            "page {page_number}: table {table_name:?} grid geometry is invalid, table skipped"
+        ));
+        return;
+    };
     if columns.is_empty() || rows.is_empty() || heights.contains(&0.0) {
         warnings.push(format!(
-            "page {page_number}: table grid geometry is incomplete, table skipped"
+            "page {page_number}: table {table_name:?} grid geometry is incomplete, table skipped"
         ));
         return;
     }
 
-    let col_prefix = prefix_sums(&columns);
-    let row_prefix = prefix_sums(&heights);
+    let (Some(col_prefix), Some(row_prefix)) = (prefix_sums(&columns), prefix_sums(&heights))
+    else {
+        warnings.push(format!(
+            "page {page_number}: table {table_name:?} grid geometry overflowed, table skipped"
+        ));
+        return;
+    };
     for (row_index, row) in rows.iter().enumerate() {
         for (col_index, cell) in row.children_named("tc").enumerate() {
             if col_index >= columns.len() || bool_attr(cell, "hMerge") || bool_attr(cell, "vMerge")
@@ -663,10 +688,10 @@ fn extract_graphic_frame(
             if content.is_empty() {
                 continue;
             }
-            let col_span = usize_attr(cell, "gridSpan").unwrap_or(1).max(1);
-            let row_span = usize_attr(cell, "rowSpan").unwrap_or(1).max(1);
-            let col_end = (col_index + col_span).min(columns.len());
-            let row_end = (row_index + row_span).min(rows.len());
+            let col_span = clamped_span(cell, "gridSpan", columns.len() - col_index);
+            let row_span = clamped_span(cell, "rowSpan", rows.len() - row_index);
+            let col_end = col_index.saturating_add(col_span).min(columns.len());
+            let row_end = row_index.saturating_add(row_span).min(rows.len());
             let local = Xfrm {
                 off: Point {
                     x: frame_xfrm.off.x + col_prefix[col_index],
@@ -707,13 +732,17 @@ fn extract_graphic_frame(
     }
 }
 
-fn prefix_sums(values: &[f64]) -> Vec<f64> {
+fn prefix_sums(values: &[f64]) -> Option<Vec<f64>> {
     let mut out = Vec::with_capacity(values.len() + 1);
     out.push(0.0);
     for value in values {
-        out.push(out.last().copied().unwrap_or(0.0) + value);
+        let sum = out.last().copied().unwrap_or(0.0) + value;
+        if !sum.is_finite() {
+            return None;
+        }
+        out.push(sum);
     }
-    out
+    Some(out)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -754,14 +783,14 @@ fn frame_transform(node: &Node) -> Option<Xfrm> {
 }
 
 fn parse_xfrm(node: &Node) -> Option<Xfrm> {
+    let rot = match node.attr("rot") {
+        Some(value) => parse_finite_number(value)? / 60_000.0,
+        None => 0.0,
+    };
     Some(Xfrm {
         off: parse_point(node.child("off")?)?,
         ext: parse_extent(node.child("ext")?)?,
-        rot: node
-            .attr("rot")
-            .and_then(|value| value.parse::<f64>().ok())
-            .unwrap_or(0.0)
-            / 60_000.0,
+        rot,
         flip_h: bool_attr(node, "flipH"),
         flip_v: bool_attr(node, "flipV"),
         rotation_center: None,
@@ -770,16 +799,16 @@ fn parse_xfrm(node: &Node) -> Option<Xfrm> {
 
 fn parse_group_transform(group: &Node) -> Option<GroupTransform> {
     let xfrm = group.child("grpSpPr")?.child("xfrm")?;
+    let rot = match xfrm.attr("rot") {
+        Some(value) => parse_finite_number(value)? / 60_000.0,
+        None => 0.0,
+    };
     Some(GroupTransform {
         off: parse_point(xfrm.child("off")?)?,
         ext: parse_extent(xfrm.child("ext")?)?,
         ch_off: parse_point(xfrm.child("chOff")?)?,
         ch_ext: parse_extent(xfrm.child("chExt")?)?,
-        rot: xfrm
-            .attr("rot")
-            .and_then(|value| value.parse::<f64>().ok())
-            .unwrap_or(0.0)
-            / 60_000.0,
+        rot,
         flip_h: bool_attr(xfrm, "flipH"),
         flip_v: bool_attr(xfrm, "flipV"),
     })
@@ -787,15 +816,15 @@ fn parse_group_transform(group: &Node) -> Option<GroupTransform> {
 
 fn parse_point(node: &Node) -> Option<Point> {
     Some(Point {
-        x: node.attr("x")?.parse().ok()?,
-        y: node.attr("y")?.parse().ok()?,
+        x: parse_finite_number(node.attr("x")?)?,
+        y: parse_finite_number(node.attr("y")?)?,
     })
 }
 
 fn parse_extent(node: &Node) -> Option<Point> {
     Some(Point {
-        x: node.attr("cx")?.parse().ok()?,
-        y: node.attr("cy")?.parse().ok()?,
+        x: parse_finite_number(node.attr("cx")?)?,
+        y: parse_finite_number(node.attr("cy")?)?,
     })
 }
 
@@ -998,7 +1027,7 @@ fn direct_color(slot: &Node) -> Option<[u8; 3]> {
 }
 
 fn parse_hex_color(value: &str) -> Option<[u8; 3]> {
-    if value.len() != 6 {
+    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
     Some([
@@ -1119,9 +1148,10 @@ fn paragraph_default_style(
     let level = paragraph
         .child("pPr")
         .and_then(|node| node.attr("lvl"))
-        .and_then(|value| value.parse::<usize>().ok())
+        .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0)
-        + 1;
+        .min(8) as usize;
+    let level = level.saturating_add(1);
     let level_name = format!("lvl{level}pPr");
     tx_body
         .child("lstStyle")
@@ -1315,11 +1345,8 @@ fn xml_required(package: &mut Package<'_>, path: &str) -> Result<Node, ExtractEr
     parse(&bytes, path)
 }
 
-fn attr_f64(node: &Node, name: &str) -> Result<f64, ExtractError> {
-    node.attr(name)
-        .ok_or_else(|| parse_failure(format!("{} is missing {name}", node.name)))?
-        .parse()
-        .map_err(|_| parse_failure(format!("{} has invalid {name}", node.name)))
+fn parse_finite_number(value: &str) -> Option<f64> {
+    value.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
 fn bool_attr(node: &Node, name: &str) -> bool {
@@ -1330,8 +1357,23 @@ fn parse_bool(value: &str) -> bool {
     matches!(value, "1" | "true" | "on")
 }
 
-fn usize_attr(node: &Node, name: &str) -> Option<usize> {
-    node.attr(name)?.parse().ok()
+fn clamped_span(node: &Node, name: &str, remaining: usize) -> usize {
+    let remaining_u64 = u64::try_from(remaining).unwrap_or(u64::MAX);
+    let span = node
+        .attr(name)
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1)
+        .max(1)
+        .min(remaining_u64);
+    usize::try_from(span).unwrap_or(remaining)
+}
+
+fn object_name(node: &Node, fallback: &str) -> String {
+    node.first_descendant("cNvPr")
+        .and_then(|properties| properties.attr("name"))
+        .filter(|name| !name.is_empty())
+        .unwrap_or(fallback)
+        .to_owned()
 }
 
 fn next_id(page_number: u32, elements: &[Element]) -> String {
@@ -1350,6 +1392,25 @@ fn parse_failure(message: impl Into<String>) -> ExtractError {
 mod tests {
     use super::*;
 
+    fn parse_test_xml(xml: &str) -> Node {
+        parse(xml.as_bytes(), "test.xml").unwrap()
+    }
+
+    fn test_context<'a>(
+        slide_rels: &'a Relationships,
+        theme: &'a Theme,
+        color_map: &'a BTreeMap<String, String>,
+    ) -> SlideContext<'a> {
+        SlideContext {
+            slide_path: "ppt/slides/slide1.xml",
+            slide_rels,
+            layout: None,
+            master: None,
+            theme,
+            color_map,
+        }
+    }
+
     #[test]
     fn group_transform_scales_then_rotates_about_group_center() {
         let group = GroupTransform {
@@ -1366,5 +1427,143 @@ mod tests {
         let point = transform_group(Point { x: 10.0, y: 20.0 }, group);
         assert!((point.x - 400.0).abs() < 1e-9);
         assert!((point.y - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn non_ascii_six_byte_hex_color_is_unresolvable_without_panicking() {
+        assert_eq!("aéaaa".len(), 6);
+        assert_eq!(parse_hex_color("aéaaa"), None);
+    }
+
+    #[test]
+    fn non_finite_slide_size_is_a_parse_failure() {
+        let presentation =
+            parse_test_xml(r#"<presentation><sldSz cx="NaN" cy="6858000"/></presentation>"#);
+        let error = slide_size(&presentation).unwrap_err();
+        assert_eq!(error.code(), "parse_failure");
+        assert!(error.to_string().contains("invalid slide size"));
+    }
+
+    #[test]
+    fn non_finite_shape_geometry_is_skipped_with_a_warning() {
+        let tree = parse_test_xml(
+            r#"<spTree>
+                <sp><nvSpPr><cNvPr name="Hostile Shape"/></nvSpPr><spPr><xfrm><off x="NaN" y="0"/><ext cx="12700" cy="12700"/></xfrm></spPr><txBody><p><r><t>bad</t></r></p></txBody></sp>
+                <sp><nvSpPr><cNvPr name="Good Shape"/></nvSpPr><spPr><xfrm><off x="12700" y="12700"/><ext cx="12700" cy="12700"/></xfrm></spPr><txBody><p><r><t>good</t></r></p></txBody></sp>
+            </spTree>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+        let mut elements = Vec::new();
+        let mut hidden = Vec::new();
+        let mut warnings = Vec::new();
+        for shape in tree.children_named("sp") {
+            extract_shape(
+                shape,
+                &context,
+                1,
+                &[],
+                &mut elements,
+                &mut hidden,
+                &mut warnings,
+            );
+        }
+
+        assert_eq!(elements.len(), 1);
+        let Element::Text(text) = &elements[0] else {
+            panic!("valid sibling shape must remain extracted");
+        };
+        assert_eq!(text.content, "good");
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("Hostile Shape")));
+        let json = serde_json::to_string(&elements).unwrap();
+        for coordinate in ["x0", "y0", "x1", "y1"] {
+            assert!(!json.contains(&format!(r#""{coordinate}":null"#)));
+        }
+    }
+
+    #[test]
+    fn malformed_table_grid_skips_named_table_and_preserves_other_elements() {
+        let frame = parse_test_xml(
+            r#"<graphicFrame>
+                <nvGraphicFramePr><cNvPr name="Hostile Table"/></nvGraphicFramePr>
+                <xfrm><off x="0" y="0"/><ext cx="254000" cy="127000"/></xfrm>
+                <graphic><graphicData><tbl>
+                    <tblGrid><gridCol w="bogus"/><gridCol w="127000"/></tblGrid>
+                    <tr h="127000"><tc><txBody><p><r><t>shifted</t></r></p></txBody></tc><tc><txBody><p><r><t>later</t></r></p></txBody></tc></tr>
+                </tbl></graphicData></graphic>
+            </graphicFrame>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+        let mut elements = vec![Element::Path(PathElement {
+            id: "outside-table".into(),
+            bbox: BBox {
+                x0: 1.0,
+                y0: 1.0,
+                x1: 2.0,
+                y1: 2.0,
+            },
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+        })];
+        let mut warnings = Vec::new();
+
+        extract_graphic_frame(&frame, &context, 1, &[], &mut elements, &mut warnings);
+
+        assert_eq!(
+            elements.len(),
+            1,
+            "unreliable table cells must not be emitted"
+        );
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("Hostile Table")));
+    }
+
+    #[test]
+    fn huge_grid_spans_and_paragraph_levels_are_clamped() {
+        let frame = parse_test_xml(
+            r#"<graphicFrame>
+                <nvGraphicFramePr><cNvPr name="Huge Values"/></nvGraphicFramePr>
+                <xfrm><off x="0" y="0"/><ext cx="254000" cy="254000"/></xfrm>
+                <graphic><graphicData><tbl>
+                    <tblGrid><gridCol w="127000"/><gridCol w="127000"/></tblGrid>
+                    <tr h="127000"><tc gridSpan="18446744073709551615" rowSpan="18446744073709551615"><txBody>
+                        <lstStyle><lvl9pPr><defRPr sz="900"/></lvl9pPr></lstStyle>
+                        <p><pPr lvl="18446744073709551615"/><r><t>clamped</t></r></p>
+                    </txBody></tc></tr>
+                    <tr h="127000"/>
+                </tbl></graphicData></graphic>
+            </graphicFrame>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+        let mut elements = Vec::new();
+        let mut warnings = Vec::new();
+
+        extract_graphic_frame(&frame, &context, 1, &[], &mut elements, &mut warnings);
+
+        assert!(
+            warnings.is_empty(),
+            "clamping is valid recovery: {warnings:?}"
+        );
+        assert_eq!(elements.len(), 1);
+        let Element::Text(text) = &elements[0] else {
+            panic!("table cell must be text");
+        };
+        assert_eq!(
+            (text.bbox.x0, text.bbox.y0, text.bbox.x1, text.bbox.y1),
+            (0.0, 0.0, 20.0, 20.0)
+        );
+        assert_eq!(text.font.size, 9.0, "lvl must clamp to OOXML level 8");
     }
 }

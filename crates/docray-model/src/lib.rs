@@ -471,9 +471,9 @@ impl CompactExtraction {
                         writeln!(output, "P {}", lean_bbox(&path.bbox))?;
                     }
                     CompactElement::Annotation(annotation) => {
-                        // URIs are PDF-controlled: escape like text so a crafted
-                        // URI containing a newline cannot inject fake element
-                        // lines into the output an LLM reads.
+                        // URIs are document-controlled: escape every physical
+                        // line boundary so crafted content cannot inject fake
+                        // element lines into the output an LLM reads.
                         writeln!(
                             output,
                             "A {} {} {}",
@@ -497,8 +497,8 @@ impl CompactExtraction {
                         write!(output, "{element} ")?;
                     }
                     // Hidden content is document-controlled. Escaping every
-                    // newline keeps each item on one physical line, so content
-                    // can never forge `</hidden>` or visible element records.
+                    // physical line boundary keeps each item on one line, so
+                    // content cannot forge `</hidden>` or element records.
                     writeln!(output, "{}", escape_text(&item.content))?;
                 }
                 output.write_str("</hidden>\n")?;
@@ -555,6 +555,10 @@ fn escape_text(text: &str) -> String {
         match ch {
             '\\' => escaped.push_str("\\\\"),
             '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            _ if ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}') => {
+                write!(escaped, "\\u{{{:x}}}", ch as u32).expect("writing to a String cannot fail");
+            }
             _ => escaped.push(ch),
         }
     }
