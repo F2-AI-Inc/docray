@@ -78,14 +78,13 @@ mod tests {
     }
 
     #[test]
-    fn element_only_extractor_accepts_element_and_lean_equivalent() {
+    fn element_only_extractor_accepts_element_requests() {
+        // Lean entry points normalize their default to an explicit Element
+        // request before reaching this gate, so Element covers lean too.
         let capabilities = ElementExtractor.capabilities();
         assert_eq!(
             check_granularity(&capabilities, Some(Granularity::Element)),
             Ok(())
         );
-        // Lean requests are normalized to element granularity by entry points.
-        let lean_request = Some(Granularity::Element);
-        assert_eq!(check_granularity(&capabilities, lean_request), Ok(()));
     }
 }
