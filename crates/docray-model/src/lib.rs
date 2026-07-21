@@ -354,33 +354,39 @@ impl CompactExtraction {
     /// Renders the deterministic, line-oriented reading format. Compact
     /// extractions can only have element or word granularity.
     pub fn to_lean(&self) -> String {
+        let mut output = String::new();
+        self.write_lean(&mut output)
+            .expect("writing to a String cannot fail");
+        output
+    }
+
+    /// Streams the lean rendering into any [`fmt::Write`], so callers can
+    /// bound output growth DURING generation (e.g. a size-capped writer that
+    /// errors once a byte budget is exceeded) instead of materializing the
+    /// whole document first.
+    pub fn write_lean<W: fmt::Write>(&self, output: &mut W) -> fmt::Result {
         debug_assert!(matches!(
             self.granularity,
             Granularity::Element | Granularity::Word
         ));
-
-        let mut output = String::new();
         write!(
             output,
             "#docray {} v{} pages={}",
             self.granularity, self.schema_version, self.document.page_count
-        )
-        .expect("writing to a String cannot fail");
+        )?;
         if !self.warnings.is_empty() {
-            write!(output, " warnings={}", self.warnings.len())
-                .expect("writing to a String cannot fail");
+            write!(output, " warnings={}", self.warnings.len())?;
         }
-        output.push('\n');
-        output.push_str(match self.granularity {
+        output.write_char('\n')?;
+        output.write_str(match self.granularity {
             Granularity::Element => ELEMENT_LEGEND,
             Granularity::Word => WORD_LEGEND,
             Granularity::Char => unreachable!("char does not use compact output"),
-        });
-        output.push('\n');
+        })?;
+        output.write_char('\n')?;
 
         for warning in &self.warnings {
-            writeln!(output, "#warning {}", collapse_warning(warning))
-                .expect("writing to a String cannot fail");
+            writeln!(output, "#warning {}", collapse_warning(warning))?;
         }
 
         for page in &self.pages {
@@ -390,15 +396,14 @@ impl CompactExtraction {
                 page.page_number,
                 lean_number(page.width),
                 lean_number(page.height)
-            )
-            .expect("writing to a String cannot fail");
+            )?;
             if page.rotation != 0 {
-                write!(output, " rot={}", page.rotation).expect("writing to a String cannot fail");
+                write!(output, " rot={}", page.rotation)?;
             }
             if page.scanned {
-                output.push_str(" scanned");
+                output.write_str(" scanned")?;
             }
-            output.push('\n');
+            output.write_char('\n')?;
 
             for element in &page.elements {
                 match element {
@@ -413,12 +418,10 @@ impl CompactExtraction {
                                     output,
                                     "T {bbox} {font} {size} {style} {}",
                                     escape_text(text)
-                                )
-                                .expect("writing to a String cannot fail");
+                                )?;
                             }
                             CompactTextContent::Word { words } => {
-                                writeln!(output, "T {bbox} {font} {size} {style}")
-                                    .expect("writing to a String cannot fail");
+                                writeln!(output, "T {bbox} {font} {size} {style}")?;
                                 for word in words {
                                     writeln!(
                                         output,
@@ -428,19 +431,16 @@ impl CompactExtraction {
                                         lean_number(word.3),
                                         lean_number(word.4),
                                         escape_text(&word.0)
-                                    )
-                                    .expect("writing to a String cannot fail");
+                                    )?;
                                 }
                             }
                         }
                     }
                     CompactElement::Image(image) => {
-                        writeln!(output, "I {}", lean_bbox(&image.bbox))
-                            .expect("writing to a String cannot fail");
+                        writeln!(output, "I {}", lean_bbox(&image.bbox))?;
                     }
                     CompactElement::Path(path) => {
-                        writeln!(output, "P {}", lean_bbox(&path.bbox))
-                            .expect("writing to a String cannot fail");
+                        writeln!(output, "P {}", lean_bbox(&path.bbox))?;
                     }
                     CompactElement::Annotation(annotation) => {
                         // URIs are PDF-controlled: escape like text so a crafted
@@ -456,14 +456,13 @@ impl CompactExtraction {
                                 .as_deref()
                                 .map(escape_text)
                                 .unwrap_or_else(|| "-".to_string())
-                        )
-                        .expect("writing to a String cannot fail");
+                        )?;
                     }
                 }
             }
         }
 
-        output
+        Ok(())
     }
 }
 

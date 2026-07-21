@@ -504,6 +504,7 @@ dependencies = [
  "docray-core",
  "docray-model",
  "docray-pdf",
+ "serde",
  "serde_json",
  "wasm-bindgen",
 ]
