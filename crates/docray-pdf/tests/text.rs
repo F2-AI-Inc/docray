@@ -48,6 +48,10 @@ fn extracts_text_hierarchy_from_simple_pdf() {
 
     // "Hello World" -> one line, two words, chars have boxes.
     let hello = texts.iter().find(|t| t.content.contains("Hello")).unwrap();
+    assert!(
+        texts.iter().all(|text| text.runs.is_none()),
+        "PDF must not populate schema-1.4 run detail"
+    );
     let lines = hello
         .lines
         .as_ref()
@@ -84,6 +88,7 @@ fn extracts_text_hierarchy_from_simple_pdf() {
     assert!(page.elements.iter().enumerate().all(|(i, e)| {
         let id = match e {
             Element::Text(t) => &t.id,
+            Element::Table(t) => &t.id,
             Element::Image(t) => &t.id,
             Element::Path(t) => &t.id,
             Element::Annotation(t) => &t.id,

@@ -71,33 +71,103 @@ fn group_fixture_geometry_matches_hand_math() {
 fn table_fixture_geometry_matches_prefix_sum_math() {
     let bytes = fs::read(root().join("testdata/pptx/table.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();
-    let boxes: Vec<_> = extraction.pages[0]
-        .elements
-        .iter()
-        .map(|element| match element {
-            Element::Text(text) => text.bbox,
-            _ => panic!("table fixture must emit only text cells"),
-        })
-        .collect();
+    assert_eq!(extraction.pages[0].elements.len(), 1);
+    let Element::Table(table) = &extraction.pages[0].elements[0] else {
+        panic!("table fixture must emit one first-class table");
+    };
     // Frame origin is (72,90). Column widths are 80,120; row heights
     // are 30,50. The first anchor gridSpan=2 covers x=72..272.
-    assert_eq!(boxes.len(), 3, "the hMerge continuation is not emitted");
+    assert_eq!(table.rows, 2);
+    assert_eq!(table.cols, 2);
     assert_eq!(
-        (boxes[0].x0, boxes[0].y0, boxes[0].x1, boxes[0].y1),
+        (table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1),
+        (72.0, 90.0, 272.0, 170.0)
+    );
+    assert_eq!(
+        table
+            .cells
+            .iter()
+            .map(|cell| (cell.row, cell.col, cell.row_span, cell.col_span))
+            .collect::<Vec<_>>(),
+        vec![(0, 0, 1, 2), (1, 0, 1, 1), (1, 1, 1, 1)],
+        "the hMerge continuation is not emitted"
+    );
+    assert_eq!(
+        (
+            table.cells[0].bbox.x0,
+            table.cells[0].bbox.y0,
+            table.cells[0].bbox.x1,
+            table.cells[0].bbox.y1
+        ),
         (72.0, 90.0, 272.0, 120.0)
     );
     assert_eq!(
-        (boxes[1].x0, boxes[1].y0, boxes[1].x1, boxes[1].y1),
+        (
+            table.cells[1].bbox.x0,
+            table.cells[1].bbox.y0,
+            table.cells[1].bbox.x1,
+            table.cells[1].bbox.y1
+        ),
         (72.0, 120.0, 152.0, 170.0)
     );
     assert_eq!(
-        (boxes[2].x0, boxes[2].y0, boxes[2].x1, boxes[2].y1),
+        (
+            table.cells[2].bbox.x0,
+            table.cells[2].bbox.y0,
+            table.cells[2].bbox.x1,
+            table.cells[2].bbox.y1
+        ),
         (152.0, 120.0, 272.0, 170.0)
+    );
+    assert_eq!(
+        table
+            .cells
+            .iter()
+            .map(|cell| cell.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Merged", "Left", "Right"]
+    );
+    assert!(table
+        .cells
+        .iter()
+        .all(|cell| cell.runs.as_ref().is_some_and(|runs| runs.len() == 1)));
+}
+
+#[test]
+fn styled_text_fixture_preserves_each_run_style_and_external_href() {
+    let bytes = fs::read(root().join("testdata/pptx/styled-text.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let Element::Text(text) = &extraction.pages[0].elements[0] else {
+        panic!("styled-text fixture must begin with text");
+    };
+    let runs = text.runs.as_ref().expect("PPTX text must carry runs");
+    assert_eq!(runs.len(), 3);
+    assert_eq!(runs[0].content, "Hello");
+    assert_eq!(runs[0].font.name, "Fixture Serif");
+    assert_eq!(runs[0].font.size, 24.0);
+    assert!(runs[0].font.bold);
+    assert_eq!(runs[0].color.fill, Some([64, 77, 89]));
+    assert_eq!(runs[1].content, " theme");
+    assert_eq!(runs[1].font.name, "Fixture Sans");
+    assert_eq!(runs[1].font.size, 14.4);
+    assert_eq!(runs[2].content, "Second paragraph");
+    assert!(runs[2].font.italic);
+    assert_eq!(
+        runs[2].href.as_deref(),
+        Some("https://example.com/styled-run")
+    );
+
+    let Element::Annotation(annotation) = &extraction.pages[0].elements[1] else {
+        panic!("whole-shape hyperlink annotation must remain emitted");
+    };
+    assert_eq!(
+        annotation.uri.as_deref(),
+        Some("https://example.com/styled-run")
     );
 }
 
 #[test]
-fn pptx_is_element_only_and_text_has_no_lines() {
+fn pptx_is_element_only_and_text_has_runs_but_no_lines() {
     let capabilities = PptxExtractor.capabilities();
     assert_eq!(capabilities.finest_granularity, Granularity::Element);
     assert!(check_granularity(&capabilities, None).is_err());
@@ -112,6 +182,7 @@ fn pptx_is_element_only_and_text_has_no_lines() {
     for element in &extraction.pages[0].elements {
         if let Element::Text(text) = element {
             assert!(text.lines.is_none());
+            assert!(text.runs.is_some());
         }
     }
 }

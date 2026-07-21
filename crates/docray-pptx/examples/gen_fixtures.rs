@@ -211,9 +211,16 @@ fn main() {
     write_pptx("table", table, default_slide_rels(""), vec![]);
 
     let styled_text = slide(
-        r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Styled text"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="5486400" cy="1828800"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr><a:normAutofit fontScale="80000"/></a:bodyPr><a:lstStyle/><a:p><a:r><a:rPr sz="3000" b="1"><a:latin typeface="+mj-lt"/><a:solidFill><a:schemeClr val="tx1"><a:tint val="20000"/></a:schemeClr></a:solidFill></a:rPr><a:t>Hello </a:t></a:r><a:r><a:rPr sz="1800"/><a:t>theme</a:t></a:r></a:p><a:p><a:r><a:rPr sz="1800" i="1"/><a:t>Second paragraph</a:t></a:r></a:p></p:txBody></p:sp>"#,
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Styled text"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="5486400" cy="1828800"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr><a:normAutofit fontScale="80000"/></a:bodyPr><a:lstStyle/><a:p><a:r><a:rPr sz="3000" b="1"><a:latin typeface="+mj-lt"/><a:solidFill><a:schemeClr val="tx1"><a:tint val="20000"/></a:schemeClr></a:solidFill></a:rPr><a:t>Hello</a:t></a:r><a:r><a:rPr sz="1800"/><a:t> theme</a:t></a:r></a:p><a:p><a:r><a:rPr sz="1800" i="1"><a:hlinkClick r:id="rIdStyledHyper"/></a:rPr><a:t>Second paragraph</a:t></a:r></a:p></p:txBody></p:sp>"#,
     );
-    write_pptx("styled-text", styled_text, default_slide_rels(""), vec![]);
+    write_pptx(
+        "styled-text",
+        styled_text,
+        default_slide_rels(
+            r#"<Relationship Id="rIdStyledHyper" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/styled-run" TargetMode="External"/>"#,
+        ),
+        vec![],
+    );
 
     let paths = slide(
         r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Rectangle"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1270000" y="1270000"/><a:ext cx="2540000" cy="1270000"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="AA5500"/></a:solidFill><a:ln w="25400"><a:solidFill><a:srgbClr val="001122"/></a:solidFill></a:ln></p:spPr></p:sp><p:cxnSp><p:nvCxnSpPr><p:cNvPr id="3" name="Connector"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="3810000" y="1905000"/><a:ext cx="1905000" cy="635000"/></a:xfrm><a:prstGeom prst="line"/><a:ln w="12700"><a:solidFill><a:srgbClr val="CC0000"/></a:solidFill></a:ln></p:spPr></p:cxnSp>"#,

@@ -3,7 +3,8 @@ use crate::xml::{parse, Node};
 use docray_core::{Capabilities, ExtractError, Extractor};
 use docray_model::{
     round3, AnnotationElement, BBox, DocMetadata, DocumentInfo, Element, Extraction, Font,
-    Granularity, HiddenItem, ImageElement, Page, PathElement, Source, TextColor, TextElement,
+    Granularity, HiddenItem, ImageElement, Page, PathElement, Source, TableCell, TableElement,
+    TextColor, TextElement, TextRun,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -80,7 +81,7 @@ impl Extractor for PptxExtractor {
 
         Ok(Extraction {
             // The base model remains schema 1.1 internally; dispatch requires
-            // explicit element granularity, whose wrapper serializes as 1.3.
+            // explicit element granularity, whose wrapper serializes as 1.4.
             schema_version: "1.1".into(),
             source: Source {
                 format: "pptx".into(),
@@ -411,6 +412,12 @@ fn extract_shape(
             placeholder.as_ref(),
             context,
         );
+        let runs = resolve_shape_runs(
+            tx_body.expect("non-empty text requires txBody"),
+            layout_shape,
+            placeholder.as_ref(),
+            context,
+        );
         elements.push(Element::Text(TextElement {
             id,
             bbox,
@@ -426,6 +433,7 @@ fn extract_shape(
                 stroke: None,
             },
             lines: None,
+            runs: Some(runs),
         }));
 
         for hyperlink in tx_body
@@ -678,14 +686,11 @@ fn extract_graphic_frame(
         ));
         return;
     };
+    let mut cells = Vec::new();
     for (row_index, row) in rows.iter().enumerate() {
         for (col_index, cell) in row.children_named("tc").enumerate() {
             if col_index >= columns.len() || bool_attr(cell, "hMerge") || bool_attr(cell, "vMerge")
             {
-                continue;
-            }
-            let content = cell.child("txBody").map(text_content).unwrap_or_default();
-            if content.is_empty() {
                 continue;
             }
             let col_span = clamped_span(cell, "gridSpan", columns.len() - col_index);
@@ -710,26 +715,25 @@ fn extract_graphic_frame(
                 }),
             };
             let bbox = bbox_for_transform(local, groups);
-            let style = resolve_cell_style(cell.child("txBody").unwrap(), context);
-            let id = next_id(page_number, elements);
-            elements.push(Element::Text(TextElement {
-                id,
+            let tx_body = cell.child("txBody");
+            cells.push(TableCell {
                 bbox,
-                content,
-                font: Font {
-                    name: style.font_name,
-                    size: round3(style.size),
-                    bold: style.bold,
-                    italic: style.italic,
-                },
-                color: TextColor {
-                    fill: style.color,
-                    stroke: None,
-                },
-                lines: None,
-            }));
+                row: row_index,
+                col: col_index,
+                row_span,
+                col_span,
+                content: tx_body.map(text_content).unwrap_or_default(),
+                runs: tx_body.map(|body| resolve_cell_runs(body, context)),
+            });
         }
     }
+    elements.push(Element::Table(TableElement {
+        id: next_id(page_number, elements),
+        bbox: bbox_for_transform(frame_xfrm, groups),
+        rows: rows.len(),
+        cols: columns.len(),
+        cells,
+    }));
 }
 
 fn prefix_sums(values: &[f64]) -> Option<Vec<f64>> {
@@ -1083,15 +1087,75 @@ fn resolve_text_style(
     )
 }
 
-fn resolve_cell_style(tx_body: &Node, context: &SlideContext<'_>) -> ResolvedStyle {
-    let paragraph = tx_body.children_named("p").next();
-    let run_style = paragraph
-        .and_then(first_text_run)
-        .and_then(|node| node.child("rPr"))
-        .map(|node| partial_style(node, context));
-    let paragraph_style =
-        paragraph.and_then(|node| paragraph_default_style(tx_body, node, context));
-    combine_styles(&[run_style, paragraph_style], context.theme)
+fn resolve_shape_runs(
+    tx_body: &Node,
+    layout_shape: Option<&Node>,
+    placeholder: Option<&Placeholder>,
+    context: &SlideContext<'_>,
+) -> Vec<TextRun> {
+    let inherited = [
+        layout_shape
+            .and_then(|shape| shape.child("txBody"))
+            .and_then(|body| body.first_descendant("defRPr"))
+            .map(|node| partial_style(node, context)),
+        context
+            .master
+            .and_then(|master| master_text_style(master, placeholder))
+            .map(|node| partial_style(node, context)),
+    ];
+    resolve_runs(tx_body, &inherited, context, autofit_scale(tx_body))
+}
+
+fn resolve_cell_runs(tx_body: &Node, context: &SlideContext<'_>) -> Vec<TextRun> {
+    resolve_runs(tx_body, &[], context, 1.0)
+}
+
+fn resolve_runs(
+    tx_body: &Node,
+    inherited: &[Option<PartialStyle>],
+    context: &SlideContext<'_>,
+    size_scale: f64,
+) -> Vec<TextRun> {
+    let mut runs = Vec::new();
+    for paragraph in tx_body.children_named("p") {
+        let paragraph_style = paragraph_default_style(tx_body, paragraph, context);
+        for run in &paragraph.children {
+            if !matches!(run.local_name(), "r" | "fld") {
+                continue;
+            }
+            let run_style = run.child("rPr").map(|node| partial_style(node, context));
+            let mut styles = Vec::with_capacity(2 + inherited.len());
+            styles.push(run_style);
+            styles.push(paragraph_style.clone());
+            styles.extend(inherited.iter().cloned());
+            let style = combine_styles(&styles, context.theme);
+            let content = run
+                .descendants("t")
+                .map(|text| text.text.as_str())
+                .collect();
+            let href = run
+                .first_descendant("hlinkClick")
+                .and_then(|node| node.attr("id"))
+                .and_then(|id| context.slide_rels.get(id))
+                .filter(|relation| relation.external)
+                .map(|relation| relation.target.clone());
+            runs.push(TextRun {
+                content,
+                font: Font {
+                    name: style.font_name,
+                    size: scaled_font_size(style.size, size_scale),
+                    bold: style.bold,
+                    italic: style.italic,
+                },
+                color: TextColor {
+                    fill: style.color,
+                    stroke: None,
+                },
+                href,
+            });
+        }
+    }
+    runs
 }
 
 fn combine_styles(styles: &[Option<PartialStyle>], theme: &Theme) -> ResolvedStyle {
@@ -1125,10 +1189,7 @@ fn partial_style(node: &Node, context: &SlideContext<'_>) -> PartialStyle {
             .child("latin")
             .and_then(|latin| latin.attr("typeface"))
             .map(str::to_owned),
-        size: node
-            .attr("sz")
-            .and_then(|value| value.parse::<f64>().ok())
-            .map(|value| value / 100.0),
+        size: node.attr("sz").and_then(parse_font_size),
         bold: node.attr("b").map(parse_bool),
         italic: node.attr("i").map(parse_bool),
         color: node
@@ -1181,7 +1242,7 @@ fn autofit_scale(tx_body: &Node) -> f64 {
     tx_body
         .first_descendant("normAutofit")
         .and_then(|node| node.attr("fontScale"))
-        .and_then(|value| value.parse::<f64>().ok())
+        .and_then(parse_finite_number)
         .map(|value| value / 100_000.0)
         .unwrap_or(1.0)
 }
@@ -1198,8 +1259,18 @@ fn text_content(tx_body: &Node) -> String {
         .children_named("p")
         .map(|paragraph| {
             paragraph
-                .descendants("t")
-                .map(|text| text.text.as_str())
+                .children
+                .iter()
+                .filter_map(|child| match child.local_name() {
+                    "r" | "fld" => Some(
+                        child
+                            .descendants("t")
+                            .map(|text| text.text.as_str())
+                            .collect::<String>(),
+                    ),
+                    "br" => Some("\n".to_owned()),
+                    _ => None,
+                })
                 .collect::<String>()
         })
         .filter(|paragraph| !paragraph.is_empty())
@@ -1349,6 +1420,20 @@ fn parse_finite_number(value: &str) -> Option<f64> {
     value.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
+fn parse_font_size(value: &str) -> Option<f64> {
+    let points = parse_finite_number(value)? / 100.0;
+    round3(points).is_finite().then_some(points)
+}
+
+fn scaled_font_size(size: f64, scale: f64) -> f64 {
+    let scaled = round3(size * scale);
+    if scaled.is_finite() {
+        scaled
+    } else {
+        round3(size)
+    }
+}
+
 fn bool_attr(node: &Node, name: &str) -> bool {
     node.attr(name).is_some_and(parse_bool)
 }
@@ -1486,6 +1571,101 @@ mod tests {
     }
 
     #[test]
+    fn invalid_run_sizes_fall_back_to_finite_inherited_size() {
+        let tx_body = parse_test_xml(
+            r#"<txBody>
+                <lstStyle/>
+                <p>
+                    <pPr><defRPr sz="2400"/></pPr>
+                    <r><rPr sz="NaN"/><t>nan</t></r>
+                    <r><rPr sz="1e308"/><t>huge</t></r>
+                </p>
+            </txBody>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+        let runs = resolve_cell_runs(&tx_body, &context);
+
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|run| run.font.size == 24.0));
+        assert!(runs.iter().all(|run| run.font.size.is_finite()));
+
+        let extraction = Extraction {
+            schema_version: "1.1".into(),
+            source: Source {
+                format: "pptx".into(),
+                sha256: "test".into(),
+                size_bytes: 0,
+            },
+            document: DocumentInfo {
+                page_count: 1,
+                metadata: DocMetadata {
+                    title: None,
+                    author: None,
+                },
+            },
+            warnings: Vec::new(),
+            pages: vec![Page {
+                page_number: 1,
+                width: 100.0,
+                height: 100.0,
+                rotation: 0,
+                scanned: false,
+                elements: vec![Element::Text(TextElement {
+                    id: "p1-e0".into(),
+                    bbox: BBox {
+                        x0: 0.0,
+                        y0: 0.0,
+                        x1: 10.0,
+                        y1: 10.0,
+                    },
+                    content: "nanhuge".into(),
+                    font: runs[0].font.clone(),
+                    color: runs[0].color.clone(),
+                    lines: None,
+                    runs: Some(runs),
+                })],
+                hidden: Vec::new(),
+            }],
+        };
+        let docray_model::GranularExtraction::Compact(compact) =
+            extraction.with_granularity(Granularity::Element)
+        else {
+            unreachable!();
+        };
+        let json = serde_json::to_string(&compact).unwrap();
+        assert!(!json.contains(r#""size":null"#));
+        let lean = compact.to_lean();
+        assert!(!lean.contains("NaN"));
+        assert!(!lean.to_ascii_lowercase().contains("inf"));
+    }
+
+    #[test]
+    fn hard_breaks_and_fields_preserve_paragraph_document_order() {
+        let tx_body = parse_test_xml(
+            r#"<txBody><lstStyle/><p>
+                <r><rPr/><t>A</t></r>
+                <br/>
+                <fld id="{field}"><rPr b="1"/><t>7</t></fld>
+            </p></txBody>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+
+        assert_eq!(text_content(&tx_body), "A\n7");
+        let runs = resolve_cell_runs(&tx_body, &context);
+        assert_eq!(runs.len(), 2, "a:br is content, not a styled TextRun");
+        assert_eq!(runs[0].content, "A");
+        assert!(!runs[0].font.bold);
+        assert_eq!(runs[1].content, "7");
+        assert!(runs[1].font.bold);
+    }
+
+    #[test]
     fn malformed_table_grid_skips_named_table_and_preserves_other_elements() {
         let frame = parse_test_xml(
             r#"<graphicFrame>
@@ -1557,13 +1737,20 @@ mod tests {
             "clamping is valid recovery: {warnings:?}"
         );
         assert_eq!(elements.len(), 1);
-        let Element::Text(text) = &elements[0] else {
-            panic!("table cell must be text");
+        let Element::Table(table) = &elements[0] else {
+            panic!("table must be first-class");
         };
+        assert_eq!(table.cells.len(), 1);
+        let cell = &table.cells[0];
         assert_eq!(
-            (text.bbox.x0, text.bbox.y0, text.bbox.x1, text.bbox.y1),
+            (cell.bbox.x0, cell.bbox.y0, cell.bbox.x1, cell.bbox.y1),
             (0.0, 0.0, 20.0, 20.0)
         );
-        assert_eq!(text.font.size, 9.0, "lvl must clamp to OOXML level 8");
+        assert_eq!((cell.row_span, cell.col_span), (2, 2));
+        assert_eq!(
+            cell.runs.as_ref().unwrap()[0].font.size,
+            9.0,
+            "lvl must clamp to OOXML level 8"
+        );
     }
 }

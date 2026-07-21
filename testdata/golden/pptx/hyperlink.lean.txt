@@ -1,5 +1,6 @@
-#docray element v1.3 pages=1
-#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#docray element v1.4 pages=1
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #page 1 720x540
 T 72 72 360 144 Fixture_Sans 18 - External link
+r Fixture_Sans 18 - href#<https://example.com/literal?x=1&y=2> External link
 A 72 72 360 144 link https://example.com/literal?x=1&y=2

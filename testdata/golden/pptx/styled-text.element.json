@@ -1,10 +1,10 @@
 {
   "granularity": "element",
-  "schema_version": "1.3",
+  "schema_version": "1.4",
   "source": {
     "format": "pptx",
-    "sha256": "e51021a8968f741c6d815f1050334a6e14836ad08242e1d0190484d393a64ce2",
-    "size_bytes": 7713
+    "sha256": "eea5104461cd98a2ff4c3c42689511474bc5aed26b267a5df88581d44dc57848",
+    "size_bytes": 7939
   },
   "document": {
     "page_count": 1,
@@ -38,7 +38,51 @@
               77,
               89
             ]
-          }
+          },
+          "runs": [
+            {
+              "content": "Hello",
+              "font": {
+                "name": "Fixture Serif",
+                "size": 24.0,
+                "bold": true
+              },
+              "color": {
+                "fill": [
+                  64,
+                  77,
+                  89
+                ]
+              }
+            },
+            {
+              "content": " theme",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 14.4
+              }
+            },
+            {
+              "content": "Second paragraph",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 14.4,
+                "italic": true
+              },
+              "href": "https://example.com/styled-run"
+            }
+          ]
+        },
+        {
+          "type": "annotation",
+          "bbox": [
+            72.0,
+            72.0,
+            504.0,
+            216.0
+          ],
+          "subtype": "link",
+          "uri": "https://example.com/styled-run"
         }
       ]
     }

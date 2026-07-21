@@ -29,6 +29,7 @@ fn near(actual: f64, expected: f64) {
 fn element_bbox(element: &Element) -> BBox {
     match element {
         Element::Text(element) => element.bbox,
+        Element::Table(element) => element.bbox,
         Element::Image(element) => element.bbox,
         Element::Path(element) => element.bbox,
         Element::Annotation(element) => element.bbox,
@@ -168,6 +169,7 @@ fn recursively_flattens_form_objects_in_page_space() {
     for (index, element) in page.elements.iter().enumerate() {
         let id = match element {
             Element::Text(element) => &element.id,
+            Element::Table(element) => &element.id,
             Element::Image(element) => &element.id,
             Element::Path(element) => &element.id,
             Element::Annotation(element) => &element.id,
