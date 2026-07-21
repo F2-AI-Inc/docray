@@ -4,14 +4,14 @@
 
 ```text
                    ┌──────────────────────────────┐
- PDF upload ──────►│ docray-server (axum)         │
+ document upload ─►│ docray-server (axum)         │
                    │  sync: bounded semaphore     │
                    │  jobs: SQLite queue + pool   │
                    └──────────────┬───────────────┘
                                   │ spawns per document
                    ┌──────────────▼───────────────┐
                    │ docray CLI (subprocess)      │
-                   │  PDFium behind docray-pdf    │
+                   │  docray-pdf / docray-pptx    │
                    │  timeout · memory rlimit ·   │
                    │  output cap                  │
                    └──────────────┬───────────────┘
@@ -22,14 +22,16 @@
 
 Crates: `docray-model` (the serde schema — the contract everything shares),
 `docray-core` (extractor trait, format sniffing, geometric char→word→line
-grouping), `docray-pdf` (PDFium-backed extractor), `docray-cli`,
+grouping), `docray-pdf` (PDFium-backed extractor), `docray-pptx` (pure-Rust
+OOXML extractor), `docray-cli`,
 `docray-server`.
 
 ## Why a subprocess per document
 
-PDFs are hostile input and PDF parsers are large C++ codebases. docray treats
-parser compromise/crash as *expected*: the server never loads PDFium in its
-own process. Each extraction runs in a worker with:
+Documents are hostile input, and PDF parsers in particular are large C++
+codebases. docray treats parser compromise/crash as *expected*: the server
+never parses PDF or PPTX input in its own process. Each extraction runs in a
+worker with:
 
 - a **wall-clock timeout** (killed, reported as `timeout`),
 - a **memory rlimit** (Linux; the worker dies before the container OOMs),
@@ -42,9 +44,9 @@ A segfault in the parser costs one request, never the service.
 
 ## Extraction guarantees
 
-- **Deterministic**: identical input bytes → byte-identical JSON on a given
-  platform and PDFium build, enforced by golden-file tests and
-  double-extraction checks in CI (Linux is the canonical golden platform).
+- **Deterministic**: identical input bytes → byte-identical JSON. PDF goldens
+  are Linux-canonical because font metrics can vary; PPTX goldens are
+  byte-exact on every platform.
 - **Lossless at `char` level**: every text run, glyph box, image, path, and
   annotation the PDF physically contains, including content nested inside
   (possibly deeply nested) Form XObjects, with ancestor transforms composed

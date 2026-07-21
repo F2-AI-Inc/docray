@@ -29,7 +29,7 @@ with a stable exit code:
 | Exit | Code | Meaning |
 |---:|---|---|
 | 0 | — | success (warnings, if any, are inside the JSON / `#warning` lines in lean) |
-| 2 | `unsupported_format` | input is not a PDF |
+| 2 | `unsupported_format` | input is not supported PDF/PPTX, or is legacy/encrypted Office |
 | 3 | `encrypted_pdf` | password-protected |
 | 4 | `parse_failure` | document could not be opened |
 | 5 | `io_error` | file unreadable / missing |
@@ -69,3 +69,7 @@ granularity implies `element`; `--format lean --granularity char` fails with
 exit 7 and code `bad_format`. `--pretty` affects JSON only. See
 [output formats](output-formats.md) for the line format and its deliberate
 lossless-JSON deltas.
+
+PPTX supports only explicit `--granularity element` and lean (whose default is
+element). Omitted granularity, `word`, and `char` return exit 8 with
+`granularity_unavailable`. See [PowerPoint extraction](pptx.md).

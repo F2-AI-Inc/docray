@@ -2,8 +2,8 @@
 
 docray extracts structured, deterministic JSON (text with font/color/hierarchy,
 images, vector paths, and annotations, all with page-space coordinates) from
-documents — PDF in v1, with the extractor trait designed so new formats are
-new crates rather than schema changes. It ships as a CLI (`docray`) for
+PDF documents and PPTX presentations. PDF supports char, word, and element
+granularity; PPTX supports element granularity. It ships as a CLI (`docray`) for
 one-shot extraction and a server (`docray-server`) exposing a sync endpoint for
 small/fast documents and an async job queue for everything else. The full
 JSON contract is documented in the API and granularity sections below.
@@ -99,16 +99,22 @@ curl -sf http://localhost:41619/v1/jobs/<job_id>/result
 cargo run -p docray-cli -- extract file.pdf --pretty
 # or, once built:
 docray extract file.pdf [--max-pages N] [--pretty] [--granularity element|word|char] [--format json|lean]
+docray extract deck.pptx --granularity element
 ```
 
 ### Granularity
 
-By default, docray emits the lossless char-level v1.1 response exactly as before.
+For PDF, docray emits the lossless char-level v1.1 response by default.
 Passing `--granularity element|word|char` to the CLI, or
 `?granularity=element|word|char` to `POST /v1/extract` or `POST /v1/jobs`,
 selects an explicit v1.2 response with a top-level `granularity` field. Jobs
 persist the requested level and use it when their worker runs. Invalid query
 values return `400 {"error":{"code":"bad_granularity",...}}`.
+
+PPTX is element-only: use explicit `granularity=element` or lean. Omitted,
+`word`, and `char` requests return `granularity_unavailable`. PPTX output does
+not use the PDF token-reduction measurements below; see the
+[PPTX documentation](book/src/pptx.md).
 
 ```bash
 docray extract file.pdf --granularity word

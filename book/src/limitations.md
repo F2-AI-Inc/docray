@@ -3,14 +3,13 @@
 docray is honest about what it does not do. Everything here is by design or
 known, not hidden.
 
-- **PDF only.** The extractor trait and format sniffing are built to support
-  multiple formats, but PDF is the only implemented input today.
+- **PPTX is element-only.** It has no character/word boxes, faithful rendering,
+  or chart/SmartArt geometry. See [PowerPoint extraction](pptx.md).
 - **No OCR.** Raster-only pages are *flagged* (`"scanned": true`) but their
   text is not recovered — recovering it requires OCR downstream.
 - **No semantic layer.** docray reports physical structure — it does not
-  classify headings, paragraphs, tables, or lists, and does not infer reading
-  order. Text and words appear in content-stream order, which usually but not
-  always matches reading order.
+  classify headings or lists and does not infer reading order. PDF text and
+  words appear in content-stream order; PPTX elements appear in z-order.
 - **Silently recovered corruption.** When the underlying parser encounters a
   corrupt page it sometimes recovers by rendering an empty page without
   reporting an error; such pages are indistinguishable from genuinely blank
