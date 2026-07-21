@@ -49,6 +49,7 @@ is instance-local — see
 |---:|---|---|
 | 400 | `bad_granularity` | invalid `granularity` value |
 | 400 | `bad_format` | invalid `format`, or lean combined with `char` |
+| 400 | `granularity_unavailable` | the requested granularity is finer than this source provides |
 | 400 | `bad_multipart` / `missing_file` | malformed upload |
 | 413 | `too_large` / `too_many_pages` | over sync caps — use jobs |
 | 415 | `unsupported_format` | not a PDF |

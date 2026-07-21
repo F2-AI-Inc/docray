@@ -1,5 +1,5 @@
-use docray_core::Extractor;
-use docray_model::Element;
+use docray_core::{check_granularity, Extractor};
+use docray_model::{Element, Granularity};
 use docray_pdf::PdfExtractor;
 
 /// cargo runs test binaries with CWD = crate dir, so bind()'s relative
@@ -48,10 +48,14 @@ fn extracts_text_hierarchy_from_simple_pdf() {
 
     // "Hello World" -> one line, two words, chars have boxes.
     let hello = texts.iter().find(|t| t.content.contains("Hello")).unwrap();
-    assert_eq!(hello.lines.len(), 1);
-    assert_eq!(hello.lines[0].words.len(), 2);
-    assert_eq!(hello.lines[0].words[0].content, "Hello");
-    let c0 = &hello.lines[0].words[0].chars[0];
+    let lines = hello
+        .lines
+        .as_ref()
+        .expect("PDF text must include the full hierarchy");
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].words.len(), 2);
+    assert_eq!(lines[0].words[0].content, "Hello");
+    let c0 = &lines[0].words[0].chars[0];
     assert_eq!(c0.content, "H");
     assert!(c0.bbox.x1 > c0.bbox.x0 && c0.bbox.y1 > c0.bbox.y0);
 
@@ -62,7 +66,7 @@ fn extracts_text_hierarchy_from_simple_pdf() {
     // Baseline derives from each char's origin y (flipped to top-left space),
     // so it must sit within the line's glyph box — near the bottom for this
     // ascender-only text. Pins the F4 origin-based baseline against regression.
-    let baseline = hello.lines[0].baseline_y;
+    let baseline = lines[0].baseline_y;
     assert!(
         baseline >= hello.bbox.y0 && baseline <= hello.bbox.y1 + 1.0,
         "baseline {baseline} outside bbox {:?}",
@@ -86,6 +90,19 @@ fn extracts_text_hierarchy_from_simple_pdf() {
         };
         id == &format!("p1-e{i}")
     }));
+}
+
+#[test]
+fn pdf_capabilities_accept_every_granularity() {
+    let capabilities = PdfExtractor.capabilities();
+    for requested in [
+        None,
+        Some(Granularity::Char),
+        Some(Granularity::Word),
+        Some(Granularity::Element),
+    ] {
+        assert_eq!(check_granularity(&capabilities, requested), Ok(()));
+    }
 }
 
 #[test]

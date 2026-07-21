@@ -57,7 +57,10 @@ fn recursively_flattens_form_objects_in_page_space() {
     // Local baseline (10,20) under [2 0 0 2 100 300] becomes PDF-space
     // (120,340), or top-left baseline y=792-340=452.
     near(scaled.bbox.x0, 120.0);
-    near(scaled.lines[0].baseline_y, 452.0);
+    near(
+        scaled.lines.as_ref().expect("PDF hierarchy missing")[0].baseline_y,
+        452.0,
+    );
     assert_eq!(scaled.font.size, 20.0, "10pt text under 2x form scale");
 
     let path = page
@@ -111,7 +114,10 @@ fn recursively_flattens_form_objects_in_page_space() {
     // (10,20) + inner /Matrix (5,7) + inner cm (20,40) + outer cm
     // (300,500) = PDF-space baseline (335,567), top-left y=225.
     near(nested.bbox.x0, 335.0);
-    near(nested.lines[0].baseline_y, 225.0);
+    near(
+        nested.lines.as_ref().expect("PDF hierarchy missing")[0].baseline_y,
+        225.0,
+    );
 
     let order_text = texts
         .iter()
@@ -120,7 +126,10 @@ fn recursively_flattens_form_objects_in_page_space() {
     // Text local (0,10), then inner cm (30,10), then outer [2 0 0 2 400 100]
     // gives PDF baseline (460,140), or top-left y=652.
     near(order_text.bbox.x0, 460.0);
-    near(order_text.lines[0].baseline_y, 652.0);
+    near(
+        order_text.lines.as_ref().expect("PDF hierarchy missing")[0].baseline_y,
+        652.0,
+    );
 
     let order_path = page
         .elements

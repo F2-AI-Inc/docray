@@ -80,7 +80,8 @@ pub struct TextElement {
     pub content: String,
     pub font: Font,
     pub color: TextColor,
-    pub lines: Vec<Line>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lines: Option<Vec<Line>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -164,6 +165,15 @@ impl Granularity {
             Granularity::Element => "element",
             Granularity::Word => "word",
             Granularity::Char => "char",
+        }
+    }
+
+    /// Orders granularities from coarsest to finest.
+    pub const fn rank(self) -> u8 {
+        match self {
+            Granularity::Element => 0,
+            Granularity::Word => 1,
+            Granularity::Char => 2,
         }
     }
 }
@@ -637,10 +647,13 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
                 },
                 Granularity::Word => CompactTextContent::Word {
                     // Preserve the extractor's content-stream order; DPS does
-                    // not perform semantic reordering.
+                    // not perform semantic reordering. A missing hierarchy is
+                    // unreachable through capability-aware entry points for a
+                    // word request, but keep this projection defined defensively.
                     words: text
                         .lines
                         .iter()
+                        .flatten()
                         .flat_map(|line| line.words.iter())
                         .map(|word| {
                             let [x0, y0, x1, y1] = compact_bbox(&word.bbox);

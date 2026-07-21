@@ -6,7 +6,7 @@
 // rather than taking down the service.
 use crate::{bind::pdfium, coords::PageSpace};
 use docray_core::grouping::{group_into_lines, RawChar};
-use docray_core::{sniff_format, ExtractError, Extractor, Format};
+use docray_core::{sniff_format, Capabilities, ExtractError, Extractor, Format};
 use docray_model::*;
 use pdfium_render::prelude::*;
 use sha2::{Digest, Sha256};
@@ -18,6 +18,12 @@ const SCANNED_IMAGE_COVERAGE_THRESHOLD: f64 = 0.85;
 pub struct PdfExtractor;
 
 impl Extractor for PdfExtractor {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            finest_granularity: Granularity::Char,
+        }
+    }
+
     fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Extraction, ExtractError> {
         if sniff_format(bytes) != Some(Format::Pdf) {
             return Err(ExtractError::UnsupportedFormat);
@@ -435,7 +441,7 @@ fn text_element(
             italic: font.is_italic() || name_lower.contains("italic"),
         },
         color: TextColor { fill, stroke },
-        lines,
+        lines: Some(lines),
     }))
 }
 
