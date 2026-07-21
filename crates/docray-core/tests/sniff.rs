@@ -15,11 +15,19 @@ fn detects_pdf_magic_with_leading_junk_within_1024_bytes() {
 
 #[test]
 fn rejects_non_pdf_and_junk_beyond_1024() {
-    assert_eq!(sniff_format(b"PK\x03\x04 not a pdf"), None);
+    assert_eq!(sniff_format(b"not a document"), None);
     let mut bytes = vec![b'x'; 2000];
     bytes.extend_from_slice(b"%PDF-1.4");
     assert_eq!(sniff_format(&bytes), None);
     assert_eq!(sniff_format(b""), None);
+}
+
+#[test]
+fn detects_zip_magic_without_parsing_the_container() {
+    assert_eq!(
+        sniff_format(b"PK\x03\x04 not necessarily a pptx"),
+        Some(Format::Zip)
+    );
 }
 
 // Boundary: the header START must be within the first 1024 bytes. A header
@@ -48,6 +56,10 @@ fn header_start_offset_boundary_is_1024() {
 #[test]
 fn error_codes_are_stable_strings() {
     assert_eq!(ExtractError::UnsupportedFormat.code(), "unsupported_format");
+    assert_eq!(
+        ExtractError::UnsupportedFormatMessage("detail".into()).code(),
+        "unsupported_format"
+    );
     assert_eq!(ExtractError::EncryptedPdf.code(), "encrypted_pdf");
     assert_eq!(
         ExtractError::TooManyPages {

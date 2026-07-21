@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use docray_core::{check_granularity, sniff_format, ExtractError, Extractor, Format};
 use docray_model::{GranularExtraction, Granularity, OutputFormat};
 use docray_pdf::PdfExtractor;
+use docray_pptx::PptxExtractor;
 use std::process::ExitCode;
 use std::str::FromStr;
 
@@ -76,6 +77,14 @@ fn run_extract(
             check_granularity(&extractor.capabilities(), granularity)
                 .and_then(|()| extractor.extract(&bytes, max_pages))
         }
+        Some(Format::Zip) => {
+            let extractor = PptxExtractor;
+            check_granularity(&extractor.capabilities(), granularity)
+                .and_then(|()| extractor.extract(&bytes, max_pages))
+        }
+        None if bytes.starts_with(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1") => {
+            PptxExtractor.extract(&bytes, max_pages)
+        }
         None => Err(ExtractError::UnsupportedFormat),
     };
     match result {
@@ -132,7 +141,7 @@ fn fail(e: &ExtractError) -> ExitCode {
 
 fn extract_error_exit_code(e: &ExtractError) -> u8 {
     match e {
-        ExtractError::UnsupportedFormat => 2,
+        ExtractError::UnsupportedFormat | ExtractError::UnsupportedFormatMessage(_) => 2,
         ExtractError::EncryptedPdf => 3,
         ExtractError::ParseFailure(_) => 4,
         ExtractError::Io(_) => 5,

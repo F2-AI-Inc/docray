@@ -1,0 +1,15 @@
+[package]
+name = "docray-pptx"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+docray-model = { path = "../docray-model" }
+docray-core = { path = "../docray-core" }
+quick-xml = "=0.41.0"
+sha2 = "0.10"
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+serde_json.workspace = true
