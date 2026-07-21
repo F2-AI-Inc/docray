@@ -445,6 +445,7 @@ fn text_element(
         },
         color: TextColor { fill, stroke },
         lines: Some(lines),
+        runs: None,
     }))
 }
 

@@ -69,6 +69,7 @@ fn sample() -> Extraction {
                         }],
                     }],
                 }]),
+                runs: None,
             })],
             hidden: vec![],
         }],
@@ -97,7 +98,7 @@ fn roundtrips() {
 }
 
 #[test]
-fn optional_lines_preserve_old_json_shape_and_omit_when_absent() {
+fn optional_lines_and_runs_preserve_old_json_shape_and_omit_when_absent() {
     let extraction = sample();
     let Element::Text(text) = &extraction.pages[0].elements[0] else {
         panic!("sample text element missing");
@@ -112,11 +113,13 @@ fn optional_lines_preserve_old_json_shape_and_omit_when_absent() {
 
     let decoded: TextElement = serde_json::from_str(old_shape).unwrap();
     assert!(decoded.lines.is_some());
+    assert_eq!(decoded.runs, None);
 
     let mut missing_lines: serde_json::Value = serde_json::from_str(old_shape).unwrap();
     missing_lines.as_object_mut().unwrap().remove("lines");
     let decoded: TextElement = serde_json::from_value(missing_lines).unwrap();
     assert_eq!(decoded.lines, None);
+    assert_eq!(decoded.runs, None);
 }
 
 #[test]
@@ -127,6 +130,71 @@ fn empty_hidden_preserves_frozen_v1_1_page_shape_byte_for_byte() {
 
     let decoded: Page = serde_json::from_str(old_shape).unwrap();
     assert!(decoded.hidden.is_empty());
+    let Element::Text(text) = &decoded.elements[0] else {
+        panic!("frozen page text element missing");
+    };
+    assert_eq!(text.runs, None);
+}
+
+#[test]
+fn text_runs_and_tables_serialize_with_stable_shapes_and_roundtrip() {
+    let runs = vec![TextRun {
+        content: "linked".into(),
+        font: Font {
+            name: "Fixture Sans".into(),
+            size: 11.0,
+            bold: true,
+            italic: false,
+        },
+        color: TextColor {
+            fill: Some([1, 2, 3]),
+            stroke: None,
+        },
+        href: Some("https://example.com".into()),
+    }];
+    let table = Element::Table(TableElement {
+        id: "p1-e1".into(),
+        bbox: BBox {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 110.0,
+            y1: 70.0,
+        },
+        rows: 2,
+        cols: 3,
+        cells: vec![TableCell {
+            bbox: BBox {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 110.0,
+                y1: 45.0,
+            },
+            row: 0,
+            col: 0,
+            row_span: 1,
+            col_span: 3,
+            content: "linked".into(),
+            runs: Some(runs.clone()),
+        }],
+    });
+    let value = serde_json::to_value(&table).unwrap();
+    assert_eq!(value["type"], "table");
+    assert_eq!(value["rows"], 2);
+    assert_eq!(value["cols"], 3);
+    assert_eq!(value["cells"][0]["row_span"], 1);
+    assert_eq!(value["cells"][0]["col_span"], 3);
+    assert_eq!(value["cells"][0]["runs"][0]["href"], "https://example.com");
+    let decoded: Element = serde_json::from_value(value).unwrap();
+    assert_eq!(decoded, table);
+
+    let mut text = match sample().pages[0].elements[0].clone() {
+        Element::Text(text) => text,
+        _ => unreachable!(),
+    };
+    text.runs = Some(runs);
+    let value = serde_json::to_value(text).unwrap();
+    assert_eq!(value["runs"][0]["content"], "linked");
+    assert_eq!(value["runs"][0]["font"]["bold"], true);
 }
 
 #[test]
@@ -166,7 +234,7 @@ fn explicit_granularities_keep_nonempty_warnings() {
     extraction.warnings = vec!["page 1 recovered with omissions".into()];
     for level in [Granularity::Char, Granularity::Word, Granularity::Element] {
         let value = serde_json::to_value(extraction.with_granularity(level)).unwrap();
-        assert_eq!(value["schema_version"], "1.3");
+        assert_eq!(value["schema_version"], "1.4");
         assert_eq!(value["granularity"], level.as_str());
         assert_eq!(
             value["warnings"],

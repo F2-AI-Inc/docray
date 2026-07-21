@@ -19,17 +19,20 @@ provide and returns `granularity_unavailable`, with guidance to retry using
 ## Extracted content
 
 - Text shapes are emitted as one text element, with paragraphs separated by
-  newlines. Run font, size, emphasis, theme color, and normal-autofit scaling
-  are resolved where present.
-- Table cells are emitted as text elements. Grid and row dimensions determine
-  their boxes; merged-cell continuations are omitted and the anchor spans the
-  merged box.
+  newlines. The dominant summary remains on the text element, while `runs`
+  preserves each run's resolved font, size, emphasis, theme color, normal-
+  autofit scaling, and external hyperlink target.
+- Tables are emitted as first-class table elements with grid dimensions and
+  row-major anchor cells. Grid and row dimensions determine cell boxes;
+  merged-cell continuations are omitted and the anchor carries the row/column
+  span and merged box. Cell text also preserves per-run styles.
 - Pictures are emitted as image elements. Their content hash covers the exact
   referenced media-part bytes.
 - Geometry-only shapes and connectors are emitted as path elements with the
   fill, stroke, and stroke width represented by the existing JSON model.
-- External click hyperlinks are emitted as link annotations. Their targets are
-  returned literally and are never fetched.
+- External click hyperlinks continue to be emitted as link annotations. A
+  text run also carries its external target in `href`; targets are returned
+  literally and are never fetched.
 - Placeholder roles are emitted in the non-visible `hidden` channel using the
   placeholder `type` verbatim; the ECMA default is `body` when `type` is absent.
 - Speaker notes are emitted as page-targeted `notes`, using only the notes

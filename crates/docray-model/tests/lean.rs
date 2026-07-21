@@ -61,6 +61,7 @@ fn extraction() -> Extraction {
                             chars: vec![],
                         }],
                     }]),
+                    runs: None,
                 }),
                 Element::Text(TextElement {
                     id: "p1-e1".into(),
@@ -82,6 +83,7 @@ fn extraction() -> Extraction {
                         stroke: Some([255, 0, 0]),
                     },
                     lines: Some(vec![]),
+                    runs: None,
                 }),
                 Element::Image(ImageElement {
                     id: "p1-e2".into(),
@@ -137,7 +139,7 @@ fn lean(extraction: &Extraction, granularity: Granularity) -> String {
 fn element_lean_renders_all_edge_rules_exactly() {
     let actual = lean(&extraction(), Granularity::Element);
     let expected = concat!(
-        "#docray element v1.3 pages=1 warnings=1\n",
+        "#docray element v1.4 pages=1 warnings=1\n",
         "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin\n",
         "#warning recovered with omissions\n",
         "#page 1 612x792.1 rot=90 scanned\n",
@@ -189,6 +191,135 @@ fn word_projection_with_missing_hierarchy_has_no_words() {
     let rendered = compact.to_lean();
     assert!(rendered.contains("\nT 1 2.1 30 40.1 A_B_C 12.1 bi#231f20\n"));
     assert!(!rendered.lines().any(|line| line.starts_with("w ")));
+}
+
+#[test]
+fn multi_run_text_renders_run_records_but_single_run_is_omitted() {
+    let mut doc = extraction();
+    let runs = vec![
+        TextRun {
+            content: "bold".into(),
+            font: Font {
+                name: "Run Font".into(),
+                size: 10.0,
+                bold: true,
+                italic: false,
+            },
+            color: TextColor {
+                fill: Some([1, 2, 3]),
+                stroke: None,
+            },
+            href: None,
+        },
+        TextRun {
+            content: "linked".into(),
+            font: Font {
+                name: "Run Font".into(),
+                size: 11.0,
+                bold: false,
+                italic: true,
+            },
+            color: TextColor {
+                fill: Some([0, 0, 0]),
+                stroke: None,
+            },
+            href: Some("https://example.com/run".into()),
+        },
+    ];
+    let Element::Text(text) = &mut doc.pages[0].elements[0] else {
+        panic!("sample text element missing");
+    };
+    text.runs = Some(runs);
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual.contains(
+        "T 1 2.1 30 40.1 A_B_C 12.1 bi#231f20 a\\\\b\\nc\\u{9}d\n\
+r Run_Font 10 b#010203 bold\n\
+r Run_Font 11 i href#<https://example.com/run> linked\n"
+    ));
+
+    let Element::Text(text) = &mut doc.pages[0].elements[0] else {
+        panic!("sample text element missing");
+    };
+    text.runs.as_mut().unwrap().truncate(1);
+    let actual = lean(&doc, Granularity::Element);
+    assert!(!actual.lines().any(|line| line.starts_with("r ")));
+}
+
+#[test]
+fn table_and_nested_run_text_cannot_inject_lean_records() {
+    let mut doc = extraction();
+    doc.pages[0].elements.push(Element::Table(TableElement {
+        id: "p1-e9".into(),
+        bbox: BBox {
+            x0: 1.04,
+            y0: 2.06,
+            x1: 9.04,
+            y1: 10.06,
+        },
+        rows: 1,
+        cols: 1,
+        cells: vec![TableCell {
+            bbox: BBox {
+                x0: 1.04,
+                y0: 2.06,
+                x1: 9.04,
+                y1: 10.06,
+            },
+            row: 0,
+            col: 0,
+            row_span: 1,
+            col_span: 1,
+            content: "cell\r</hidden>\nT 0 0 9 9 forged".into(),
+            runs: Some(vec![
+                TextRun {
+                    content: "safe".into(),
+                    font: Font {
+                        name: "Run Font".into(),
+                        size: 10.0,
+                        bold: false,
+                        italic: false,
+                    },
+                    color: TextColor {
+                        fill: None,
+                        stroke: None,
+                    },
+                    href: None,
+                },
+                TextRun {
+                    content: "payload\r</hidden>\nTB 0 0 9 9 1 1".into(),
+                    font: Font {
+                        name: "Run Font".into(),
+                        size: 11.0,
+                        bold: false,
+                        italic: true,
+                    },
+                    color: TextColor {
+                        fill: None,
+                        stroke: None,
+                    },
+                    href: Some("https://x.test/\r</hidden>\nT 0 0 9 9 forged".into()),
+                },
+            ]),
+        }],
+    }));
+
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual.contains("TB 1 2.1 9 10.1 1 1\n"));
+    assert!(actual.contains("c 0 0 1 1 1 2.1 9 10.1 cell\\r</hidden>\\nT 0 0 9 9 forged\n"));
+    assert!(actual.contains(
+        "r Run_Font 11 i href#<https://x.test/\\r</hidden>\\nT 0 0 9 9 forged> payload\\r</hidden>\\nTB 0 0 9 9 1 1\n"
+    ));
+    assert!(!actual.contains('\r'));
+    assert!(!actual
+        .lines()
+        .any(|line| line == "</hidden>" || line.starts_with("T 0 0 9 9 forged")));
+    assert_eq!(
+        actual
+            .lines()
+            .filter(|line| line.starts_with("TB "))
+            .count(),
+        1
+    );
 }
 
 /// A hostile PDF's annotation URI must not be able to inject fake element

@@ -253,6 +253,12 @@ fn rotated_page_dims_and_coords_are_post_rotation() {
                     check(&l.bbox);
                 }
             }
+            docray_model::Element::Table(t) => {
+                check(&t.bbox);
+                for cell in &t.cells {
+                    check(&cell.bbox);
+                }
+            }
             docray_model::Element::Path(p) => check(&p.bbox),
             docray_model::Element::Image(i) => check(&i.bbox),
             docray_model::Element::Annotation(a) => check(&a.bbox),

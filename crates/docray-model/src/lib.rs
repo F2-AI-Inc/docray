@@ -78,6 +78,7 @@ pub struct HiddenItem {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Element {
     Text(TextElement),
+    Table(TableElement),
     Image(ImageElement),
     Path(PathElement),
     Annotation(AnnotationElement),
@@ -92,6 +93,38 @@ pub struct TextElement {
     pub color: TextColor,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lines: Option<Vec<Line>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub runs: Option<Vec<TextRun>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextRun {
+    pub content: String,
+    pub font: Font,
+    pub color: TextColor,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub href: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableElement {
+    pub id: String,
+    pub bbox: BBox,
+    pub rows: usize,
+    pub cols: usize,
+    pub cells: Vec<TableCell>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableCell {
+    pub bbox: BBox,
+    pub row: usize,
+    pub col: usize,
+    pub row_span: usize,
+    pub col_span: usize,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub runs: Option<Vec<TextRun>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -312,6 +345,7 @@ pub struct CompactPage {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CompactElement {
     Text(CompactTextElement),
+    Table(CompactTableElement),
     Image(CompactBoxElement),
     Path(CompactBoxElement),
     Annotation(CompactAnnotationElement),
@@ -325,6 +359,8 @@ pub struct CompactTextElement {
     pub font: CompactFont,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<CompactTextColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<TextRun>>,
 }
 
 #[derive(Serialize)]
@@ -337,6 +373,26 @@ pub enum CompactTextContent {
 /// Positional word record: `[text, x0, y0, x1, y1]` in extraction/content-stream order.
 #[derive(Serialize)]
 pub struct CompactWord(pub String, pub f64, pub f64, pub f64, pub f64);
+
+#[derive(Serialize)]
+pub struct CompactTableElement {
+    pub bbox: [f64; 4],
+    pub rows: usize,
+    pub cols: usize,
+    pub cells: Vec<CompactTableCell>,
+}
+
+#[derive(Serialize)]
+pub struct CompactTableCell {
+    pub bbox: [f64; 4],
+    pub row: usize,
+    pub col: usize,
+    pub row_span: usize,
+    pub col_span: usize,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<TextRun>>,
+}
 
 #[derive(Serialize)]
 pub struct CompactBoxElement {
@@ -369,8 +425,10 @@ pub struct CompactTextColor {
     pub stroke: Option<[u8; 3]>,
 }
 
-const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
-const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const LEGACY_ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const LEGACY_WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const HIDDEN_LEGEND: &str =
     "#legend <hidden> kind [element-id] content | non-visible document context";
 
@@ -402,10 +460,21 @@ impl CompactExtraction {
             write!(output, " warnings={}", self.warnings.len())?;
         }
         output.write_char('\n')?;
-        output.write_str(match self.granularity {
-            Granularity::Element => ELEMENT_LEGEND,
-            Granularity::Word => WORD_LEGEND,
-            Granularity::Char => unreachable!("char does not use compact output"),
+        let has_run_or_table_detail = self.pages.iter().any(|page| {
+            page.elements.iter().any(|element| match element {
+                CompactElement::Text(text) => text.runs.is_some(),
+                CompactElement::Table(_) => true,
+                CompactElement::Image(_)
+                | CompactElement::Path(_)
+                | CompactElement::Annotation(_) => false,
+            })
+        });
+        output.write_str(match (self.granularity, has_run_or_table_detail) {
+            (Granularity::Element, true) => ELEMENT_LEGEND,
+            (Granularity::Word, true) => WORD_LEGEND,
+            (Granularity::Element, false) => LEGACY_ELEMENT_LEGEND,
+            (Granularity::Word, false) => LEGACY_WORD_LEGEND,
+            (Granularity::Char, _) => unreachable!("char does not use compact output"),
         })?;
         output.write_char('\n')?;
         if self.pages.iter().any(|page| !page.hidden.is_empty()) {
@@ -440,6 +509,7 @@ impl CompactExtraction {
                         let font = lean_font_name(&text.font.name);
                         let size = lean_number(text.font.size);
                         let style = lean_style(text);
+                        let runs = text.runs.as_deref();
                         match &text.content {
                             CompactTextContent::Element { text } => {
                                 writeln!(
@@ -447,9 +517,11 @@ impl CompactExtraction {
                                     "T {bbox} {font} {size} {style} {}",
                                     escape_text(text)
                                 )?;
+                                write_lean_runs(output, runs)?;
                             }
                             CompactTextContent::Word { words } => {
                                 writeln!(output, "T {bbox} {font} {size} {style}")?;
+                                write_lean_runs(output, runs)?;
                                 for word in words {
                                     writeln!(
                                         output,
@@ -462,6 +534,28 @@ impl CompactExtraction {
                                     )?;
                                 }
                             }
+                        }
+                    }
+                    CompactElement::Table(table) => {
+                        writeln!(
+                            output,
+                            "TB {} {} {}",
+                            lean_bbox(&table.bbox),
+                            table.rows,
+                            table.cols
+                        )?;
+                        for cell in &table.cells {
+                            writeln!(
+                                output,
+                                "c {} {} {} {} {} {}",
+                                cell.row,
+                                cell.col,
+                                cell.row_span,
+                                cell.col_span,
+                                lean_bbox(&cell.bbox),
+                                escape_text(&cell.content)
+                            )?;
+                            write_lean_runs(output, cell.runs.as_deref())?;
                         }
                     }
                     CompactElement::Image(image) => {
@@ -532,21 +626,53 @@ fn lean_font_name(name: &str) -> String {
 }
 
 fn lean_style(text: &CompactTextElement) -> String {
+    lean_style_parts(
+        text.font.bold,
+        text.font.italic,
+        text.color.as_ref().and_then(|color| color.fill),
+    )
+}
+
+fn lean_run_style(run: &TextRun) -> String {
+    lean_style_parts(run.font.bold, run.font.italic, run.color.fill)
+}
+
+fn lean_style_parts(bold: bool, italic: bool, fill: Option<[u8; 3]>) -> String {
     let mut style = String::new();
-    if text.font.bold {
+    if bold {
         style.push('b');
     }
-    if text.font.italic {
+    if italic {
         style.push('i');
     }
     if style.is_empty() {
         style.push('-');
     }
-    if let Some(fill) = text.color.as_ref().and_then(|color| color.fill) {
+    if let Some(fill) = fill.filter(|value| *value != [0, 0, 0]) {
         write!(style, "#{:02x}{:02x}{:02x}", fill[0], fill[1], fill[2])
             .expect("writing to a String cannot fail");
     }
     style
+}
+
+fn write_lean_runs<W: fmt::Write>(output: &mut W, runs: Option<&[TextRun]>) -> fmt::Result {
+    let Some(runs) = runs.filter(|runs| runs.len() > 1) else {
+        return Ok(());
+    };
+    for run in runs {
+        write!(
+            output,
+            "r {} {} {} ",
+            lean_font_name(&run.font.name),
+            lean_number(run.font.size),
+            lean_run_style(run)
+        )?;
+        if let Some(href) = &run.href {
+            write!(output, "href#<{}> ", escape_text(href))?;
+        }
+        writeln!(output, "{}", escape_text(&run.content))?;
+    }
+    Ok(())
 }
 
 fn escape_text(text: &str) -> String {
@@ -630,7 +756,7 @@ impl Extraction {
         match granularity {
             Granularity::Char => GranularExtraction::Char(ExplicitCharExtraction {
                 granularity,
-                schema_version: "1.3",
+                schema_version: "1.4",
                 source: &self.source,
                 document: &self.document,
                 warnings: &self.warnings,
@@ -639,7 +765,7 @@ impl Extraction {
             Granularity::Element | Granularity::Word => {
                 GranularExtraction::Compact(CompactExtraction {
                     granularity,
-                    schema_version: "1.3",
+                    schema_version: "1.4",
                     source: self.source.clone(),
                     document: CompactDocumentInfo {
                         page_count: self.document.page_count,
@@ -706,8 +832,27 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
                 content,
                 font: compact_font(&text.font),
                 color: compact_color(&text.color),
+                runs: text.runs.clone(),
             })
         }
+        Element::Table(table) => CompactElement::Table(CompactTableElement {
+            bbox: compact_bbox(&table.bbox),
+            rows: table.rows,
+            cols: table.cols,
+            cells: table
+                .cells
+                .iter()
+                .map(|cell| CompactTableCell {
+                    bbox: compact_bbox(&cell.bbox),
+                    row: cell.row,
+                    col: cell.col,
+                    row_span: cell.row_span,
+                    col_span: cell.col_span,
+                    content: cell.content.clone(),
+                    runs: cell.runs.clone(),
+                })
+                .collect(),
+        }),
         Element::Image(image) => CompactElement::Image(CompactBoxElement {
             bbox: compact_bbox(&image.bbox),
         }),

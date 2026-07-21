@@ -33,17 +33,21 @@ newline. The first two lines are always:
 #legend <the fixed legend for the selected granularity>
 ```
 
-The element legend is:
+When the response contains per-run or table detail, the element legend is:
 
 ```text
-#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
 
-The word legend is:
+and the word legend is:
 
 ```text
-#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
+
+Responses without run or table detail retain the preceding schema-1.3 legend
+shape (without `r`, `TB`, or `c`). In particular, PDF lean output has no such
+detail, so its schema-1.4 byte change is limited to the header version token.
 
 When any page contains non-visible context, one additional legend line follows
 the element/word legend:
@@ -74,6 +78,14 @@ T x0 y0 x1 y1 <font> <size> <style> <text to end of line>
 # word granularity: word records are nested immediately under their T record
 T x0 y0 x1 y1 <font> <size> <style>
 w x0 y0 x1 y1 <word text to end of line>
+
+# emitted directly after T when the text element has more than one run
+r <font> <size> <style> <text to end of line>
+r <font> <size> <style> href#<external-uri> <text to end of line>
+
+TB x0 y0 x1 y1 <rows> <cols>
+c <row> <col> <rowspan> <colspan> x0 y0 x1 y1 <cell text to end of line>
+# multi-run cells use the same r records directly after their c record
 
 I x0 y0 x1 y1
 P x0 y0 x1 y1
@@ -116,11 +128,19 @@ Numbers, including font and page sizes, round to one decimal and omit a
 trailing `.0` (`72`, not `72.0`; `61.1` remains `61.1`). Every whitespace
 character in a font name becomes `_`; a missing font name is `-`.
 
+`TB` introduces a first-class table and is followed by one `c` record per
+merge-anchor cell in row-major order. Row and column indices are zero-based;
+spans are at least one. A single run adds no information beyond its parent
+`T` or `c` record, so `r` records are emitted only when the parent has more
+than one run. A linked run inserts the literal token `href#<`, the escaped
+external URI, and `>` before its text.
+
 The style token concatenates `b` for bold and `i` for italic, or uses `-` when
 neither applies. A non-default text fill is appended as lowercase RGB hex,
 for example `b#231f20` or `-#ff0000`.
 
-Text, word, annotation URI, and hidden content runs to end of line. Backslash
+Text, word, run text, run hyperlink URI, table-cell text, annotation URI, and
+hidden content use the same escaping. Text-bearing fields run to end of line. Backslash
 becomes `\\`, LF becomes `\n`, and CR becomes `\r`. Every other Unicode
 control character, U+2028, and U+2029 becomes `\u{hex}` with lowercase,
 unpadded hexadecimal digits (for example, tab is `\u{9}`). All other

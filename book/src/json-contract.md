@@ -46,7 +46,7 @@ covering ≥ 85% of the page area** — the signal that a page's text
 is not machine-readable and needs OCR to recover. It also flags pre-rendered
 (rasterized-slide) pages, which have the same property.
 
-Granularity-shaped schema `1.3` pages can also carry a `hidden` array. The
+Granularity-shaped schema `1.4` pages can also carry a `hidden` array. The
 field is omitted when empty and is copied unchanged across granularities:
 
 ```json
@@ -99,6 +99,51 @@ geometrically and deterministically; whitespace characters separate words and
 are not emitted as `chars`. Word order is content-stream order — reading
 order is not inferred.
 
+Schema `1.4` granularity-shaped text elements can additionally carry `runs`.
+Each run preserves its own content, resolved font, color, and optional external
+hyperlink target:
+
+```json
+"runs": [
+  {
+    "content": "linked text",
+    "font": { "name": "Aptos", "size": 18.0, "bold": true, "italic": false },
+    "color": { "fill": [31, 78, 121], "stroke": null },
+    "href": "https://example.com"
+  }
+]
+```
+
+`href` is omitted for an unlinked run. PDF text has no separate native shape
+run layer and omits `runs`, preserving the frozen no-parameter schema `1.1`
+bytes. PPTX text keeps `content`, `font`, and `color` as the concatenated and
+dominant summary while using `runs` for the per-run detail.
+
+### table
+
+Schema `1.4` adds first-class table elements for PPTX:
+
+```json
+{
+  "id": "p1-e2", "type": "table",
+  "bbox": {"x0": 72.0, "y0": 90.0, "x1": 272.0, "y1": 170.0},
+  "rows": 2, "cols": 2,
+  "cells": [
+    {
+      "bbox": {"x0": 72.0, "y0": 90.0, "x1": 272.0, "y1": 120.0},
+      "row": 0, "col": 0, "row_span": 1, "col_span": 2,
+      "content": "Merged heading",
+      "runs": []
+    }
+  ]
+}
+```
+
+`rows` and `cols` are the source grid dimensions. Only merge-anchor cells are
+emitted; continuation cells are omitted and the anchor carries the clamped
+span and merged bounding box. Cell paragraphs are joined with `\n`, and cell
+`runs` use the same shape as text-element runs. PDF emits no table elements.
+
 ### image
 
 Bounding box plus a `quad` (four corner points — meaningful when the image is
@@ -120,7 +165,8 @@ links.
 
 - The no-parameter response is frozen at schema `1.1` — new fields are only
   ever additive, and granularity-shaped responses carry their own version
-  (`1.3`) and a `granularity` discriminator. PDF emits no hidden items, so its
+  (`1.4`) and a `granularity` discriminator. PDF emits no hidden items, runs,
+  or tables, so its
   no-parameter `1.1` bytes remain unchanged.
 - Element IDs, field names, and the coordinate system are load-bearing
   contract; they do not change within a major schema version. Hidden kind

@@ -3,7 +3,8 @@ use crate::xml::{parse, Node};
 use docray_core::{Capabilities, ExtractError, Extractor};
 use docray_model::{
     round3, AnnotationElement, BBox, DocMetadata, DocumentInfo, Element, Extraction, Font,
-    Granularity, HiddenItem, ImageElement, Page, PathElement, Source, TextColor, TextElement,
+    Granularity, HiddenItem, ImageElement, Page, PathElement, Source, TableCell, TableElement,
+    TextColor, TextElement, TextRun,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -80,7 +81,7 @@ impl Extractor for PptxExtractor {
 
         Ok(Extraction {
             // The base model remains schema 1.1 internally; dispatch requires
-            // explicit element granularity, whose wrapper serializes as 1.3.
+            // explicit element granularity, whose wrapper serializes as 1.4.
             schema_version: "1.1".into(),
             source: Source {
                 format: "pptx".into(),
@@ -411,6 +412,12 @@ fn extract_shape(
             placeholder.as_ref(),
             context,
         );
+        let runs = resolve_shape_runs(
+            tx_body.expect("non-empty text requires txBody"),
+            layout_shape,
+            placeholder.as_ref(),
+            context,
+        );
         elements.push(Element::Text(TextElement {
             id,
             bbox,
@@ -426,6 +433,7 @@ fn extract_shape(
                 stroke: None,
             },
             lines: None,
+            runs: Some(runs),
         }));
 
         for hyperlink in tx_body
@@ -678,14 +686,11 @@ fn extract_graphic_frame(
         ));
         return;
     };
+    let mut cells = Vec::new();
     for (row_index, row) in rows.iter().enumerate() {
         for (col_index, cell) in row.children_named("tc").enumerate() {
             if col_index >= columns.len() || bool_attr(cell, "hMerge") || bool_attr(cell, "vMerge")
             {
-                continue;
-            }
-            let content = cell.child("txBody").map(text_content).unwrap_or_default();
-            if content.is_empty() {
                 continue;
             }
             let col_span = clamped_span(cell, "gridSpan", columns.len() - col_index);
@@ -710,26 +715,25 @@ fn extract_graphic_frame(
                 }),
             };
             let bbox = bbox_for_transform(local, groups);
-            let style = resolve_cell_style(cell.child("txBody").unwrap(), context);
-            let id = next_id(page_number, elements);
-            elements.push(Element::Text(TextElement {
-                id,
+            let tx_body = cell.child("txBody");
+            cells.push(TableCell {
                 bbox,
-                content,
-                font: Font {
-                    name: style.font_name,
-                    size: round3(style.size),
-                    bold: style.bold,
-                    italic: style.italic,
-                },
-                color: TextColor {
-                    fill: style.color,
-                    stroke: None,
-                },
-                lines: None,
-            }));
+                row: row_index,
+                col: col_index,
+                row_span,
+                col_span,
+                content: tx_body.map(text_content).unwrap_or_default(),
+                runs: tx_body.map(|body| resolve_cell_runs(body, context)),
+            });
         }
     }
+    elements.push(Element::Table(TableElement {
+        id: next_id(page_number, elements),
+        bbox: bbox_for_transform(frame_xfrm, groups),
+        rows: rows.len(),
+        cols: columns.len(),
+        cells,
+    }));
 }
 
 fn prefix_sums(values: &[f64]) -> Option<Vec<f64>> {
@@ -1083,15 +1087,72 @@ fn resolve_text_style(
     )
 }
 
-fn resolve_cell_style(tx_body: &Node, context: &SlideContext<'_>) -> ResolvedStyle {
-    let paragraph = tx_body.children_named("p").next();
-    let run_style = paragraph
-        .and_then(first_text_run)
-        .and_then(|node| node.child("rPr"))
-        .map(|node| partial_style(node, context));
-    let paragraph_style =
-        paragraph.and_then(|node| paragraph_default_style(tx_body, node, context));
-    combine_styles(&[run_style, paragraph_style], context.theme)
+fn resolve_shape_runs(
+    tx_body: &Node,
+    layout_shape: Option<&Node>,
+    placeholder: Option<&Placeholder>,
+    context: &SlideContext<'_>,
+) -> Vec<TextRun> {
+    let inherited = [
+        layout_shape
+            .and_then(|shape| shape.child("txBody"))
+            .and_then(|body| body.first_descendant("defRPr"))
+            .map(|node| partial_style(node, context)),
+        context
+            .master
+            .and_then(|master| master_text_style(master, placeholder))
+            .map(|node| partial_style(node, context)),
+    ];
+    resolve_runs(tx_body, &inherited, context, autofit_scale(tx_body))
+}
+
+fn resolve_cell_runs(tx_body: &Node, context: &SlideContext<'_>) -> Vec<TextRun> {
+    resolve_runs(tx_body, &[], context, 1.0)
+}
+
+fn resolve_runs(
+    tx_body: &Node,
+    inherited: &[Option<PartialStyle>],
+    context: &SlideContext<'_>,
+    size_scale: f64,
+) -> Vec<TextRun> {
+    let mut runs = Vec::new();
+    for paragraph in tx_body.children_named("p") {
+        let paragraph_style = paragraph_default_style(tx_body, paragraph, context);
+        for run in paragraph.children_named("r") {
+            let run_style = run.child("rPr").map(|node| partial_style(node, context));
+            let mut styles = Vec::with_capacity(2 + inherited.len());
+            styles.push(run_style);
+            styles.push(paragraph_style.clone());
+            styles.extend(inherited.iter().cloned());
+            let style = combine_styles(&styles, context.theme);
+            let content = run
+                .descendants("t")
+                .map(|text| text.text.as_str())
+                .collect();
+            let href = run
+                .first_descendant("hlinkClick")
+                .and_then(|node| node.attr("id"))
+                .and_then(|id| context.slide_rels.get(id))
+                .filter(|relation| relation.external)
+                .map(|relation| relation.target.clone());
+            runs.push(TextRun {
+                content,
+                font: Font {
+                    name: style.font_name,
+                    size: round3(style.size * size_scale),
+                    bold: style.bold,
+                    italic: style.italic,
+                },
+                color: TextColor {
+                    fill: style.color,
+                    stroke: None,
+                },
+                href,
+            });
+        }
+    }
+    runs
 }
 
 fn combine_styles(styles: &[Option<PartialStyle>], theme: &Theme) -> ResolvedStyle {
@@ -1557,13 +1618,20 @@ mod tests {
             "clamping is valid recovery: {warnings:?}"
         );
         assert_eq!(elements.len(), 1);
-        let Element::Text(text) = &elements[0] else {
-            panic!("table cell must be text");
+        let Element::Table(table) = &elements[0] else {
+            panic!("table must be first-class");
         };
+        assert_eq!(table.cells.len(), 1);
+        let cell = &table.cells[0];
         assert_eq!(
-            (text.bbox.x0, text.bbox.y0, text.bbox.x1, text.bbox.y1),
+            (cell.bbox.x0, cell.bbox.y0, cell.bbox.x1, cell.bbox.y1),
             (0.0, 0.0, 20.0, 20.0)
         );
-        assert_eq!(text.font.size, 9.0, "lvl must clamp to OOXML level 8");
+        assert_eq!((cell.row_span, cell.col_span), (2, 2));
+        assert_eq!(
+            cell.runs.as_ref().unwrap()[0].font.size,
+            9.0,
+            "lvl must clamp to OOXML level 8"
+        );
     }
 }

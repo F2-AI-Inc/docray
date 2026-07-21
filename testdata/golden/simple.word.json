@@ -1,6 +1,6 @@
 {
   "granularity": "word",
-  "schema_version": "1.3",
+  "schema_version": "1.4",
   "source": {
     "format": "pdf",
     "sha256": "15be0d17e8a4fbfe6bbb2130b9064dda0c6febf2a23cc5853b4e90aa9abd8893",
