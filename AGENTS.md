@@ -39,8 +39,9 @@ Docker build/smoke test.
 1. **Schema stability.** The no-parameter (`char`) response is frozen at
    schema `1.1` and must stay **byte-identical**: never add, rename, remove,
    or reorder fields on that path. Granularity-shaped responses are schema
-   `1.2`. New capability = new field behind a parameter, or a minor version
-   bump with explicit review.
+   `1.3`. New capability = new field behind a parameter, or a minor version
+   bump with explicit review. Hidden-channel kind strings (`role`, `notes`,
+   `alt`, `hidden-slide`) are also stable contract and must never be renamed.
 2. **Determinism.** Identical input bytes → byte-identical JSON on a given
    platform + PDFium build. No timestamps, randomness, or HashMap iteration
    anywhere near output. Fixture generation must be deterministic too.

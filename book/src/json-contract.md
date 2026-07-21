@@ -46,6 +46,27 @@ covering ≥ 85% of the page area** — the signal that a page's text
 is not machine-readable and needs OCR to recover. It also flags pre-rendered
 (rasterized-slide) pages, which have the same property.
 
+Granularity-shaped schema `1.3` pages can also carry a `hidden` array. The
+field is omitted when empty and is copied unchanged across granularities:
+
+```json
+"hidden": [
+  { "kind": "role", "element": "p1-e0", "content": "title" },
+  { "kind": "notes", "content": "Presenter script" }
+]
+```
+
+`element` is omitted for page-targeted items. Hidden content is supplemental,
+non-visible document context and must not be treated as text rendered on the
+page. The kind namespace is stable:
+
+| Kind | Target | PPTX | PDF |
+|---|---|---|---|
+| `role` | element | Placeholder type, defaulting to `body` | not emitted |
+| `notes` | page | Speaker-notes body text | not emitted |
+| `alt` | element | Shape/picture alternative text | not emitted |
+| `hidden-slide` | page | `true` for a slide with `show="0"` | not emitted |
+
 ## Elements
 
 One element per native PDF page object, in z-order, discriminated by
@@ -99,6 +120,8 @@ links.
 
 - The no-parameter response is frozen at schema `1.1` — new fields are only
   ever additive, and granularity-shaped responses carry their own version
-  (`1.2`) and a `granularity` discriminator.
+  (`1.3`) and a `granularity` discriminator. PDF emits no hidden items, so its
+  no-parameter `1.1` bytes remain unchanged.
 - Element IDs, field names, and the coordinate system are load-bearing
-  contract; they do not change within a major schema version.
+  contract; they do not change within a major schema version. Hidden kind
+  strings are equally stable and are never renamed.

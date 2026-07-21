@@ -30,12 +30,23 @@ provide and returns `granularity_unavailable`, with guidance to retry using
   fill, stroke, and stroke width represented by the existing JSON model.
 - External click hyperlinks are emitted as link annotations. Their targets are
   returned literally and are never fetched.
+- Placeholder roles are emitted in the non-visible `hidden` channel using the
+  placeholder `type` verbatim; the ECMA default is `body` when `type` is absent.
+- Speaker notes are emitted as page-targeted `notes`, using only the notes
+  slide's body placeholder. Slide-image and slide-number placeholders are
+  ignored.
+- Shape and picture alternative text is emitted as element-targeted `alt`,
+  preferring `descr` and falling back to `title`.
+- Slides with `show="0"` remain ordinary extracted pages and carry a
+  page-targeted `hidden-slide` item with content `true`.
 - Placeholder geometry is inherited from the slide layout and master. Group,
   shape, picture, and frame rotation/flip transforms are flattened into slide
   coordinates.
 
 Elements follow `p:spTree` document order, which is PowerPoint z-order. docray
-does not infer a semantic reading order.
+does not infer a semantic reading order. Hidden items are explicitly marked as
+non-visible context in JSON and lean so consumers do not mistake notes or
+accessibility metadata for slide-visible text.
 
 ## Deliberate limits
 

@@ -107,7 +107,7 @@ docray extract deck.pptx --granularity element
 For PDF, docray emits the lossless char-level v1.1 response by default.
 Passing `--granularity element|word|char` to the CLI, or
 `?granularity=element|word|char` to `POST /v1/extract` or `POST /v1/jobs`,
-selects an explicit v1.2 response with a top-level `granularity` field. Jobs
+selects an explicit v1.3 response with a top-level `granularity` field. Jobs
 persist the requested level and use it when their worker runs. Invalid query
 values return `400 {"error":{"code":"bad_granularity",...}}`.
 
@@ -174,7 +174,7 @@ line-oriented text and implies `element` when granularity is omitted:
 
 ```text
 $ docray extract file.pdf --format lean
-#docray element v1.2 pages=1
+#docray element v1.3 pages=1
 #legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #page 1 612x792
 T 72 61.1 134 74.5 Helvetica 12 - Hello World
@@ -206,7 +206,7 @@ stderr and exits with the corresponding code above.
 
 An absent granularity parameter emits the byte-identical
 `"schema_version":"1.1"` response. Every explicit granularity request emits
-`"schema_version":"1.2"` plus its `granularity` discriminator. Each page includes a plain
+`"schema_version":"1.3"` plus its `granularity` discriminator. Each page includes a plain
 boolean `scanned` field. A page is `scanned: true` when it has ZERO text
 elements AND at least one image element whose bbox covers ≥ 85% of the page
 area. This intentionally also flags pre-rendered (rasterized-slide) pages —
