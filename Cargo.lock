@@ -537,6 +537,7 @@ dependencies = [
  "docray-core",
  "docray-model",
  "docray-pdf",
+ "docray-pptx",
  "serde",
  "serde_json",
  "wasm-bindgen",
