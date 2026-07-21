@@ -66,9 +66,12 @@ self.onmessage = async ev => {
   try {
     const docray = await initOnce();
     const t0 = performance.now();
+    // Output budget enforced INSIDE the wasm during serialization (a
+    // pathological PDF can't OOM the worker by materializing a huge string);
+    // the post-hoc units check below stays as a second belt.
     const json = cmd === "extract_lean"
-      ? docray.extract_lean(new Uint8Array(bytes), granularity || "", cap || 0)
-      : docray.extract(new Uint8Array(bytes), granularity || "", cap || 0);
+      ? docray.extract_lean(new Uint8Array(bytes), granularity || "", cap || 0, OUTPUT_CAP_UNITS * 2)
+      : docray.extract(new Uint8Array(bytes), granularity || "", cap || 0, OUTPUT_CAP_UNITS * 2);
     if (json.length > OUTPUT_CAP_UNITS) {
       postMessage({ id, ok: false, error: { code: "output_too_large",
         message: "extraction produced " + json.length + " code units (cap " + OUTPUT_CAP_UNITS + ")" } });

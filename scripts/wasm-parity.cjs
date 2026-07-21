@@ -165,7 +165,7 @@ async function main() {
   }
 
   try {
-    docray.extract(Buffer.from("cap-check"), "", 1);
+    docray.extract(Buffer.from("cap-check"), "", 1, 0);
     throw new Error("input cap did not reject an oversized input");
   } catch (error) {
     const envelope = JSON.parse(String(error));
@@ -187,7 +187,7 @@ async function main() {
     }
 
     const native = JSON.parse(nativeRun.stdout);
-    const wasm = JSON.parse(docray.extract(fs.readFileSync(fixturePath), "", 0));
+    const wasm = JSON.parse(docray.extract(fs.readFileSync(fixturePath), "", 0, 0));
     results.push({ fixture, ...compare(native, wasm) });
 
     // Lean output must match wasm-vs-native: same Rust renderer over the
@@ -201,7 +201,7 @@ async function main() {
     if (leanNative.status !== 0) {
       throw new Error(`native lean failed for ${fixture}: ${leanNative.stderr.trim()}`);
     }
-    const leanWasm = docray.extract_lean(fs.readFileSync(fixturePath), "element", 0);
+    const leanWasm = docray.extract_lean(fs.readFileSync(fixturePath), "element", 0, 0);
     const leanLines = { native: leanNative.stdout.split("\n").length, wasm: leanWasm.split("\n").length };
     const nNorm = leanNative.stdout.split("\n");
     const wNorm = leanWasm.split("\n");

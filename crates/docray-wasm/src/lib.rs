@@ -23,9 +23,14 @@ use wasm_bindgen::prelude::*;
 /// Failures throw a JSON string with docray's stable error envelope. The caller
 /// must parse the thrown string before inspecting `error.code`.
 #[wasm_bindgen]
-pub fn extract(bytes: &[u8], granularity: &str, max_input_bytes: usize) -> Result<String, JsValue> {
+pub fn extract(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+    max_output_bytes: usize,
+) -> Result<String, JsValue> {
     install_panic_hook();
-    extract_inner(bytes, granularity, max_input_bytes).map_err(WasmError::into_js)
+    extract_inner(bytes, granularity, max_input_bytes, max_output_bytes).map_err(WasmError::into_js)
 }
 
 /// Extracts a PDF and returns the token-lean line format (see the docs'
@@ -37,16 +42,20 @@ pub fn extract_lean(
     bytes: &[u8],
     granularity: &str,
     max_input_bytes: usize,
+    max_output_bytes: usize,
 ) -> Result<String, JsValue> {
     install_panic_hook();
-    extract_lean_inner(bytes, granularity, max_input_bytes).map_err(WasmError::into_js)
+    extract_lean_inner(bytes, granularity, max_input_bytes, max_output_bytes)
+        .map_err(WasmError::into_js)
 }
 
 fn extract_lean_inner(
     bytes: &[u8],
     granularity: &str,
     max_input_bytes: usize,
+    max_output_bytes: usize,
 ) -> Result<String, WasmError> {
+    let cap = output_cap(max_output_bytes);
     if max_input_bytes != 0 && bytes.len() > max_input_bytes {
         return Err(WasmError::new(
             "too_large",
@@ -70,7 +79,16 @@ fn extract_lean_inner(
         .extract(bytes, None)
         .map_err(WasmError::from_extract)?;
     match extraction.with_granularity(granularity) {
-        GranularExtraction::Compact(compact) => Ok(compact.to_lean()),
+        GranularExtraction::Compact(compact) => {
+            let mut w = CappedString {
+                buf: String::new(),
+                remaining: cap,
+            };
+            compact.write_lean(&mut w).map_err(|_| {
+                WasmError::new(OUTPUT_TOO_LARGE, format!("output exceeded {cap} bytes"))
+            })?;
+            Ok(w.buf)
+        }
         GranularExtraction::Char(_) => unreachable!("char is rejected above"),
     }
 }
@@ -79,7 +97,9 @@ fn extract_inner(
     bytes: &[u8],
     granularity: &str,
     max_input_bytes: usize,
+    max_output_bytes: usize,
 ) -> Result<String, WasmError> {
+    let cap = output_cap(max_output_bytes);
     if max_input_bytes != 0 && bytes.len() > max_input_bytes {
         return Err(WasmError::new(
             "too_large",
@@ -95,13 +115,12 @@ fn extract_inner(
         .map_err(WasmError::from_extract)?;
 
     if granularity.is_empty() {
-        serde_json::to_string(&extraction).map_err(WasmError::parse_failure)
+        json_capped(&extraction, cap)
     } else {
         let granularity = granularity
             .parse::<Granularity>()
             .map_err(WasmError::parse_failure)?;
-        serde_json::to_string(&extraction.with_granularity(granularity))
-            .map_err(WasmError::parse_failure)
+        json_capped(&extraction.with_granularity(granularity), cap)
     }
 }
 
@@ -142,6 +161,72 @@ impl WasmError {
     }
 }
 
+/// Byte budget exceeded during output generation.
+const OUTPUT_TOO_LARGE: &str = "output_too_large";
+
+/// `fmt::Write` that errors once a byte budget is exhausted, so lean
+/// rendering aborts instead of materializing an unbounded string.
+struct CappedString {
+    buf: String,
+    remaining: usize,
+}
+
+impl std::fmt::Write for CappedString {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        if s.len() > self.remaining {
+            return Err(std::fmt::Error);
+        }
+        self.remaining -= s.len();
+        self.buf.push_str(s);
+        Ok(())
+    }
+}
+
+/// `io::Write` twin for serde_json, bounding JSON serialization the same way.
+struct CappedVec {
+    buf: Vec<u8>,
+    remaining: usize,
+}
+
+impl std::io::Write for CappedVec {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if data.len() > self.remaining {
+            return Err(std::io::Error::other("output budget exceeded"));
+        }
+        self.remaining -= data.len();
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn output_cap(max_output_bytes: usize) -> usize {
+    if max_output_bytes == 0 {
+        usize::MAX
+    } else {
+        max_output_bytes
+    }
+}
+
+fn json_capped<T: serde::Serialize>(value: &T, cap: usize) -> Result<String, WasmError> {
+    let mut w = CappedVec {
+        buf: Vec::new(),
+        remaining: cap,
+    };
+    match serde_json::to_writer(&mut w, value) {
+        Ok(()) => {
+            String::from_utf8(w.buf).map_err(|e| WasmError::new("parse_failure", e.to_string()))
+        }
+        Err(e) if e.is_io() => Err(WasmError::new(
+            OUTPUT_TOO_LARGE,
+            format!("output exceeded {cap} bytes"),
+        )),
+        Err(e) => Err(WasmError::new("parse_failure", e.to_string())),
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|_| {
@@ -169,7 +254,7 @@ mod tests {
 
     #[test]
     fn input_cap_precedes_pdfium() {
-        let error = extract_inner(&[0; 3], "", 2).unwrap_err();
+        let error = extract_inner(&[0; 3], "", 2, 0).unwrap_err();
 
         assert_eq!(error.code, "too_large");
         assert_eq!(error.message, "input is 3 bytes, limit is 2 bytes");
@@ -177,8 +262,39 @@ mod tests {
 
     #[test]
     fn zero_input_cap_is_uncapped() {
-        let error = extract_inner(b"not a PDF", "", 0).unwrap_err();
+        let error = extract_inner(b"not a PDF", "", 0, 0).unwrap_err();
 
         assert_ne!(error.code, "too_large");
+    }
+
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+
+    #[test]
+    fn capped_string_errors_at_budget() {
+        let mut w = CappedString {
+            buf: String::new(),
+            remaining: 5,
+        };
+        assert!(w.write_str("abc").is_ok());
+        assert!(w.write_str("de").is_ok());
+        assert!(w.write_str("f").is_err(), "budget exhausted must error");
+        assert_eq!(w.buf, "abcde");
+    }
+
+    #[test]
+    fn capped_vec_errors_at_budget_and_json_maps_to_output_too_large() {
+        let mut w = CappedVec {
+            buf: Vec::new(),
+            remaining: 4,
+        };
+        assert!(w.write(b"1234").is_ok());
+        assert!(w.write(b"5").is_err());
+
+        let big = vec!["x".repeat(64); 4];
+        let err = json_capped(&big, 16).unwrap_err();
+        assert!(err.json().contains("output_too_large"), "{}", err.json());
+        // Uncapped succeeds.
+        assert!(json_capped(&big, 1 << 20).is_ok());
     }
 }
