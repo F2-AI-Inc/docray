@@ -692,7 +692,10 @@ function buildRail(gen) {
     const t = document.createElement("div");
     t.className = "thumb" + (i === state.pageIdx ? " cur" : "");
     t.dataset.idx = i;
-    const ratio = p.width > 0 ? p.height / p.width : 1.294;
+    // Clamp the placeholder aspect ratio to match schematicBitmap's thumbnail
+    // height bound (92 wide, 160 tall), so a hostile slide ratio can't create a
+    // giant empty layout box before the canvas renders.
+    const ratio = Math.min(p.width > 0 ? p.height / p.width : 1.294, 160 / 92);
     t.innerHTML = `<div class="ph" style="height:${Math.round(92 * ratio)}px"></div>
       <div class="n">${p.page_number}${p.scanned ? '<span class="sc">scan</span>' : ""}</div>`;
     t.onclick = () => goto(i, state.gen);
@@ -705,7 +708,7 @@ async function renderThumb(el, gen) {
   if (gen !== state.gen) return;
   if (state.format === "pptx") {
     const pageJson = state.extraction.pages[Number(el.dataset.idx)];
-    const rendered = schematicBitmap(pageJson, 92, 1, 1);
+    const rendered = schematicBitmap(pageJson, 92, 1, 1, { minCssW: 92, maxCssH: 160 });
     if (gen !== state.gen || !rendered) return;
     const ph = el.querySelector(".ph");
     if (ph) ph.replaceWith(rendered.canvas);
@@ -1109,13 +1112,24 @@ function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement) {
   ctx.restore();
 }
 
-function schematicBitmap(pageJson, fitWidth, zoom, dpr = window.devicePixelRatio || 1) {
+function schematicBitmap(pageJson, fitWidth, zoom, dpr = window.devicePixelRatio || 1, opts = {}) {
   const pageWidth = Number(pageJson.width);
   const pageHeight = Number(pageJson.height);
   if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
       pageWidth <= 0 || pageHeight <= 0) return null;
-  const cssW = Math.min(Math.max(fitWidth, 240), 900) * zoom;
-  const k = cssW / pageWidth;
+  const minCssW = opts.minCssW ?? 240;
+  const maxCssH = opts.maxCssH ?? Infinity;
+  let cssW = Math.min(Math.max(fitWidth, minCssW), 900) * zoom;
+  let k = cssW / pageWidth;
+  // A hostile deck can declare a pathological slide aspect ratio (e.g. 1x68).
+  // Fit to the height box instead of the width in that case — letterbox rather
+  // than allocate a giant backing store. Thumbnails pass a small maxCssH so the
+  // persistent rail canvases stay tiny; the main view is additionally charged
+  // to the byte-capped LRU by its caller.
+  if (pageHeight * k > maxCssH) {
+    k = maxCssH / pageHeight;
+    cssW = pageWidth * k;
+  }
   const cssH = pageHeight * k;
   const pixelW = Math.floor(cssW * dpr);
   const pixelH = Math.floor(cssH * dpr);
