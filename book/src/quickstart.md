@@ -28,6 +28,12 @@ once, then `cargo build --release -p docray-cli -p docray-server`.
 docray extract your.pdf --granularity element | jq .
 ```
 
+PPTX uses element granularity as well:
+
+```bash
+docray extract deck.pptx --granularity element | jq .
+```
+
 ## Run the server + playground
 
 ```bash
@@ -48,6 +54,7 @@ Extract over HTTP:
 
 ```bash
 curl -sf -F file=@your.pdf 'http://localhost:41619/v1/extract?granularity=element'
+curl -sf -F file=@deck.pptx 'http://localhost:41619/v1/extract?granularity=element'
 ```
 
 ## Docker

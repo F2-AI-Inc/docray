@@ -12,6 +12,7 @@ path = "src/main.rs"
 docray-model = { path = "../docray-model" }
 docray-core = { path = "../docray-core" }
 docray-pdf = { path = "../docray-pdf" }
+docray-pptx = { path = "../docray-pptx" }
 serde_json.workspace = true
 clap = { version = "4", features = ["derive"] }
 

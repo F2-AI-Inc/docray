@@ -70,6 +70,7 @@ fn sample() -> Extraction {
                     }],
                 }]),
             })],
+            hidden: vec![],
         }],
     }
 }
@@ -119,12 +120,53 @@ fn optional_lines_preserve_old_json_shape_and_omit_when_absent() {
 }
 
 #[test]
+fn empty_hidden_preserves_frozen_v1_1_page_shape_byte_for_byte() {
+    let page = &sample().pages[0];
+    let old_shape = r#"{"page_number":1,"width":612.0,"height":792.0,"rotation":0,"scanned":false,"elements":[{"type":"text","id":"p1-e0","bbox":{"x0":1.0,"y0":2.0,"x1":3.0,"y1":4.0},"content":"Hi","font":{"name":"Helvetica","size":12.0,"bold":false,"italic":false},"color":{"fill":[0,0,0],"stroke":null},"lines":[{"bbox":{"x0":1.0,"y0":2.0,"x1":3.0,"y1":4.0},"baseline_y":3.5,"words":[{"content":"Hi","bbox":{"x0":1.0,"y0":2.0,"x1":3.0,"y1":4.0},"chars":[{"content":"H","bbox":{"x0":1.0,"y0":2.0,"x1":2.0,"y1":4.0},"unicode":72}]}]}]}]}"#;
+    assert_eq!(serde_json::to_string(page).unwrap(), old_shape);
+
+    let decoded: Page = serde_json::from_str(old_shape).unwrap();
+    assert!(decoded.hidden.is_empty());
+}
+
+#[test]
+fn hidden_items_serialize_with_stable_shape_and_optional_element() {
+    let mut extraction = sample();
+    extraction.pages[0].hidden = vec![
+        HiddenItem {
+            kind: "role".into(),
+            element: Some("p1-e0".into()),
+            content: "title".into(),
+        },
+        HiddenItem {
+            kind: "notes".into(),
+            element: None,
+            content: "Presenter script".into(),
+        },
+    ];
+
+    let value = serde_json::to_value(&extraction).unwrap();
+    assert_eq!(
+        value["pages"][0]["hidden"],
+        serde_json::json!([
+            {"kind": "role", "element": "p1-e0", "content": "title"},
+            {"kind": "notes", "content": "Presenter script"}
+        ])
+    );
+
+    for level in [Granularity::Char, Granularity::Word, Granularity::Element] {
+        let compact = serde_json::to_value(extraction.with_granularity(level)).unwrap();
+        assert_eq!(compact["pages"][0]["hidden"], value["pages"][0]["hidden"]);
+    }
+}
+
+#[test]
 fn explicit_granularities_keep_nonempty_warnings() {
     let mut extraction = sample();
     extraction.warnings = vec!["page 1 recovered with omissions".into()];
     for level in [Granularity::Char, Granularity::Word, Granularity::Element] {
         let value = serde_json::to_value(extraction.with_granularity(level)).unwrap();
-        assert_eq!(value["schema_version"], "1.2");
+        assert_eq!(value["schema_version"], "1.3");
         assert_eq!(value["granularity"], level.as_str());
         assert_eq!(
             value["warnings"],

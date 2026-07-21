@@ -1,0 +1,10 @@
+#docray element v1.3 pages=1
+#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend <hidden> kind [element-id] content | non-visible document context
+#page 1 720x540
+T 72 36 648 108 Fixture_Serif 32 - Inherited title
+T 72 144 648 432 Fixture_Sans 20 - Inherited body
+<hidden>
+role p1-e0 ctrTitle
+role p1-e1 body
+</hidden>

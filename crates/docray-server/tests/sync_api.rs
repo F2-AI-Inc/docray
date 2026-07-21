@@ -136,7 +136,7 @@ fn extract_granularity_element_and_invalid_value() {
     );
     assert_eq!(r.status(), 200);
     let v: serde_json::Value = r.json().unwrap();
-    assert_eq!(v["schema_version"], "1.2");
+    assert_eq!(v["schema_version"], "1.3");
     assert_eq!(v["granularity"], "element");
     assert_eq!(v["pages"][0]["elements"][0]["type"], "text");
     assert_eq!(v["pages"][0]["elements"][0]["text"], "Hello World");
@@ -170,7 +170,7 @@ fn extract_lean_content_type_default_and_char_rejection() {
     assert!(r
         .text()
         .unwrap()
-        .starts_with("#docray element v1.2 pages=1\n#legend "));
+        .starts_with("#docray element v1.3 pages=1\n#legend "));
 
     let r = upload(
         &server.base,
@@ -180,6 +180,43 @@ fn extract_lean_content_type_default_and_char_rejection() {
     assert_eq!(r.status(), 400);
     let v: serde_json::Value = r.json().unwrap();
     assert_eq!(v["error"]["code"], "bad_format");
+}
+
+#[test]
+fn pptx_element_no_parameter_and_lean_end_to_end() {
+    let server = TestServer::start();
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?granularity=element",
+        fixture("pptx/basic.pptx"),
+    );
+    assert_eq!(r.status(), 200);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["source"]["format"], "pptx");
+    assert_eq!(v["granularity"], "element");
+    assert_eq!(v["pages"][0]["elements"][0]["text"], "First shape");
+
+    let r = upload(&server.base, "/v1/extract", fixture("pptx/basic.pptx"));
+    assert_eq!(r.status(), 400);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "granularity_unavailable");
+    assert!(v["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("retry with granularity=element"));
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?format=lean",
+        fixture("pptx/basic.pptx"),
+    );
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.headers().get("content-type").unwrap(),
+        "text/plain; charset=utf-8"
+    );
+    assert!(r.text().unwrap().contains("First shape"));
 }
 
 // An encrypted/password-protected PDF must map to 422 encrypted_pdf.

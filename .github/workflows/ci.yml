@@ -54,6 +54,7 @@ jobs:
       - name: Fixture determinism
         run: |
           cargo run -p docray-pdf --example gen_fixtures
+          cargo run -p docray-pptx --example gen_fixtures
           git diff --exit-code testdata/ \
             || { echo "::error::fixture regeneration changed committed testdata"; exit 1; }
 

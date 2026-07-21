@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Pdf,
+    Zip,
 }
 
 /// PDF spec allows the `%PDF-` header to *start* anywhere within the first 1024
@@ -8,6 +9,9 @@ pub enum Format {
 /// 1027; we therefore scan the first 1024+4 bytes and accept only matches whose
 /// start offset is < 1024.
 pub fn sniff_format(bytes: &[u8]) -> Option<Format> {
+    if bytes.starts_with(b"PK\x03\x04") {
+        return Some(Format::Zip);
+    }
     let window = &bytes[..bytes.len().min(1024 + 4)];
     window
         .windows(5)

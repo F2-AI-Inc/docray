@@ -27,14 +27,14 @@ fn extracts_pdf_to_json_stdout() {
 }
 
 #[test]
-fn explicit_char_has_v1_2_envelope_and_lossless_hierarchy() {
+fn explicit_char_has_v1_3_envelope_and_lossless_hierarchy() {
     dps()
         .arg("extract")
         .arg(testdata("simple.pdf"))
         .args(["--granularity", "char"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\":\"1.2\""))
+        .stdout(predicate::str::contains("\"schema_version\":\"1.3\""))
         .stdout(predicate::str::contains("\"granularity\":\"char\""))
         .stdout(predicate::str::contains("\"chars\""));
 }
@@ -49,7 +49,7 @@ fn lean_defaults_to_element_and_emits_fixed_header_lines() {
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
     let mut lines = stdout.lines();
-    assert_eq!(lines.next(), Some("#docray element v1.2 pages=1"));
+    assert_eq!(lines.next(), Some("#docray element v1.3 pages=1"));
     assert_eq!(
         lines.next(),
         Some(
@@ -109,4 +109,39 @@ fn page_cap_exits_6() {
         .assert()
         .code(6)
         .stderr(predicate::str::contains("\"too_many_pages\""));
+}
+
+#[test]
+fn pptx_requires_element_granularity_and_supports_lean() {
+    for args in [
+        Vec::<&str>::new(),
+        vec!["--granularity", "word"],
+        vec!["--granularity", "char"],
+    ] {
+        dps()
+            .arg("extract")
+            .arg(testdata("pptx/basic.pptx"))
+            .args(args)
+            .assert()
+            .code(8)
+            .stderr(predicate::str::contains("\"granularity_unavailable\""))
+            .stderr(predicate::str::contains("retry with granularity=element"));
+    }
+
+    dps()
+        .arg("extract")
+        .arg(testdata("pptx/basic.pptx"))
+        .args(["--granularity", "element"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"format\":\"pptx\""))
+        .stdout(predicate::str::contains("\"text\":\"First shape\""));
+
+    dps()
+        .arg("extract")
+        .arg(testdata("pptx/basic.pptx"))
+        .args(["--format", "lean"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("#docray element v1.3 pages=1"));
 }

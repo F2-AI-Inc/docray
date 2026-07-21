@@ -45,6 +45,13 @@ The word legend is:
 #legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
 
+When any page contains non-visible context, one additional legend line follows
+the element/word legend:
+
+```text
+#legend <hidden> kind [element-id] content | non-visible document context
+```
+
 When warnings exist, each follows the legend immediately. Newlines and tabs
 inside a warning are collapsed to one space:
 
@@ -73,6 +80,37 @@ P x0 y0 x1 y1
 A x0 y0 x1 y1 <subtype> <uri or ->
 ```
 
+After a page's element records, its non-visible context is explicitly bounded:
+
+```text
+<hidden>
+<kind> [<element-id>] <content to end of line>
+</hidden>
+```
+
+The element ID is present only when the item annotates a visible element. The
+block appears after that page's elements and before the next `#page`. Documents
+without hidden items omit both the block and its legend line.
+
+Hidden content uses the same escapes as visible text and annotation URIs:
+backslash becomes `\\`, LF becomes `\n`, CR becomes `\r`, and every other
+control character plus U+2028/U+2029 becomes `\u{hex}` with lowercase,
+unpadded hexadecimal digits. An item's content therefore occupies exactly one
+physical line and can never produce a line equal to `</hidden>` or forge a
+visible element record.
+
+Hidden kinds are stable contract strings:
+
+| Kind | Target | PPTX | PDF |
+|---|---|---|---|
+| `role` | element | Placeholder `type` (`body` when omitted) | not emitted |
+| `notes` | page | Speaker-notes body text | not emitted |
+| `alt` | element | Shape/picture `descr`, falling back to `title` | not emitted |
+| `hidden-slide` | page | `true` when the slide has `show="0"` | not emitted |
+
+New hidden semantics receive new documented kind strings; these four strings
+are never repurposed or renamed.
+
 All coordinates use PDF points with a top-left origin after page rotation.
 Numbers, including font and page sizes, round to one decimal and omit a
 trailing `.0` (`72`, not `72.0`; `61.1` remains `61.1`). Every whitespace
@@ -82,10 +120,11 @@ The style token concatenates `b` for bold and `i` for italic, or uses `-` when
 neither applies. A non-default text fill is appended as lowercase RGB hex,
 for example `b#231f20` or `-#ff0000`.
 
-Text and word content runs to end of line. Exactly two escapes are defined:
-backslash becomes `\\`, and a newline becomes the two characters `\n`.
-Everything else is literal, including tabs. A fixed-position optional value
-that is absent is `-`.
+Text, word, annotation URI, and hidden content runs to end of line. Backslash
+becomes `\\`, LF becomes `\n`, and CR becomes `\r`. Every other Unicode
+control character, U+2028, and U+2029 becomes `\u{hex}` with lowercase,
+unpadded hexadecimal digits (for example, tab is `\u{9}`). All other
+characters are literal. A fixed-position optional value that is absent is `-`.
 
 ## JSON versus lean
 

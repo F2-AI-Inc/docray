@@ -1,10 +1,10 @@
 # docray
 
-**X-ray for documents.** docray takes a PDF and returns JSON describing every
-physical element on every page — text with a full character → word → line
-hierarchy, images, vector paths, and annotations — each with a bounding box,
-font, and color information. It sees through the rendered page to the
-skeleton underneath.
+**X-ray for documents.** docray takes PDF or PPTX input and returns JSON
+describing physical elements on every page or slide — text, images, vector
+paths, and annotations — each with a bounding box, font, and color information.
+PDF provides the full character → word → line hierarchy; PPTX provides native
+element-granularity slide structure.
 
 ```bash
 docray extract report.pdf --granularity element
@@ -43,7 +43,7 @@ The test suite enforces this with golden files and double-extraction checks.
 recorded in a `warnings` array. Scanned (raster-only) pages are flagged
 `"scanned": true` so you know exactly which pages need OCR.
 
-**Hardened against hostile input.** PDFs are untrusted. The HTTP server never
+**Hardened against hostile input.** Documents are untrusted. The HTTP server never
 parses them in-process — every document runs in an isolated worker subprocess
 with a wall-clock timeout, memory limit, and output cap. A malformed file that
 crashes the parser kills one job, never the service.
@@ -52,7 +52,7 @@ crashes the parser kills one job, never the service.
 
 | Piece | What it is |
 |---|---|
-| `docray` | CLI: PDF in, JSON on stdout |
+| `docray` | CLI: PDF/PPTX in, JSON or lean text on stdout |
 | `docray-server` | HTTP API: sync extraction + async job queue |
 | `/playground` | Browser workbench: pages beside their bounding boxes, live JSON |
-| `docray-{model,core,pdf}` | Rust crates: the schema, extraction traits, and PDFium-backed extractor |
+| `docray-{model,core,pdf,pptx}` | Rust crates: schema, extraction traits, and format extractors |
