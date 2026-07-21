@@ -13,7 +13,13 @@ if (!pkgArgument || !nativeArgument) {
 const root = path.resolve(__dirname, "..");
 const pkgDir = path.resolve(pkgArgument);
 const nativeCli = path.resolve(nativeArgument);
-const fixtures = ["simple.pdf", "form.pdf", "rotated.pdf", "link.pdf"];
+const fixtures = [
+  { file: "pptx/table.pptx", granularity: "element", exact: true },
+  { file: "simple.pdf", granularity: "" },
+  { file: "form.pdf", granularity: "" },
+  { file: "rotated.pdf", granularity: "" },
+  { file: "link.pdf", granularity: "" },
+];
 
 function exact(failures, label, a, b) {
   if (JSON.stringify(a) !== JSON.stringify(b)) {
@@ -149,19 +155,37 @@ function compare(native, wasm) {
   };
 }
 
+function compareExact(native, wasm) {
+  const failures = [];
+  exact(failures, "canonical extraction", native, wasm);
+  return {
+    ok: failures.length === 0,
+    failures,
+    failure_count: failures.length,
+    geometry_comparisons: 0,
+    max_geometry_delta_pt: 0,
+    seen: {},
+  };
+}
+
 async function main() {
   for (const file of ["docray_wasm.js", "pdfium.js", "pdfium.wasm"]) {
     if (!fs.existsSync(path.join(pkgDir, file))) throw new Error(`missing ${path.join(pkgDir, file)}`);
   }
   if (!fs.existsSync(nativeCli)) throw new Error(`missing native CLI ${nativeCli}`);
 
-  const PDFiumModule = require(path.join(pkgDir, "pdfium.js"));
-  const pdfium = await PDFiumModule({
-    locateFile: (file) => file.endsWith(".wasm") ? path.join(pkgDir, "pdfium.wasm") : file,
-  });
   const docray = require(path.join(pkgDir, "docray_wasm.js"));
-  if (!docray.initialize_pdfium_render(pdfium, docray.__wasm ?? docray, false)) {
-    throw new Error("pdfium-render rejected the Emscripten Pdfium module");
+  let pdfiumInitialized = false;
+  async function ensurePdfium() {
+    if (pdfiumInitialized) return;
+    const PDFiumModule = require(path.join(pkgDir, "pdfium.js"));
+    const pdfium = await PDFiumModule({
+      locateFile: (file) => file.endsWith(".wasm") ? path.join(pkgDir, "pdfium.wasm") : file,
+    });
+    if (!docray.initialize_pdfium_render(pdfium, docray.__wasm ?? docray, false)) {
+      throw new Error("pdfium-render rejected the Emscripten Pdfium module");
+    }
+    pdfiumInitialized = true;
   }
 
   try {
@@ -176,30 +200,38 @@ async function main() {
 
   const results = [];
   for (const fixture of fixtures) {
-    const fixturePath = path.join(root, "testdata", fixture);
-    const nativeRun = spawnSync(nativeCli, ["extract", fixturePath], {
+    const { file, granularity, exact: requiresExact } = fixture;
+    const fixturePath = path.join(root, "testdata", file);
+    // Deliberately extract PPTX before Pdfium initialization. This proves the
+    // pure-Rust Office path has no hidden dependency on the Emscripten module.
+    if (file.endsWith(".pdf")) await ensurePdfium();
+    const nativeArgs = ["extract", fixturePath];
+    if (granularity) nativeArgs.push("--granularity", granularity);
+    const nativeRun = spawnSync(nativeCli, nativeArgs, {
       cwd: root,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
     if (nativeRun.status !== 0) {
-      throw new Error(`native extraction failed for ${fixture}: ${nativeRun.stderr.trim()}`);
+      throw new Error(`native extraction failed for ${file}: ${nativeRun.stderr.trim()}`);
     }
 
     const native = JSON.parse(nativeRun.stdout);
-    const wasm = JSON.parse(docray.extract(fs.readFileSync(fixturePath), "", 0, 0));
-    results.push({ fixture, ...compare(native, wasm) });
+    const wasm = JSON.parse(docray.extract(fs.readFileSync(fixturePath), granularity, 0, 0));
+    results.push({ fixture: file, ...(requiresExact ? compareExact(native, wasm) : compare(native, wasm)) });
 
     // Lean output must match wasm-vs-native: same Rust renderer over the
     // same extraction. Structure/content compare exactly; numbers within
     // the JSON comparator's 2pt tolerance (pdfium builds differ sub-point).
-    const leanNative = spawnSync(nativeCli, ["extract", fixturePath, "--format", "lean"], {
+    const leanArgs = ["extract", fixturePath, "--format", "lean"];
+    if (granularity) leanArgs.push("--granularity", granularity);
+    const leanNative = spawnSync(nativeCli, leanArgs, {
       cwd: root,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
     if (leanNative.status !== 0) {
-      throw new Error(`native lean failed for ${fixture}: ${leanNative.stderr.trim()}`);
+      throw new Error(`native lean failed for ${file}: ${leanNative.stderr.trim()}`);
     }
     const leanWasm = docray.extract_lean(fs.readFileSync(fixturePath), "element", 0, 0);
     const leanLines = { native: leanNative.stdout.split("\n").length, wasm: leanWasm.split("\n").length };
@@ -210,7 +242,7 @@ async function main() {
       if (!leanLineClose(nNorm[i], wNorm[i])) { firstDiff = i; break; }
     }
     const leanOk = firstDiff === -1;
-    results.push({ fixture: fixture + " (lean)", ok: leanOk, failures: leanOk ? [] : [
+    results.push({ fixture: file + " (lean)", ok: leanOk, failures: leanOk ? [] : [
       `lean differs at line ${firstDiff}: native=${JSON.stringify(nNorm[firstDiff])} wasm=${JSON.stringify(wNorm[firstDiff])}`,
     ], failure_count: leanOk ? 0 : 1 });
   }

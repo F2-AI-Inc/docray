@@ -63,10 +63,11 @@ async fn healthz() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
 }
 
-/// Interactive testing UI: upload a PDF, see each page beside its extracted
-/// bounding boxes, and inspect the JSON. Single self-contained file embedded
-/// at compile time; pdf.js and fonts load from CDNs, so the page (not the
-/// API) needs outbound network access in the viewer's browser.
+/// Interactive testing UI: upload a PDF or PPTX, see each rendered PDF page or
+/// extracted PPTX structure schematic beside its bounding boxes, and inspect
+/// the JSON. Single self-contained file embedded at compile time; pdf.js and
+/// fonts load from CDNs, so the page (not the API) needs outbound network
+/// access in the viewer's browser.
 async fn playground() -> Response {
     (
         StatusCode::OK,

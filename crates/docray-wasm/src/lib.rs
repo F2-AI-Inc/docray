@@ -9,12 +9,15 @@
 //! exception. Discard both module instances and respawn the worker, mirroring
 //! docray-server's native subprocess isolation.
 
-use docray_core::{ExtractError, Extractor};
-use docray_model::{GranularExtraction, Granularity};
+use docray_core::{check_granularity, sniff_format, ExtractError, Extractor, Format};
+use docray_model::{Extraction, GranularExtraction, Granularity};
 use docray_pdf::PdfExtractor;
+use docray_pptx::PptxExtractor;
 use wasm_bindgen::prelude::*;
 
-/// Extracts a PDF entirely in WASM and returns docray JSON.
+const CFB_MAGIC: &[u8; 8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
+
+/// Extracts a PDF or PPTX entirely in WASM and returns docray JSON.
 ///
 /// `granularity` accepts "element", "word", "char", or the empty string for
 /// the frozen schema 1.1 response. `max_input_bytes` is a caller-selected byte
@@ -33,7 +36,7 @@ pub fn extract(
     extract_inner(bytes, granularity, max_input_bytes, max_output_bytes).map_err(WasmError::into_js)
 }
 
-/// Extracts a PDF and returns the token-lean line format (see the docs'
+/// Extracts a PDF or PPTX and returns the token-lean line format (see the docs'
 /// Output formats page). `granularity` accepts "element", "word", or the
 /// empty string (implies element, matching the CLI/HTTP surfaces). "char" is
 /// rejected with the stable `bad_format` error code, like everywhere else.
@@ -75,9 +78,7 @@ fn extract_lean_inner(
             ))
         }
     };
-    let extraction = PdfExtractor
-        .extract(bytes, None)
-        .map_err(WasmError::from_extract)?;
+    let extraction = extract_document(bytes, Some(granularity))?;
     match extraction.with_granularity(granularity) {
         GranularExtraction::Compact(compact) => {
             let mut w = CappedString {
@@ -110,18 +111,42 @@ fn extract_inner(
         ));
     }
 
-    let extraction = PdfExtractor
-        .extract(bytes, None)
-        .map_err(WasmError::from_extract)?;
-
-    if granularity.is_empty() {
-        json_capped(&extraction, cap)
+    let requested = if granularity.is_empty() {
+        None
     } else {
-        let granularity = granularity
-            .parse::<Granularity>()
-            .map_err(WasmError::parse_failure)?;
+        Some(
+            granularity
+                .parse::<Granularity>()
+                .map_err(WasmError::parse_failure)?,
+        )
+    };
+    let extraction = extract_document(bytes, requested)?;
+
+    if let Some(granularity) = requested {
         json_capped(&extraction.with_granularity(granularity), cap)
+    } else {
+        json_capped(&extraction, cap)
     }
+}
+
+/// Mirrors the CLI's format dispatch and, critically, performs the capability
+/// check before extraction. The PPTX arm never touches Pdfium.
+fn extract_document(bytes: &[u8], requested: Option<Granularity>) -> Result<Extraction, WasmError> {
+    let result = match sniff_format(bytes) {
+        Some(Format::Pdf) => {
+            let extractor = PdfExtractor;
+            check_granularity(&extractor.capabilities(), requested)
+                .and_then(|()| extractor.extract(bytes, None))
+        }
+        Some(Format::Zip) => {
+            let extractor = PptxExtractor;
+            check_granularity(&extractor.capabilities(), requested)
+                .and_then(|()| extractor.extract(bytes, None))
+        }
+        None if bytes.starts_with(CFB_MAGIC) => PptxExtractor.extract(bytes, None),
+        None => Err(ExtractError::UnsupportedFormat),
+    };
+    result.map_err(WasmError::from_extract)
 }
 
 #[derive(Debug, PartialEq)]
@@ -262,9 +287,41 @@ mod tests {
 
     #[test]
     fn zero_input_cap_is_uncapped() {
-        let error = extract_inner(b"not a PDF", "", 0, 0).unwrap_err();
+        let error = extract_inner(b"not a document", "", 0, 0).unwrap_err();
 
         assert_ne!(error.code, "too_large");
+    }
+
+    #[test]
+    fn pptx_element_json_extracts_without_pdfium() {
+        let bytes = include_bytes!("../../../testdata/pptx/table.pptx");
+        let json = extract_inner(bytes, "element", 0, 0).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["schema_version"], "1.4");
+        assert_eq!(value["granularity"], "element");
+        assert_eq!(value["source"]["format"], "pptx");
+        assert_eq!(value["pages"][0]["elements"][0]["type"], "table");
+    }
+
+    #[test]
+    fn pptx_rejects_implicit_and_word_granularity() {
+        let bytes = include_bytes!("../../../testdata/pptx/table.pptx");
+        for granularity in ["", "char", "word"] {
+            let error = extract_inner(bytes, granularity, 0, 0).unwrap_err();
+            assert_eq!(error.code, "granularity_unavailable");
+        }
+    }
+
+    #[test]
+    fn cfb_magic_uses_the_cli_legacy_office_error() {
+        let error = extract_inner(CFB_MAGIC, "element", 0, 0).unwrap_err();
+
+        assert_eq!(error.code, "unsupported_format");
+        assert_eq!(
+            error.message,
+            "legacy or encrypted Office documents are not supported"
+        );
     }
 
     use std::fmt::Write as _;
