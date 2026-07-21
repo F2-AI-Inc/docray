@@ -249,7 +249,7 @@ fn rotated_page_dims_and_coords_are_post_rotation() {
         match el {
             docray_model::Element::Text(t) => {
                 check(&t.bbox);
-                for l in &t.lines {
+                for l in t.lines.as_ref().expect("PDF hierarchy missing") {
                     check(&l.bbox);
                 }
             }

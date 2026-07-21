@@ -1,4 +1,5 @@
 use docray_core::{sniff_format, ExtractError, Format};
+use docray_model::Granularity;
 
 #[test]
 fn detects_pdf_magic_at_start() {
@@ -61,4 +62,12 @@ fn error_codes_are_stable_strings() {
         "parse_failure"
     );
     assert_eq!(ExtractError::Io("x".into()).code(), "io_error");
+    assert_eq!(
+        ExtractError::GranularityUnavailable {
+            requested: Granularity::Word,
+            finest: Granularity::Element,
+        }
+        .code(),
+        "granularity_unavailable"
+    );
 }

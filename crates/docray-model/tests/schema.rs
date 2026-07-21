@@ -41,7 +41,7 @@ fn sample() -> Extraction {
                     fill: Some([0, 0, 0]),
                     stroke: None,
                 },
-                lines: vec![Line {
+                lines: Some(vec![Line {
                     bbox: BBox {
                         x0: 1.0,
                         y0: 2.0,
@@ -68,7 +68,7 @@ fn sample() -> Extraction {
                             unicode: 72,
                         }],
                     }],
-                }],
+                }]),
             })],
         }],
     }
@@ -93,6 +93,29 @@ fn roundtrips() {
     let json = serde_json::to_string(&sample()).unwrap();
     let back: Extraction = serde_json::from_str(&json).unwrap();
     assert_eq!(serde_json::to_string(&back).unwrap(), json);
+}
+
+#[test]
+fn optional_lines_preserve_old_json_shape_and_omit_when_absent() {
+    let extraction = sample();
+    let Element::Text(text) = &extraction.pages[0].elements[0] else {
+        panic!("sample text element missing");
+    };
+    let old_shape = r#"{"id":"p1-e0","bbox":{"x0":1.0,"y0":2.0,"x1":3.0,"y1":4.0},"content":"Hi","font":{"name":"Helvetica","size":12.0,"bold":false,"italic":false},"color":{"fill":[0,0,0],"stroke":null},"lines":[{"bbox":{"x0":1.0,"y0":2.0,"x1":3.0,"y1":4.0},"baseline_y":3.5,"words":[{"content":"Hi","bbox":{"x0":1.0,"y0":2.0,"x1":3.0,"y1":4.0},"chars":[{"content":"H","bbox":{"x0":1.0,"y0":2.0,"x1":2.0,"y1":4.0},"unicode":72}]}]}]}"#;
+    assert_eq!(serde_json::to_string(text).unwrap(), old_shape);
+
+    let mut without_lines = text.clone();
+    without_lines.lines = None;
+    let value = serde_json::to_value(without_lines).unwrap();
+    assert!(!value.as_object().unwrap().contains_key("lines"));
+
+    let decoded: TextElement = serde_json::from_str(old_shape).unwrap();
+    assert!(decoded.lines.is_some());
+
+    let mut missing_lines: serde_json::Value = serde_json::from_str(old_shape).unwrap();
+    missing_lines.as_object_mut().unwrap().remove("lines");
+    let decoded: TextElement = serde_json::from_value(missing_lines).unwrap();
+    assert_eq!(decoded.lines, None);
 }
 
 #[test]

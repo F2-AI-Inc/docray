@@ -175,6 +175,7 @@ pub fn outcome_to_response(outcome: WorkerOutcome, format: OutputFormat) -> Resp
             .into_response(),
         WorkerOutcome::Failed { code, message } => {
             let status = match code.as_str() {
+                "granularity_unavailable" => StatusCode::BAD_REQUEST,
                 "unsupported_format" => StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "encrypted_pdf" | "parse_failure" => StatusCode::UNPROCESSABLE_ENTITY,
                 "too_many_pages" => StatusCode::PAYLOAD_TOO_LARGE,
@@ -484,5 +485,17 @@ mod tests {
     fn invalid_format_query_has_stable_error_code() {
         let error = requested_output(Ok(query(None, Some("toon")))).unwrap_err();
         assert_eq!(error.code, "bad_format");
+    }
+
+    #[test]
+    fn unavailable_granularity_is_a_bad_request() {
+        let response = outcome_to_response(
+            WorkerOutcome::Failed {
+                code: "granularity_unavailable".into(),
+                message: "requested word granularity is unavailable".into(),
+            },
+            OutputFormat::Json,
+        );
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

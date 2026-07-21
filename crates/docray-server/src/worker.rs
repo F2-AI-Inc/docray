@@ -157,7 +157,7 @@ pub async fn run_extraction(
     match status {
         Ok(s) if s.success() => WorkerOutcome::Success(out),
         Ok(s) => match s.code() {
-            Some(code @ 2..=7) => {
+            Some(code) if is_structured_error_exit(code) => {
                 let parsed: Option<Value> = serde_json::from_slice(&err).ok();
                 let (c, m) = parsed
                     .as_ref()
@@ -182,5 +182,20 @@ pub async fn run_extraction(
             _ => WorkerOutcome::Crashed,
         },
         Err(_) => WorkerOutcome::Crashed,
+    }
+}
+
+fn is_structured_error_exit(code: i32) -> bool {
+    (2..=8).contains(&code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_structured_error_exit;
+
+    #[test]
+    fn stable_worker_error_exit_range_includes_granularity_unavailable() {
+        assert!(is_structured_error_exit(8));
+        assert!(!is_structured_error_exit(9));
     }
 }

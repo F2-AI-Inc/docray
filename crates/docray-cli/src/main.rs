@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use docray_core::{sniff_format, ExtractError, Extractor, Format};
+use docray_core::{check_granularity, sniff_format, ExtractError, Extractor, Format};
 use docray_model::{GranularExtraction, Granularity, OutputFormat};
 use docray_pdf::PdfExtractor;
 use std::process::ExitCode;
@@ -71,7 +71,11 @@ fn run_extract(
         Err(e) => return fail(&ExtractError::Io(format!("{file}: {e}"))),
     };
     let result = match sniff_format(&bytes) {
-        Some(Format::Pdf) => PdfExtractor.extract(&bytes, max_pages),
+        Some(Format::Pdf) => {
+            let extractor = PdfExtractor;
+            check_granularity(&extractor.capabilities(), granularity)
+                .and_then(|()| extractor.extract(&bytes, max_pages))
+        }
         None => Err(ExtractError::UnsupportedFormat),
     };
     match result {
@@ -123,12 +127,30 @@ fn fail(e: &ExtractError) -> ExitCode {
         "{}",
         serde_json::json!({ "error": { "code": e.code(), "message": e.to_string() } })
     );
-    let code: u8 = match e {
+    ExitCode::from(extract_error_exit_code(e))
+}
+
+fn extract_error_exit_code(e: &ExtractError) -> u8 {
+    match e {
         ExtractError::UnsupportedFormat => 2,
         ExtractError::EncryptedPdf => 3,
         ExtractError::ParseFailure(_) => 4,
         ExtractError::Io(_) => 5,
         ExtractError::TooManyPages { .. } => 6,
-    };
-    ExitCode::from(code)
+        ExtractError::GranularityUnavailable { .. } => 8,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn granularity_unavailable_maps_to_exit_8() {
+        let error = ExtractError::GranularityUnavailable {
+            requested: Granularity::Word,
+            finest: Granularity::Element,
+        };
+        assert_eq!(extract_error_exit_code(&error), 8);
+    }
 }

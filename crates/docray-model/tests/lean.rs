@@ -42,7 +42,7 @@ fn extraction() -> Extraction {
                         fill: Some([35, 31, 32]),
                         stroke: Some([255, 0, 0]),
                     },
-                    lines: vec![Line {
+                    lines: Some(vec![Line {
                         bbox: BBox {
                             x0: 1.04,
                             y0: 2.06,
@@ -60,7 +60,7 @@ fn extraction() -> Extraction {
                             },
                             chars: vec![],
                         }],
-                    }],
+                    }]),
                 }),
                 Element::Text(TextElement {
                     id: "p1-e1".into(),
@@ -81,7 +81,7 @@ fn extraction() -> Extraction {
                         fill: Some([0, 0, 0]),
                         stroke: Some([255, 0, 0]),
                     },
-                    lines: vec![],
+                    lines: Some(vec![]),
                 }),
                 Element::Image(ImageElement {
                     id: "p1-e2".into(),
@@ -165,6 +165,29 @@ fn word_lean_nests_escaped_words_under_text_elements() {
     assert_eq!(lines[4], "T 1 2.1 30 40.1 A_B_C 12.1 bi#231f20");
     assert_eq!(lines[5], "w 1 2.1 30 40.1 a\\\\b\\nc\td");
     assert_eq!(lines[6], "T 41 42 43 44 - 9 -");
+}
+
+#[test]
+fn word_projection_with_missing_hierarchy_has_no_words() {
+    let mut extraction = extraction();
+    let Element::Text(text) = &mut extraction.pages[0].elements[0] else {
+        panic!("sample text element missing");
+    };
+    text.lines = None;
+
+    let projection = extraction.with_granularity(Granularity::Word);
+    let value = serde_json::to_value(&projection).unwrap();
+    assert_eq!(
+        value["pages"][0]["elements"][0]["words"],
+        serde_json::json!([])
+    );
+
+    let GranularExtraction::Compact(compact) = projection else {
+        panic!("word granularity must be compact");
+    };
+    let rendered = compact.to_lean();
+    assert!(rendered.contains("\nT 1 2.1 30 40.1 A_B_C 12.1 bi#231f20\n"));
+    assert!(!rendered.lines().any(|line| line.starts_with("w ")));
 }
 
 /// A hostile PDF's annotation URI must not be able to inject fake element

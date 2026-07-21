@@ -1,6 +1,8 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+use docray_model::Granularity;
+
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum ExtractError {
     #[error("input is not a supported format")]
     UnsupportedFormat,
@@ -12,6 +14,11 @@ pub enum ExtractError {
     ParseFailure(String),
     #[error("io error: {0}")]
     Io(String),
+    #[error("requested {requested} granularity is unavailable; finest available is {finest}")]
+    GranularityUnavailable {
+        requested: Granularity,
+        finest: Granularity,
+    },
 }
 
 impl ExtractError {
@@ -22,6 +29,7 @@ impl ExtractError {
             ExtractError::TooManyPages { .. } => "too_many_pages",
             ExtractError::ParseFailure(_) => "parse_failure",
             ExtractError::Io(_) => "io_error",
+            ExtractError::GranularityUnavailable { .. } => "granularity_unavailable",
         }
     }
 }
