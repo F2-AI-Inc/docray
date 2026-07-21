@@ -1,0 +1,52 @@
+{
+  "granularity": "element",
+  "schema_version": "1.2",
+  "source": {
+    "format": "pptx",
+    "sha256": "7e9c0fc947f130e9d09a179c3e65fc459c6f0349935293d7d8e2d663cc1c21e0",
+    "size_bytes": 7547
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            36.0,
+            648.0,
+            108.0
+          ],
+          "text": "Inherited title",
+          "font": {
+            "name": "Fixture Serif",
+            "size": 32.0
+          }
+        },
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            144.0,
+            648.0,
+            432.0
+          ],
+          "text": "Inherited body",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 20.0
+          }
+        }
+      ]
+    }
+  ]
+}

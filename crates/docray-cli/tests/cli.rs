@@ -110,3 +110,38 @@ fn page_cap_exits_6() {
         .code(6)
         .stderr(predicate::str::contains("\"too_many_pages\""));
 }
+
+#[test]
+fn pptx_requires_element_granularity_and_supports_lean() {
+    for args in [
+        Vec::<&str>::new(),
+        vec!["--granularity", "word"],
+        vec!["--granularity", "char"],
+    ] {
+        dps()
+            .arg("extract")
+            .arg(testdata("pptx/basic.pptx"))
+            .args(args)
+            .assert()
+            .code(8)
+            .stderr(predicate::str::contains("\"granularity_unavailable\""))
+            .stderr(predicate::str::contains("retry with granularity=element"));
+    }
+
+    dps()
+        .arg("extract")
+        .arg(testdata("pptx/basic.pptx"))
+        .args(["--granularity", "element"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"format\":\"pptx\""))
+        .stdout(predicate::str::contains("\"text\":\"First shape\""));
+
+    dps()
+        .arg("extract")
+        .arg(testdata("pptx/basic.pptx"))
+        .args(["--format", "lean"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("#docray element v1.2 pages=1"));
+}

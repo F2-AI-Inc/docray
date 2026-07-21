@@ -1,0 +1,6 @@
+#docray element v1.2 pages=1
+#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#page 1 720x540
+T 72 90 272 120 Fixture_Sans 18 - Merged
+T 72 120 152 170 Fixture_Sans 18 - Left
+T 152 120 272 170 Fixture_Sans 18 - Right

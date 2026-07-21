@@ -1,0 +1,33 @@
+{
+  "granularity": "element",
+  "schema_version": "1.2",
+  "source": {
+    "format": "pptx",
+    "sha256": "bb057efd22c868d31c9f959e1d46774a3f982e571264d99032053e9cdfc6b543",
+    "size_bytes": 7680
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "image",
+          "bbox": [
+            120.0,
+            80.0,
+            160.0,
+            160.0
+          ]
+        }
+      ]
+    }
+  ]
+}

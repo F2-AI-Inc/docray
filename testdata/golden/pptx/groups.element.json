@@ -1,0 +1,38 @@
+{
+  "granularity": "element",
+  "schema_version": "1.2",
+  "source": {
+    "format": "pptx",
+    "sha256": "bbfbbc0f37acf19058dd69d7a7be199a82680cbfd0ff7bf01c668360ffc2a131",
+    "size_bytes": 7850
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            70.0,
+            40.0,
+            110.0,
+            120.0
+          ],
+          "text": "Nested transform",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          }
+        }
+      ]
+    }
+  ]
+}
