@@ -39,9 +39,10 @@ docray extract file.pdf --granularity element
 }
 ```
 
-Non-text elements reduce to `{"type": "image|path", "bbox": [...]}`;
-annotations keep their `subtype` and `uri`. The bbox is still precise enough
-for click-to-source highlighting.
+Images reduce to `{"type": "image", "bbox": [...]}`. Paths keep their bbox
+plus optional `fill`, `stroke`, and `stroke_width`; annotations keep their
+`subtype` and `uri`. The bbox is still precise enough for click-to-source
+highlighting.
 
 ## word
 
@@ -74,13 +75,13 @@ hashes, path stroke properties. This is the archival shape — see
 
 - Coordinates round to **1 decimal** (0.05 pt max displacement — chosen over
   integers, which produced degenerate zero-area boxes on thin paths).
-- **Omitted when default:** `bold`/`italic` when false, `fill` when black,
-  `stroke` when absent or black. If you see `"bold": true`, it is always
-  informative.
+- **Omitted when default for text:** `bold`/`italic` when false, `fill` when
+  black, and `stroke` when absent or black. Path paint is omitted only when
+  absent, because black fill/stroke is still authored visual content.
 - **Never omitted:** page dimensions, element type, bbox, `scanned` flags, and
   any *non-empty* `warnings` array. Silent-failure freedom survives every
   granularity.
-- Compact responses report `"schema_version": "1.4"` and echo the
+- Compact responses report `"schema_version": "1.5"` and echo the
   `"granularity"` you asked for.
 - Every compact granularity carries each page's non-visible `hidden` items
   verbatim; granularity changes visible text detail, not supplemental context.

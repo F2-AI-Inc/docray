@@ -81,7 +81,7 @@ impl Extractor for PptxExtractor {
 
         Ok(Extraction {
             // The base model remains schema 1.1 internally; dispatch requires
-            // explicit element granularity, whose wrapper serializes as 1.4.
+            // explicit element granularity, whose wrapper serializes as 1.5.
             schema_version: "1.1".into(),
             source: Source {
                 format: "pptx".into(),
@@ -325,9 +325,16 @@ fn extract_children(
                 hidden,
                 warnings,
             ),
-            "graphicFrame" => {
-                extract_graphic_frame(child, context, page_number, groups, elements, warnings)
-            }
+            "graphicFrame" => extract_graphic_frame(
+                package,
+                child,
+                context,
+                page_number,
+                groups,
+                elements,
+                hidden,
+                warnings,
+            )?,
             "grpSp" => {
                 if groups.len() >= MAX_GROUP_DEPTH {
                     warnings.push(format!(
@@ -619,24 +626,127 @@ fn notes_text(
     Ok((!content.is_empty()).then_some(content))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn extract_graphic_frame(
+    package: &mut Package<'_>,
     frame: &Node,
+    context: &SlideContext<'_>,
+    page_number: u32,
+    groups: &[GroupTransform],
+    elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
+    warnings: &mut Vec<String>,
+) -> Result<(), ExtractError> {
+    let Some(graphic_data) = frame.first_descendant("graphicData") else {
+        warnings.push(format!(
+            "page {page_number}: graphic graphicFrame has no extractable text"
+        ));
+        return Ok(());
+    };
+    let uri = graphic_data.attr("uri").unwrap_or_default();
+    if uri.ends_with("/table") || graphic_data.first_descendant("tbl").is_some() {
+        extract_table_frame(
+            frame,
+            graphic_data,
+            context,
+            page_number,
+            groups,
+            elements,
+            warnings,
+        );
+        return Ok(());
+    }
+
+    let kind = graphic_frame_kind(uri);
+    let Some(frame_xfrm) = frame_transform(frame) else {
+        warnings.push(format!(
+            "page {page_number}: {kind} graphicFrame geometry could not be resolved, content skipped"
+        ));
+        return Ok(());
+    };
+    let bbox = bbox_for_transform(frame_xfrm, groups);
+
+    if uri.ends_with("/chart") {
+        match related_xml(
+            package,
+            context,
+            frame
+                .first_descendant("chart")
+                .and_then(|node| node.attr("id")),
+        ) {
+            Ok(chart) => {
+                let content = chart_text(&chart);
+                if content.is_empty() {
+                    warnings.push(format!(
+                        "page {page_number}: chart graphicFrame has no extractable text"
+                    ));
+                } else {
+                    push_synthesized_text(content, bbox, context, page_number, elements);
+                }
+            }
+            Err(error) => warnings.push(format!(
+                "page {page_number}: chart graphicFrame part is missing or unreadable: {error}"
+            )),
+        }
+    } else if uri.ends_with("/diagram") {
+        match related_xml(
+            package,
+            context,
+            frame
+                .first_descendant("relIds")
+                .and_then(|node| node.attr("dm")),
+        ) {
+            Ok(diagram) => {
+                let content = descendant_text(&diagram, "t", "\n");
+                if content.is_empty() {
+                    warnings.push(format!(
+                        "page {page_number}: SmartArt graphicFrame has no extractable text"
+                    ));
+                } else {
+                    push_synthesized_text(content, bbox, context, page_number, elements);
+                }
+            }
+            Err(error) => warnings.push(format!(
+                "page {page_number}: SmartArt graphicFrame part is missing or unreadable: {error}"
+            )),
+        }
+    } else if uri.ends_with("/picture") {
+        extract_graphic_frame_picture(
+            package,
+            graphic_data,
+            context,
+            page_number,
+            groups,
+            frame_xfrm,
+            elements,
+            hidden,
+            warnings,
+        )?;
+    } else {
+        let content = descendant_text(graphic_data, "t", "\n");
+        if content.is_empty() {
+            warnings.push(format!(
+                "page {page_number}: {kind} graphicFrame has no extractable text"
+            ));
+        } else {
+            push_synthesized_text(content, bbox, context, page_number, elements);
+        }
+    }
+    Ok(())
+}
+
+fn extract_table_frame(
+    frame: &Node,
+    graphic_data: &Node,
     context: &SlideContext<'_>,
     page_number: u32,
     groups: &[GroupTransform],
     elements: &mut Vec<Element>,
     warnings: &mut Vec<String>,
 ) {
-    let Some(table) = frame.first_descendant("tbl") else {
-        let kind = if frame.first_descendant("chart").is_some() {
-            "chart"
-        } else if frame.first_descendant("relIds").is_some() {
-            "SmartArt"
-        } else {
-            "graphic"
-        };
+    let Some(table) = graphic_data.first_descendant("tbl") else {
         warnings.push(format!(
-            "page {page_number}: unsupported {kind} graphicFrame skipped"
+            "page {page_number}: table graphicFrame has no extractable text"
         ));
         return;
     };
@@ -734,6 +844,194 @@ fn extract_graphic_frame(
         cols: columns.len(),
         cells,
     }));
+}
+
+fn graphic_frame_kind(uri: &str) -> &str {
+    if uri.ends_with("/chart") {
+        "chart"
+    } else if uri.ends_with("/diagram") {
+        "SmartArt"
+    } else if uri.ends_with("/picture") {
+        "picture"
+    } else if uri.ends_with("/ole") {
+        "OLE"
+    } else {
+        "graphic"
+    }
+}
+
+fn related_xml(
+    package: &mut Package<'_>,
+    context: &SlideContext<'_>,
+    rel_id: Option<&str>,
+) -> Result<Node, String> {
+    let rel_id = rel_id.ok_or_else(|| "relationship id is missing".to_string())?;
+    let relation = context
+        .slide_rels
+        .get(rel_id)
+        .ok_or_else(|| format!("relationship {rel_id:?} is missing"))?;
+    if relation.external {
+        return Err(format!("relationship {rel_id:?} is external"));
+    }
+    let path =
+        resolve_target(context.slide_path, &relation.target).map_err(|error| error.to_string())?;
+    let bytes = package
+        .read(&path)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("referenced part is missing: {path}"))?;
+    parse(&bytes, &path).map_err(|error| error.to_string())
+}
+
+fn push_synthesized_text(
+    content: String,
+    bbox: BBox,
+    context: &SlideContext<'_>,
+    page_number: u32,
+    elements: &mut Vec<Element>,
+) {
+    let style = combine_styles(&[], context.theme);
+    elements.push(Element::Text(TextElement {
+        id: next_id(page_number, elements),
+        bbox,
+        content,
+        font: Font {
+            name: style.font_name,
+            size: round3(style.size),
+            bold: style.bold,
+            italic: style.italic,
+        },
+        color: TextColor {
+            fill: style.color,
+            stroke: None,
+        },
+        lines: None,
+        runs: None,
+    }));
+}
+
+fn descendant_text(node: &Node, local_name: &str, separator: &str) -> String {
+    node.descendants(local_name)
+        .map(|text| text.text.as_str())
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn chart_text(root: &Node) -> String {
+    let chart = root.first_descendant("chart").unwrap_or(root);
+    let mut lines = Vec::new();
+    if let Some(title) = chart.child("title") {
+        let title = descendant_text(title, "t", "");
+        if !title.is_empty() {
+            lines.push(title);
+        }
+    }
+
+    let Some(plot_area) = chart.child("plotArea") else {
+        return lines.join("\n");
+    };
+    for axis in &plot_area.children {
+        if matches!(axis.local_name(), "catAx" | "dateAx" | "serAx" | "valAx") {
+            if let Some(title) = axis.child("title") {
+                let title = descendant_text(title, "t", "");
+                if !title.is_empty() {
+                    lines.push(title);
+                }
+            }
+        }
+    }
+
+    for series in plot_area.descendants("ser") {
+        if let Some(name) = series.child("tx") {
+            let rich = descendant_text(name, "t", "");
+            let name = if rich.is_empty() {
+                descendant_text(name, "v", "")
+            } else {
+                rich
+            };
+            if !name.is_empty() {
+                lines.push(name);
+            }
+        }
+
+        let categories = series.child("cat").map(chart_points).unwrap_or_default();
+        let mut values = series
+            .child("val")
+            .map(finite_chart_points)
+            .unwrap_or_default();
+        for (index, category) in categories {
+            match values.remove(&index) {
+                Some(value) => lines.push(format!("{category}: {value}")),
+                None => lines.push(category),
+            }
+        }
+        lines.extend(values.into_values());
+    }
+    lines.join("\n")
+}
+
+fn chart_points(node: &Node) -> BTreeMap<u64, String> {
+    node.descendants("pt")
+        .filter_map(|point| {
+            let index = point.attr("idx")?.parse::<u64>().ok()?;
+            let value = point.first_descendant("v")?.text.clone();
+            (!value.is_empty()).then_some((index, value))
+        })
+        .collect()
+}
+
+fn finite_chart_points(node: &Node) -> BTreeMap<u64, String> {
+    chart_points(node)
+        .into_iter()
+        .filter(|(_, value)| parse_finite_number(value).is_some())
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn extract_graphic_frame_picture(
+    package: &mut Package<'_>,
+    graphic_data: &Node,
+    context: &SlideContext<'_>,
+    page_number: u32,
+    groups: &[GroupTransform],
+    frame_xfrm: Xfrm,
+    elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
+    warnings: &mut Vec<String>,
+) -> Result<(), ExtractError> {
+    let picture = graphic_data.first_descendant("pic").unwrap_or(graphic_data);
+    let corners = transformed_corners(frame_xfrm, groups);
+    let bbox = bbox_from_points(&corners);
+    let id = next_id(page_number, elements);
+    push_alt(picture, &id, hidden);
+    let embed = picture
+        .first_descendant("blip")
+        .and_then(|node| node.attr("embed"));
+    let mut content_hash = None;
+    match embed.and_then(|rel_id| context.slide_rels.get(rel_id)) {
+        Some(relation) if !relation.external => {
+            let media_path = resolve_target(context.slide_path, &relation.target)?;
+            match package.read(&media_path)? {
+                Some(bytes) => content_hash = Some(hex(&Sha256::digest(bytes))),
+                None => warnings.push(format!(
+                    "{id}: referenced picture media part is missing: {media_path}"
+                )),
+            }
+        }
+        _ => warnings.push(format!(
+            "{id}: picture media relationship is missing or broken"
+        )),
+    }
+    elements.push(Element::Image(ImageElement {
+        id,
+        bbox,
+        quad: corners.map(point_to_points),
+        pixel_width: None,
+        pixel_height: None,
+        colorspace: None,
+        content_hash,
+    }));
+    Ok(())
 }
 
 fn prefix_sums(values: &[f64]) -> Option<Vec<f64>> {
@@ -1695,7 +1993,15 @@ mod tests {
         })];
         let mut warnings = Vec::new();
 
-        extract_graphic_frame(&frame, &context, 1, &[], &mut elements, &mut warnings);
+        extract_table_frame(
+            &frame,
+            frame.first_descendant("graphicData").unwrap(),
+            &context,
+            1,
+            &[],
+            &mut elements,
+            &mut warnings,
+        );
 
         assert_eq!(
             elements.len(),
@@ -1730,7 +2036,15 @@ mod tests {
         let mut elements = Vec::new();
         let mut warnings = Vec::new();
 
-        extract_graphic_frame(&frame, &context, 1, &[], &mut elements, &mut warnings);
+        extract_table_frame(
+            &frame,
+            frame.first_descendant("graphicData").unwrap(),
+            &context,
+            1,
+            &[],
+            &mut elements,
+            &mut warnings,
+        );
 
         assert!(
             warnings.is_empty(),
@@ -1752,5 +2066,25 @@ mod tests {
             9.0,
             "lvl must clamp to OOXML level 8"
         );
+    }
+
+    #[test]
+    fn chart_text_rejects_hostile_indices_and_non_finite_values_without_panicking() {
+        let chart = parse_test_xml(
+            r#"<c:chartSpace><c:chart><c:plotArea><c:barChart><c:ser>
+                <c:tx><c:v>Series</c:v></c:tx>
+                <c:cat><c:strLit>
+                    <c:pt idx="18446744073709551615"><c:v>Huge</c:v></c:pt>
+                    <c:pt idx="not-a-number"><c:v>Ignored</c:v></c:pt>
+                    <c:pt idx="2"><c:v>Finite</c:v></c:pt>
+                </c:strLit></c:cat>
+                <c:val><c:numLit>
+                    <c:pt idx="18446744073709551615"><c:v>NaN</c:v></c:pt>
+                    <c:pt idx="2"><c:v>42.5</c:v></c:pt>
+                    <c:pt idx="3"><c:v>1e999</c:v></c:pt>
+                </c:numLit></c:val>
+            </c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#,
+        );
+        assert_eq!(chart_text(&chart), "Series\nFinite: 42.5\nHuge");
     }
 }

@@ -282,6 +282,56 @@ fn compact_runs_use_the_same_font_and_color_projection_as_parent_text() {
 }
 
 #[test]
+fn compact_paths_keep_paint_while_images_remain_bbox_only() {
+    let mut extraction = sample();
+    extraction.pages[0].elements = vec![
+        Element::Path(PathElement {
+            id: "p1-e0".into(),
+            bbox: BBox {
+                x0: 1.04,
+                y0: 2.06,
+                x1: 30.04,
+                y1: 40.06,
+            },
+            fill: Some([0, 0, 0]),
+            stroke: Some([255, 128, 1]),
+            stroke_width: Some(1.26),
+        }),
+        Element::Image(ImageElement {
+            id: "p1-e1".into(),
+            bbox: BBox {
+                x0: 2.0,
+                y0: 3.0,
+                x1: 4.0,
+                y1: 5.0,
+            },
+            quad: [[0.0; 2]; 4],
+            pixel_width: None,
+            pixel_height: None,
+            colorspace: None,
+            content_hash: None,
+        }),
+    ];
+
+    let value = serde_json::to_value(extraction.with_granularity(Granularity::Element)).unwrap();
+    assert_eq!(value["schema_version"], "1.5");
+    assert_eq!(
+        value["pages"][0]["elements"][0],
+        serde_json::json!({
+            "type": "path",
+            "bbox": [1.0, 2.1, 30.0, 40.1],
+            "fill": [0, 0, 0],
+            "stroke": [255, 128, 1],
+            "stroke_width": 1.3
+        })
+    );
+    assert_eq!(
+        value["pages"][0]["elements"][1],
+        serde_json::json!({"type": "image", "bbox": [2.0, 3.0, 4.0, 5.0]})
+    );
+}
+
+#[test]
 fn hidden_items_serialize_with_stable_shape_and_optional_element() {
     let mut extraction = sample();
     extraction.pages[0].hidden = vec![
@@ -318,7 +368,7 @@ fn explicit_granularities_keep_nonempty_warnings() {
     extraction.warnings = vec!["page 1 recovered with omissions".into()];
     for level in [Granularity::Char, Granularity::Word, Granularity::Element] {
         let value = serde_json::to_value(extraction.with_granularity(level)).unwrap();
-        assert_eq!(value["schema_version"], "1.4");
+        assert_eq!(value["schema_version"], "1.5");
         assert_eq!(value["granularity"], level.as_str());
         assert_eq!(
             value["warnings"],

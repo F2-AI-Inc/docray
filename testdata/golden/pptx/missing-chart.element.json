@@ -3,13 +3,17 @@
   "schema_version": "1.5",
   "source": {
     "format": "pptx",
-    "sha256": "026ffd58794e07d4ec7234d1dd0e190c97ad663331ea345d213d4ac8903be983",
-    "size_bytes": 7647
+    "sha256": "05b73613b84edfb9dfb684c057895ceb6cfd983e468e90ef7b7b4f9b36f65603",
+    "size_bytes": 9238
   },
   "document": {
     "page_count": 1,
     "metadata": {}
   },
+  "warnings": [
+    "page 1: chart graphicFrame part is missing or unreadable: referenced part is missing: ppt/charts/missing.xml",
+    "page 1: chart graphicFrame has no extractable text"
+  ],
   "pages": [
     {
       "page_number": 1,
@@ -22,36 +26,38 @@
           "type": "text",
           "bbox": [
             72.0,
-            72.0,
+            288.0,
             360.0,
-            144.0
+            360.0
           ],
-          "text": "External link",
+          "text": "Slide still extracts",
           "font": {
             "name": "Fixture Sans",
             "size": 18.0
           },
+          "color": {
+            "fill": [
+              17,
+              34,
+              51
+            ]
+          },
           "runs": [
             {
-              "content": "External link",
+              "content": "Slide still extracts",
               "font": {
                 "name": "Fixture Sans",
                 "size": 18.0
               },
-              "href": "https://example.com/literal?x=1&y=2"
+              "color": {
+                "fill": [
+                  17,
+                  34,
+                  51
+                ]
+              }
             }
           ]
-        },
-        {
-          "type": "annotation",
-          "bbox": [
-            72.0,
-            72.0,
-            360.0,
-            144.0
-          ],
-          "subtype": "link",
-          "uri": "https://example.com/literal?x=1&y=2"
         }
       ]
     }

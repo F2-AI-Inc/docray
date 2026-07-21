@@ -1,6 +1,6 @@
 {
   "granularity": "element",
-  "schema_version": "1.4",
+  "schema_version": "1.5",
   "source": {
     "format": "pptx",
     "sha256": "e7ad6a8b6633428606e3c4060e66086ab16de38250cfd6efbde11c06d18cff67",
@@ -25,7 +25,18 @@
             100.0,
             300.0,
             200.0
-          ]
+          ],
+          "fill": [
+            170,
+            85,
+            0
+          ],
+          "stroke": [
+            0,
+            17,
+            34
+          ],
+          "stroke_width": 2.0
         },
         {
           "type": "path",
@@ -34,7 +45,13 @@
             150.0,
             450.0,
             200.0
-          ]
+          ],
+          "stroke": [
+            204,
+            0,
+            0
+          ],
+          "stroke_width": 1.0
         }
       ]
     }

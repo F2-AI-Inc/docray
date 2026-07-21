@@ -1,5 +1,4 @@
 #docray element v1.5 pages=1
 #legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #page 1 720x540
-P 100 100 300 200
-P 300 150 450 200
+T 72 72 432 288 Fixture_Sans 18 - Quarterly revenue\nQuarter\nUSD millions\nRevenue\nQ1: 10.5\nQ2: 12\nCosts\nQ1: 7\nQ2: 8.25

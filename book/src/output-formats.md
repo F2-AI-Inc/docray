@@ -47,7 +47,9 @@ and the word legend is:
 
 Responses without run or table detail retain the preceding schema-1.3 legend
 shape (without `r`, `TB`, or `c`). In particular, PDF lean output has no such
-detail, so its schema-1.4 byte change is limited to the header version token.
+detail. Lean deliberately keeps path records bbox-only, so the schema-1.5
+change to PDF lean bytes is limited to the header version token; compact JSON
+paths additionally carry their authored paint.
 
 When any page contains non-visible context, one additional legend line follows
 the element/word legend:
@@ -155,7 +157,9 @@ Lean is a reading format, not a lossless replacement for JSON:
 - It omits the JSON envelope, including source format, SHA-256, byte size, and
   document metadata. The header carries only granularity, schema version, page
   count, and warning count.
-- It includes non-default text fill color but deliberately omits stroke color.
+- It includes non-default text fill color but deliberately omits stroke color
+  and path paint. Use compact JSON when a path's fill, stroke, or stroke width
+  is required for reconstruction.
 - It supports only `element` and `word`; use JSON for the lossless `char`
   hierarchy and reconstruction metadata.
 - The Rust/Wasm API emits JSON only. Lean is available from the native CLI and

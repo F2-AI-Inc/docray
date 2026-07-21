@@ -3,8 +3,8 @@
   "schema_version": "1.5",
   "source": {
     "format": "pptx",
-    "sha256": "bb057efd22c868d31c9f959e1d46774a3f982e571264d99032053e9cdfc6b543",
-    "size_bytes": 7680
+    "sha256": "6f754e6208351477eb7a176c8d7bb065d30415e0e3363fd9329cc2d490016300",
+    "size_bytes": 8054
   },
   "document": {
     "page_count": 1,
@@ -21,11 +21,18 @@
         {
           "type": "image",
           "bbox": [
-            120.0,
-            80.0,
-            160.0,
-            160.0
+            200.0,
+            100.0,
+            360.0,
+            180.0
           ]
+        }
+      ],
+      "hidden": [
+        {
+          "kind": "alt",
+          "element": "p1-e0",
+          "content": "Graphic-frame picture alternative"
         }
       ]
     }

@@ -3,8 +3,8 @@
   "schema_version": "1.5",
   "source": {
     "format": "pptx",
-    "sha256": "bbfbbc0f37acf19058dd69d7a7be199a82680cbfd0ff7bf01c668360ffc2a131",
-    "size_bytes": 7850
+    "sha256": "56d608da118b1e62e1a395ad2fb8e7864dfa3db18705f442c0671dd207a39b75",
+    "size_bytes": 9123
   },
   "document": {
     "page_count": 1,
@@ -21,25 +21,16 @@
         {
           "type": "text",
           "bbox": [
-            70.0,
-            40.0,
-            110.0,
-            120.0
+            72.0,
+            72.0,
+            432.0,
+            288.0
           ],
-          "text": "Nested transform",
+          "text": "Quarterly revenue\nQuarter\nUSD millions\nRevenue\nQ1: 10.5\nQ2: 12\nCosts\nQ1: 7\nQ2: 8.25",
           "font": {
             "name": "Fixture Sans",
             "size": 18.0
-          },
-          "runs": [
-            {
-              "content": "Nested transform",
-              "font": {
-                "name": "Fixture Sans",
-                "size": 18.0
-              }
-            }
-          ]
+          }
         }
       ]
     }

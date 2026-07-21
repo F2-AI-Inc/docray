@@ -134,6 +134,87 @@ fn table_fixture_geometry_matches_prefix_sum_math() {
 }
 
 #[test]
+fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
+    let bytes = fs::read(root().join("testdata/pptx/chart.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert!(extraction.warnings.is_empty());
+    let Element::Text(chart) = &extraction.pages[0].elements[0] else {
+        panic!("chart fixture must emit synthesized text");
+    };
+    // Frame (72,72) + (360,216) points; chart internals have no authored bbox.
+    assert_eq!(
+        (chart.bbox.x0, chart.bbox.y0, chart.bbox.x1, chart.bbox.y1),
+        (72.0, 72.0, 432.0, 288.0)
+    );
+    assert_eq!(
+        chart.content,
+        "Quarterly revenue\nQuarter\nUSD millions\nRevenue\nQ1: 10.5\nQ2: 12\nCosts\nQ1: 7\nQ2: 8.25"
+    );
+    assert_eq!(chart.runs, None);
+
+    let bytes = fs::read(root().join("testdata/pptx/smartart.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert!(extraction.warnings.is_empty());
+    let Element::Text(diagram) = &extraction.pages[0].elements[0] else {
+        panic!("SmartArt fixture must emit synthesized text");
+    };
+    // Frame (100,80) + (400,200) points.
+    assert_eq!(
+        (
+            diagram.bbox.x0,
+            diagram.bbox.y0,
+            diagram.bbox.x1,
+            diagram.bbox.y1
+        ),
+        (100.0, 80.0, 500.0, 280.0)
+    );
+    assert_eq!(diagram.content, "Discover\nBuild\nDeliver");
+    assert_eq!(diagram.runs, None);
+
+    let bytes = fs::read(root().join("testdata/pptx/graphic-picture.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert!(extraction.warnings.is_empty());
+    let Element::Image(image) = &extraction.pages[0].elements[0] else {
+        panic!("picture graphicFrame must emit an image");
+    };
+    // Frame (200,100) + (160,80) points.
+    assert_eq!(
+        (image.bbox.x0, image.bbox.y0, image.bbox.x1, image.bbox.y1),
+        (200.0, 100.0, 360.0, 180.0)
+    );
+    assert!(image.content_hash.is_some());
+    assert_eq!(
+        extraction.pages[0].hidden,
+        vec![HiddenItem {
+            kind: "alt".into(),
+            element: Some("p1-e0".into()),
+            content: "Graphic-frame picture alternative".into(),
+        }]
+    );
+}
+
+#[test]
+fn missing_chart_part_warns_and_the_rest_of_the_slide_survives() {
+    let bytes = fs::read(root().join("testdata/pptx/missing-chart.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert_eq!(extraction.pages[0].elements.len(), 1);
+    let Element::Text(text) = &extraction.pages[0].elements[0] else {
+        panic!("shape after missing chart must still extract");
+    };
+    assert_eq!(text.content, "Slide still extracts");
+    // Missing part -> warn; valid-but-empty chart part -> warn (rule 3: an
+    // extracted graphic that yields no text must not vanish silently).
+    assert_eq!(extraction.warnings.len(), 2);
+    assert!(extraction.warnings.iter().any(|w| w
+        .contains("chart graphicFrame part is missing or unreadable")
+        && w.contains("ppt/charts/missing.xml")));
+    assert!(extraction
+        .warnings
+        .iter()
+        .any(|w| w == "page 1: chart graphicFrame has no extractable text"));
+}
+
+#[test]
 fn styled_text_fixture_preserves_each_run_style_and_external_href() {
     let bytes = fs::read(root().join("testdata/pptx/styled-text.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();

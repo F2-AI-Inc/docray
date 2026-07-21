@@ -347,7 +347,7 @@ pub enum CompactElement {
     Text(CompactTextElement),
     Table(CompactTableElement),
     Image(CompactBoxElement),
-    Path(CompactBoxElement),
+    Path(CompactPathElement),
     Annotation(CompactAnnotationElement),
 }
 
@@ -407,6 +407,17 @@ pub struct CompactTextRun {
 #[derive(Serialize)]
 pub struct CompactBoxElement {
     pub bbox: [f64; 4],
+}
+
+#[derive(Serialize)]
+pub struct CompactPathElement {
+    pub bbox: [f64; 4],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fill: Option<[u8; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<[u8; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stroke_width: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -800,7 +811,7 @@ impl Extraction {
         match granularity {
             Granularity::Char => GranularExtraction::Char(ExplicitCharExtraction {
                 granularity,
-                schema_version: "1.4",
+                schema_version: "1.5",
                 source: &self.source,
                 document: &self.document,
                 warnings: &self.warnings,
@@ -809,7 +820,7 @@ impl Extraction {
             Granularity::Element | Granularity::Word => {
                 GranularExtraction::Compact(CompactExtraction {
                     granularity,
-                    schema_version: "1.4",
+                    schema_version: "1.5",
                     source: self.source.clone(),
                     document: CompactDocumentInfo {
                         page_count: self.document.page_count,
@@ -900,8 +911,11 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
         Element::Image(image) => CompactElement::Image(CompactBoxElement {
             bbox: compact_bbox(&image.bbox),
         }),
-        Element::Path(path) => CompactElement::Path(CompactBoxElement {
+        Element::Path(path) => CompactElement::Path(CompactPathElement {
             bbox: compact_bbox(&path.bbox),
+            fill: path.fill,
+            stroke: path.stroke,
+            stroke_width: path.stroke_width.map(round1),
         }),
         Element::Annotation(annotation) => CompactElement::Annotation(CompactAnnotationElement {
             bbox: compact_bbox(&annotation.bbox),

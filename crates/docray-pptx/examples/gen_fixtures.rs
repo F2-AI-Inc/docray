@@ -132,6 +132,28 @@ fn write_pptx(name: &str, slide_xml: String, rels: String, extras: Vec<(String, 
         .iter()
         .any(|(path, _)| path.starts_with("ppt/notesSlides/"));
     let mut entries = package_entries(slide_xml, rels, has_notes);
+    let mut overrides = String::new();
+    for (path, _) in &extras {
+        let content_type = if path.starts_with("ppt/charts/") {
+            Some("application/vnd.openxmlformats-officedocument.drawingml.chart+xml")
+        } else if path.starts_with("ppt/diagrams/data") {
+            Some("application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml")
+        } else {
+            None
+        };
+        if let Some(content_type) = content_type {
+            overrides.push_str(&format!(
+                r#"<Override PartName="/{path}" ContentType="{content_type}"/>"#
+            ));
+        }
+    }
+    if !overrides.is_empty() {
+        let content_types = &mut entries[0].1;
+        let updated = String::from_utf8(content_types.clone())
+            .unwrap()
+            .replace("</Types>", &format!("{overrides}</Types>"));
+        *content_types = updated.into_bytes();
+    }
     entries.extend(extras);
     write_zip(
         format!("testdata/pptx/{name}.pptx"),
@@ -209,6 +231,85 @@ fn main() {
         r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="1143000"/><a:ext cx="2540000" cy="1016000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="1016000"/><a:gridCol w="1524000"/></a:tblGrid><a:tr h="381000"><a:tc gridSpan="2"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Merged</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc hMerge="1"><a:txBody><a:bodyPr/><a:lstStyle/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr><a:tr h="635000"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Left</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Right</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>"#,
     );
     write_pptx("table", table, default_slide_rels(""), vec![]);
+
+    let chart = slide(
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Revenue chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="4572000" cy="2743200"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
+    );
+    let chart_part = r#"<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Quarterly revenue</a:t></a:r></a:p></c:rich></c:tx></c:title><c:plotArea><c:barChart><c:ser><c:tx><c:rich><a:p><a:r><a:t>Revenue</a:t></a:r></a:p></c:rich></c:tx><c:cat><c:strLit><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="1"><c:v>Q2</c:v></c:pt></c:strLit></c:cat><c:val><c:numLit><c:pt idx="0"><c:v>10.5</c:v></c:pt><c:pt idx="1"><c:v>12</c:v></c:pt></c:numLit></c:val></c:ser><c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Costs</c:v></c:pt></c:strCache></c:strRef></c:tx><c:cat><c:strLit><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="1"><c:v>Q2</c:v></c:pt></c:strLit></c:cat><c:val><c:numLit><c:pt idx="0"><c:v>7</c:v></c:pt><c:pt idx="1"><c:v>8.25</c:v></c:pt></c:numLit></c:val></c:ser></c:barChart><c:catAx><c:title><c:tx><c:rich><a:p><a:r><a:t>Quarter</a:t></a:r></a:p></c:rich></c:tx></c:title></c:catAx><c:valAx><c:title><c:tx><c:rich><a:p><a:r><a:t>USD millions</a:t></a:r></a:p></c:rich></c:tx></c:title></c:valAx></c:plotArea></c:chart></c:chartSpace>"#;
+    write_pptx(
+        "chart",
+        chart,
+        default_slide_rels(
+            r#"<Relationship Id="rIdChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>"#,
+        ),
+        vec![(
+            "ppt/charts/chart1.xml".into(),
+            chart_part.as_bytes().to_vec(),
+        )],
+    );
+
+    let smartart = slide(
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Process diagram"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="1270000" y="1016000"/><a:ext cx="5080000" cy="2540000"/></p:xfrm><a:graphic><a:graphicData xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rIdDiagram"/></a:graphicData></a:graphic></p:graphicFrame>"#,
+    );
+    let diagram_part = r#"<?xml version="1.0" encoding="UTF-8"?>
+<dgm:dataModel xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:ptLst><dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Discover</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="2"><dgm:t><a:p><a:r><a:t>Build</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="3"><dgm:t><a:p><a:r><a:t>Deliver</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst></dgm:dataModel>"#;
+    write_pptx(
+        "smartart",
+        smartart,
+        default_slide_rels(
+            r#"<Relationship Id="rIdDiagram" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData" Target="../diagrams/data1.xml"/>"#,
+        ),
+        vec![(
+            "ppt/diagrams/data1.xml".into(),
+            diagram_part.as_bytes().to_vec(),
+        )],
+    );
+
+    let graphic_picture = slide(
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Framed picture"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="2540000" y="1270000"/><a:ext cx="2032000" cy="1016000"/></p:xfrm><a:graphic><a:graphicData xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="3" name="Embedded picture" descr="Graphic-frame picture alternative"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdGraphicImage"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></p:graphicFrame>"#,
+    );
+    write_pptx(
+        "graphic-picture",
+        graphic_picture,
+        default_slide_rels(
+            r#"<Relationship Id="rIdGraphicImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/graphic-image.bin"/>"#,
+        ),
+        vec![(
+            "ppt/media/graphic-image.bin".into(),
+            b"deterministic graphic frame image bytes".to_vec(),
+        )],
+    );
+
+    // Covers three graphicFrame warning paths on one slide: a chart whose part
+    // is missing, a chart whose part parses but has no extractable text, and a
+    // surviving shape proving the rest of the slide still extracts.
+    let missing_chart = slide(&format!(
+        "{}{}{}",
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Missing chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="3657600" cy="1828800"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdMissingChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Empty chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="4572000" y="914400"/><a:ext cx="3657600" cy="1828800"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdEmptyChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
+        shape(
+            3,
+            "Survivor",
+            914400,
+            3657600,
+            3657600,
+            914400,
+            "Slide still extracts"
+        )
+    ));
+    write_pptx(
+        "missing-chart",
+        missing_chart,
+        default_slide_rels(
+            r#"<Relationship Id="rIdMissingChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/missing.xml"/><Relationship Id="rIdEmptyChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/empty.xml"/>"#,
+        ),
+        vec![(
+            "ppt/charts/empty.xml".into(),
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:barChart/></c:plotArea></c:chart></c:chartSpace>"#.to_vec(),
+        )],
+    );
 
     let styled_text = slide(
         r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Styled text"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="5486400" cy="1828800"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr><a:normAutofit fontScale="80000"/></a:bodyPr><a:lstStyle/><a:p><a:r><a:rPr sz="3000" b="1"><a:latin typeface="+mj-lt"/><a:solidFill><a:schemeClr val="tx1"><a:tint val="20000"/></a:schemeClr></a:solidFill></a:rPr><a:t>Hello</a:t></a:r><a:r><a:rPr sz="1800"/><a:t> theme</a:t></a:r></a:p><a:p><a:r><a:rPr sz="1800" i="1"><a:hlinkClick r:id="rIdStyledHyper"/></a:rPr><a:t>Second paragraph</a:t></a:r></a:p></p:txBody></p:sp>"#,
