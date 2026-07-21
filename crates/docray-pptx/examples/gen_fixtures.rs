@@ -40,6 +40,16 @@ fn slide(body: &str) -> String {
     )
 }
 
+fn hidden_slide(body: &str) -> String {
+    slide(body).replacen("<p:sld ", "<p:sld show=\"0\" ", 1)
+}
+
+fn notes_slide() -> String {
+    r#"<?xml version="1.0" encoding="UTF-8"?>
+<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide image"/><p:cNvSpPr/><p:nvPr><p:ph type="sldImg"/></p:nvPr></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>IGNORE SLIDE IMAGE</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes body"/><p:cNvSpPr/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Presenter script line one</a:t></a:r></a:p><a:p><a:r><a:t>line two</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="4" name="Slide number"/><p:cNvSpPr/><p:nvPr><p:ph type="sldNum"/></p:nvPr></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>IGNORE SLIDE NUMBER</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>"#
+        .to_string()
+}
+
 fn shape(id: u32, name: &str, x: i64, y: i64, cx: i64, cy: i64, text: &str) -> String {
     format!(
         r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="{name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="EEDDAA"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"><a:latin typeface="Fixture Sans"/><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>"#
@@ -53,12 +63,21 @@ fn default_slide_rels(extra: &str) -> String {
     )
 }
 
-fn package_entries(slide_xml: String, slide_rels: String) -> Vec<(String, Vec<u8>)> {
+fn package_entries(
+    slide_xml: String,
+    slide_rels: String,
+    has_notes: bool,
+) -> Vec<(String, Vec<u8>)> {
+    let content_types = if has_notes {
+        CONTENT_TYPES.replace(
+            "</Types>",
+            r#"<Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/></Types>"#,
+        )
+    } else {
+        CONTENT_TYPES.to_string()
+    };
     vec![
-        (
-            "[Content_Types].xml".into(),
-            CONTENT_TYPES.as_bytes().to_vec(),
-        ),
+        ("[Content_Types].xml".into(), content_types.into_bytes()),
         ("_rels/.rels".into(), ROOT_RELS.as_bytes().to_vec()),
         (
             "ppt/presentation.xml".into(),
@@ -109,7 +128,10 @@ fn write_zip(path: impl AsRef<Path>, entries: &[(String, Vec<u8>)], method: Comp
 }
 
 fn write_pptx(name: &str, slide_xml: String, rels: String, extras: Vec<(String, Vec<u8>)>) {
-    let mut entries = package_entries(slide_xml, rels);
+    let has_notes = extras
+        .iter()
+        .any(|(path, _)| path.starts_with("ppt/notesSlides/"));
+    let mut entries = package_entries(slide_xml, rels, has_notes);
     entries.extend(extras);
     write_zip(
         format!("testdata/pptx/{name}.pptx"),
@@ -160,6 +182,27 @@ fn main() {
             "ppt/media/image1.bin".into(),
             b"deterministic fixture image bytes".to_vec(),
         )],
+    );
+
+    let hidden_context = hidden_slide(
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Default body" descr="Shape alternative text"/><p:cNvSpPr/><p:nvPr><p:ph/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="3657600" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Hidden channel fixture</a:t></a:r></a:p></p:txBody></p:sp><p:pic><p:nvPicPr><p:cNvPr id="3" name="Revenue chart" title="Chart showing Q3 revenue"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rIdImage"/></p:blipFill><p:spPr><a:xfrm><a:off x="914400" y="2286000"/><a:ext cx="2540000" cy="1270000"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr></p:pic>"#,
+    );
+    write_pptx(
+        "hidden-context",
+        hidden_context,
+        default_slide_rels(
+            r#"<Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/hidden-image.bin"/><Relationship Id="rIdNotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/>"#,
+        ),
+        vec![
+            (
+                "ppt/media/hidden-image.bin".into(),
+                b"hidden context fixture image bytes".to_vec(),
+            ),
+            (
+                "ppt/notesSlides/notesSlide1.xml".into(),
+                notes_slide().into_bytes(),
+            ),
+        ],
     );
 
     let table = slide(

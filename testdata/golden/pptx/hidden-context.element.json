@@ -1,0 +1,72 @@
+{
+  "granularity": "element",
+  "schema_version": "1.3",
+  "source": {
+    "format": "pptx",
+    "sha256": "2d53f16fc434418d41fff7a829afaeb321d8f019588ac43cee0cf970487608b0",
+    "size_bytes": 9481
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            72.0,
+            360.0,
+            144.0
+          ],
+          "text": "Hidden channel fixture",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 20.0
+          }
+        },
+        {
+          "type": "image",
+          "bbox": [
+            72.0,
+            180.0,
+            272.0,
+            280.0
+          ]
+        }
+      ],
+      "hidden": [
+        {
+          "kind": "role",
+          "element": "p1-e0",
+          "content": "body"
+        },
+        {
+          "kind": "alt",
+          "element": "p1-e0",
+          "content": "Shape alternative text"
+        },
+        {
+          "kind": "alt",
+          "element": "p1-e1",
+          "content": "Chart showing Q3 revenue"
+        },
+        {
+          "kind": "notes",
+          "content": "Presenter script line one\nline two"
+        },
+        {
+          "kind": "hidden-slide",
+          "content": "true"
+        }
+      ]
+    }
+  ]
+}

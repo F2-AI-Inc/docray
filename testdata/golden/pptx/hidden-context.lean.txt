@@ -2,9 +2,12 @@
 #legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #legend <hidden> kind [element-id] content | non-visible document context
 #page 1 720x540
-T 72 36 648 108 Fixture_Serif 32 - Inherited title
-T 72 144 648 432 Fixture_Sans 20 - Inherited body
+T 72 72 360 144 Fixture_Sans 20 - Hidden channel fixture
+I 72 180 272 280
 <hidden>
-role p1-e0 ctrTitle
-role p1-e1 body
+role p1-e0 body
+alt p1-e0 Shape alternative text
+alt p1-e1 Chart showing Q3 revenue
+notes Presenter script line one\nline two
+hidden-slide true
 </hidden>

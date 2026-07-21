@@ -136,7 +136,7 @@ fn extract_granularity_element_and_invalid_value() {
     );
     assert_eq!(r.status(), 200);
     let v: serde_json::Value = r.json().unwrap();
-    assert_eq!(v["schema_version"], "1.2");
+    assert_eq!(v["schema_version"], "1.3");
     assert_eq!(v["granularity"], "element");
     assert_eq!(v["pages"][0]["elements"][0]["type"], "text");
     assert_eq!(v["pages"][0]["elements"][0]["text"], "Hello World");
@@ -170,7 +170,7 @@ fn extract_lean_content_type_default_and_char_rejection() {
     assert!(r
         .text()
         .unwrap()
-        .starts_with("#docray element v1.2 pages=1\n#legend "));
+        .starts_with("#docray element v1.3 pages=1\n#legend "));
 
     let r = upload(
         &server.base,

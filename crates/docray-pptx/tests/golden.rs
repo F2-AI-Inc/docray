@@ -1,5 +1,5 @@
 use docray_core::{check_granularity, Extractor};
-use docray_model::{Element, GranularExtraction, Granularity};
+use docray_model::{Element, GranularExtraction, Granularity, HiddenItem};
 use docray_pptx::PptxExtractor;
 use std::fs;
 use std::path::PathBuf;
@@ -122,4 +122,62 @@ fn repeated_extraction_is_byte_identical() {
     let first = serde_json::to_vec(&PptxExtractor.extract(&bytes, None).unwrap()).unwrap();
     let second = serde_json::to_vec(&PptxExtractor.extract(&bytes, None).unwrap()).unwrap();
     assert_eq!(first, second);
+}
+
+#[test]
+fn pptx_emits_notes_alt_text_roles_and_hidden_slide_markers() {
+    let hidden_context = fs::read(root().join("testdata/pptx/hidden-context.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&hidden_context, None).unwrap();
+    assert_eq!(
+        extraction.pages[0].hidden,
+        vec![
+            HiddenItem {
+                kind: "role".into(),
+                element: Some("p1-e0".into()),
+                content: "body".into(),
+            },
+            HiddenItem {
+                kind: "alt".into(),
+                element: Some("p1-e0".into()),
+                content: "Shape alternative text".into(),
+            },
+            HiddenItem {
+                kind: "alt".into(),
+                element: Some("p1-e1".into()),
+                content: "Chart showing Q3 revenue".into(),
+            },
+            HiddenItem {
+                kind: "notes".into(),
+                element: None,
+                content: "Presenter script line one\nline two".into(),
+            },
+            HiddenItem {
+                kind: "hidden-slide".into(),
+                element: None,
+                content: "true".into(),
+            },
+        ]
+    );
+    assert!(!extraction.pages[0]
+        .hidden
+        .iter()
+        .any(|item| item.content.contains("IGNORE")));
+
+    let placeholders = fs::read(root().join("testdata/pptx/placeholders.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&placeholders, None).unwrap();
+    assert_eq!(
+        extraction.pages[0].hidden,
+        vec![
+            HiddenItem {
+                kind: "role".into(),
+                element: Some("p1-e0".into()),
+                content: "ctrTitle".into(),
+            },
+            HiddenItem {
+                kind: "role".into(),
+                element: Some("p1-e1".into()),
+                content: "body".into(),
+            },
+        ]
+    );
 }

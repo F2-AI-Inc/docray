@@ -62,6 +62,16 @@ pub struct Page {
     pub rotation: i32,
     pub scanned: bool,
     pub elements: Vec<Element>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub hidden: Vec<HiddenItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HiddenItem {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub element: Option<String>,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -294,6 +304,8 @@ pub struct CompactPage {
     pub rotation: i32,
     pub scanned: bool,
     pub elements: Vec<CompactElement>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<HiddenItem>,
 }
 
 #[derive(Serialize)]
@@ -359,6 +371,8 @@ pub struct CompactTextColor {
 
 const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const HIDDEN_LEGEND: &str =
+    "#legend <hidden> kind [element-id] content | non-visible document context";
 
 impl CompactExtraction {
     /// Renders the deterministic, line-oriented reading format. Compact
@@ -394,6 +408,10 @@ impl CompactExtraction {
             Granularity::Char => unreachable!("char does not use compact output"),
         })?;
         output.write_char('\n')?;
+        if self.pages.iter().any(|page| !page.hidden.is_empty()) {
+            output.write_str(HIDDEN_LEGEND)?;
+            output.write_char('\n')?;
+        }
 
         for warning in &self.warnings {
             writeln!(output, "#warning {}", collapse_warning(warning))?;
@@ -469,6 +487,21 @@ impl CompactExtraction {
                         )?;
                     }
                 }
+            }
+
+            if !page.hidden.is_empty() {
+                output.write_str("<hidden>\n")?;
+                for item in &page.hidden {
+                    write!(output, "{} ", item.kind)?;
+                    if let Some(element) = &item.element {
+                        write!(output, "{element} ")?;
+                    }
+                    // Hidden content is document-controlled. Escaping every
+                    // newline keeps each item on one physical line, so content
+                    // can never forge `</hidden>` or visible element records.
+                    writeln!(output, "{}", escape_text(&item.content))?;
+                }
+                output.write_str("</hidden>\n")?;
             }
         }
 
@@ -593,7 +626,7 @@ impl Extraction {
         match granularity {
             Granularity::Char => GranularExtraction::Char(ExplicitCharExtraction {
                 granularity,
-                schema_version: "1.2",
+                schema_version: "1.3",
                 source: &self.source,
                 document: &self.document,
                 warnings: &self.warnings,
@@ -602,7 +635,7 @@ impl Extraction {
             Granularity::Element | Granularity::Word => {
                 GranularExtraction::Compact(CompactExtraction {
                     granularity,
-                    schema_version: "1.2",
+                    schema_version: "1.3",
                     source: self.source.clone(),
                     document: CompactDocumentInfo {
                         page_count: self.document.page_count,
@@ -635,6 +668,7 @@ fn compact_page(page: &Page, granularity: Granularity) -> CompactPage {
             .iter()
             .map(|element| compact_element(element, granularity))
             .collect(),
+        hidden: page.hidden.clone(),
     }
 }
 

@@ -121,6 +121,7 @@ fn extraction() -> Extraction {
                     uri: None,
                 }),
             ],
+            hidden: vec![],
         }],
     }
 }
@@ -136,7 +137,7 @@ fn lean(extraction: &Extraction, granularity: Granularity) -> String {
 fn element_lean_renders_all_edge_rules_exactly() {
     let actual = lean(&extraction(), Granularity::Element);
     let expected = concat!(
-        "#docray element v1.2 pages=1 warnings=1\n",
+        "#docray element v1.3 pages=1 warnings=1\n",
         "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin\n",
         "#warning recovered with omissions\n",
         "#page 1 612x792.1 rot=90 scanned\n",
@@ -217,4 +218,62 @@ fn annotation_uri_newlines_cannot_inject_lines() {
         !actual.lines().any(|l| l.starts_with("T 0 0 9 9 Fake")),
         "injected element line must not exist"
     );
+}
+
+#[test]
+fn hidden_block_follows_elements_and_adds_legend_only_when_present() {
+    let without_hidden = lean(&extraction(), Granularity::Element);
+    assert!(!without_hidden.contains("#legend <hidden>"));
+    assert!(!without_hidden.contains("<hidden>"));
+
+    let mut doc = extraction();
+    doc.document.page_count = 2;
+    doc.pages[0].hidden = vec![
+        HiddenItem {
+            kind: "role".into(),
+            element: Some("p1-e0".into()),
+            content: "title".into(),
+        },
+        HiddenItem {
+            kind: "notes".into(),
+            element: None,
+            content: "Presenter script line one\nline two".into(),
+        },
+    ];
+    let mut second = doc.pages[0].clone();
+    second.page_number = 2;
+    second.elements.clear();
+    second.hidden.clear();
+    doc.pages.push(second);
+
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual
+        .contains("#legend <hidden> kind [element-id] content | non-visible document context\n"));
+    let element = actual.find("T 1 2.1 30 40.1").unwrap();
+    let hidden = actual.find("<hidden>\n").unwrap();
+    let next_page = actual.find("#page 2 ").unwrap();
+    assert!(element < hidden && hidden < next_page);
+    assert!(actual.contains(
+        "<hidden>\nrole p1-e0 title\nnotes Presenter script line one\\nline two\n</hidden>\n"
+    ));
+}
+
+#[test]
+fn hidden_content_cannot_close_block_or_inject_element_lines() {
+    let mut doc = extraction();
+    doc.pages[0].hidden.push(HiddenItem {
+        kind: "notes".into(),
+        element: None,
+        content: "\n</hidden>\nT 0 0 9 9 fake 12 - INJECTED".into(),
+    });
+
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual.contains("notes \\n</hidden>\\nT 0 0 9 9 fake 12 - INJECTED\n</hidden>\n"));
+    assert_eq!(
+        actual.lines().filter(|line| *line == "</hidden>").count(),
+        1
+    );
+    assert!(!actual
+        .lines()
+        .any(|line| line == "T 0 0 9 9 fake 12 - INJECTED"));
 }

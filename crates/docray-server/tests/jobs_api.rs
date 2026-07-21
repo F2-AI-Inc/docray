@@ -205,7 +205,7 @@ fn job_granularity_is_stored_and_forwarded_to_the_worker_cli() {
         .unwrap();
     assert_eq!(r.status(), 200);
     let v: serde_json::Value = r.json().unwrap();
-    assert_eq!(v["schema_version"], "1.2");
+    assert_eq!(v["schema_version"], "1.3");
     assert_eq!(v["granularity"], "word");
     assert_eq!(v["pages"][0]["elements"][0]["words"][0][0], "Hello");
 }
@@ -253,5 +253,5 @@ fn lean_job_roundtrips_stored_format_and_content_type() {
     assert!(r
         .text()
         .unwrap()
-        .starts_with("#docray word v1.2 pages=1\n#legend "));
+        .starts_with("#docray word v1.3 pages=1\n#legend "));
 }

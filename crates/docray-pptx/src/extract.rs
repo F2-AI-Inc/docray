@@ -3,7 +3,7 @@ use crate::xml::{parse, Node};
 use docray_core::{Capabilities, ExtractError, Extractor};
 use docray_model::{
     round3, AnnotationElement, BBox, DocMetadata, DocumentInfo, Element, Extraction, Font,
-    Granularity, ImageElement, Page, PathElement, Source, TextColor, TextElement,
+    Granularity, HiddenItem, ImageElement, Page, PathElement, Source, TextColor, TextElement,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -72,6 +72,7 @@ impl Extractor for PptxExtractor {
                         rotation: 0,
                         scanned: false,
                         elements: Vec::new(),
+                        hidden: Vec::new(),
                     });
                 }
             }
@@ -79,7 +80,7 @@ impl Extractor for PptxExtractor {
 
         Ok(Extraction {
             // The base model remains schema 1.1 internally; dispatch requires
-            // explicit element granularity, whose wrapper serializes as 1.2.
+            // explicit element granularity, whose wrapper serializes as 1.3.
             schema_version: "1.1".into(),
             source: Source {
                 format: "pptx".into(),
@@ -227,6 +228,7 @@ fn extract_slide(
         .first_descendant("spTree")
         .ok_or_else(|| parse_failure(format!("{slide_path} has no p:spTree")))?;
     let mut elements = Vec::new();
+    let mut hidden = Vec::new();
     let mut groups = Vec::new();
     extract_children(
         package,
@@ -235,8 +237,28 @@ fn extract_slide(
         page_number,
         &mut groups,
         &mut elements,
+        &mut hidden,
         warnings,
     )?;
+
+    match notes_text(package, slide_path, &slide_rels) {
+        Ok(Some(content)) => hidden.push(HiddenItem {
+            kind: "notes".into(),
+            element: None,
+            content,
+        }),
+        Ok(None) => {}
+        Err(error) => warnings.push(format!(
+            "page {page_number}: speaker notes failed to parse: {error}"
+        )),
+    }
+    if slide.attr("show") == Some("0") {
+        hidden.push(HiddenItem {
+            kind: "hidden-slide".into(),
+            element: None,
+            content: "true".into(),
+        });
+    }
 
     Ok(Page {
         page_number,
@@ -245,6 +267,7 @@ fn extract_slide(
         rotation: 0,
         scanned: false,
         elements,
+        hidden,
     })
 }
 
@@ -265,11 +288,20 @@ fn extract_children(
     page_number: u32,
     groups: &mut Vec<GroupTransform>,
     elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
     warnings: &mut Vec<String>,
 ) -> Result<(), ExtractError> {
     for child in &parent.children {
         match child.local_name() {
-            "sp" => extract_shape(child, context, page_number, groups, elements, warnings),
+            "sp" => extract_shape(
+                child,
+                context,
+                page_number,
+                groups,
+                elements,
+                hidden,
+                warnings,
+            ),
             "pic" => extract_picture(
                 package,
                 child,
@@ -277,9 +309,18 @@ fn extract_children(
                 page_number,
                 groups,
                 elements,
+                hidden,
                 warnings,
             )?,
-            "cxnSp" => extract_path(child, context, page_number, groups, elements, warnings),
+            "cxnSp" => extract_path(
+                child,
+                context,
+                page_number,
+                groups,
+                elements,
+                hidden,
+                warnings,
+            ),
             "graphicFrame" => {
                 extract_graphic_frame(child, context, page_number, groups, elements, warnings)
             }
@@ -310,6 +351,7 @@ fn extract_children(
                     page_number,
                     groups,
                     elements,
+                    hidden,
                     warnings,
                 )?;
                 groups.pop();
@@ -328,6 +370,7 @@ fn extract_shape(
     page_number: u32,
     groups: &[GroupTransform],
     elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
     warnings: &mut Vec<String>,
 ) {
     let placeholder = placeholder(shape);
@@ -352,6 +395,7 @@ fn extract_shape(
 
     if !content.is_empty() {
         let id = next_id(page_number, elements);
+        push_shape_hidden(shape, placeholder.as_ref(), &id, hidden);
         let text_style = resolve_text_style(
             tx_body.expect("non-empty text requires txBody"),
             layout_shape,
@@ -394,6 +438,7 @@ fn extract_shape(
         }
     } else if has_geometry(shape) {
         let id = next_id(page_number, elements);
+        push_shape_hidden(shape, placeholder.as_ref(), &id, hidden);
         elements.push(Element::Path(path_from_shape(id, bbox, shape, context)));
     }
 }
@@ -404,6 +449,7 @@ fn extract_path(
     page_number: u32,
     groups: &[GroupTransform],
     elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
     warnings: &mut Vec<String>,
 ) {
     let Some(xfrm) = shape_transform(shape) else {
@@ -414,6 +460,7 @@ fn extract_path(
     };
     let bbox = bbox_for_transform(xfrm, groups);
     let id = next_id(page_number, elements);
+    push_alt(shape, &id, hidden);
     elements.push(Element::Path(path_from_shape(id, bbox, shape, context)));
 }
 
@@ -450,6 +497,7 @@ fn extract_picture(
     page_number: u32,
     groups: &[GroupTransform],
     elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
     warnings: &mut Vec<String>,
 ) -> Result<(), ExtractError> {
     let Some(xfrm) = shape_transform(picture) else {
@@ -461,6 +509,7 @@ fn extract_picture(
     let corners = transformed_corners(xfrm, groups);
     let bbox = bbox_from_points(&corners);
     let id = next_id(page_number, elements);
+    push_alt(picture, &id, hidden);
     let embed = picture
         .first_descendant("blip")
         .and_then(|node| node.attr("embed"));
@@ -489,6 +538,66 @@ fn extract_picture(
         content_hash,
     }));
     Ok(())
+}
+
+fn push_shape_hidden(
+    shape: &Node,
+    placeholder: Option<&Placeholder>,
+    element_id: &str,
+    hidden: &mut Vec<HiddenItem>,
+) {
+    if let Some(placeholder) = placeholder {
+        hidden.push(HiddenItem {
+            kind: "role".into(),
+            element: Some(element_id.to_owned()),
+            content: placeholder.kind.clone().unwrap_or_else(|| "body".into()),
+        });
+    }
+    push_alt(shape, element_id, hidden);
+}
+
+fn push_alt(node: &Node, element_id: &str, hidden: &mut Vec<HiddenItem>) {
+    let Some(content) = alternative_text(node) else {
+        return;
+    };
+    hidden.push(HiddenItem {
+        kind: "alt".into(),
+        element: Some(element_id.to_owned()),
+        content,
+    });
+}
+
+fn alternative_text(node: &Node) -> Option<String> {
+    let properties = node.first_descendant("cNvPr")?;
+    properties
+        .attr("descr")
+        .filter(|value| !value.is_empty())
+        .or_else(|| properties.attr("title").filter(|value| !value.is_empty()))
+        .map(str::to_owned)
+}
+
+fn notes_text(
+    package: &mut Package<'_>,
+    slide_path: &str,
+    slide_rels: &Relationships,
+) -> Result<Option<String>, ExtractError> {
+    let Some(relation) = slide_rels.first_internal_type("notesSlide") else {
+        return Ok(None);
+    };
+    let notes_path = resolve_target(slide_path, &relation.target)?;
+    let notes = xml_required(package, &notes_path)?;
+    let content = notes
+        .descendants("sp")
+        .filter(|shape| {
+            placeholder(shape)
+                .is_some_and(|placeholder| placeholder.kind.as_deref().unwrap_or("body") == "body")
+        })
+        .filter_map(|shape| shape.child("txBody"))
+        .map(text_content)
+        .filter(|content| !content.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok((!content.is_empty()).then_some(content))
 }
 
 fn extract_graphic_frame(
@@ -1024,7 +1133,7 @@ fn paragraph_default_style(
 fn master_text_style<'a>(master: &'a Node, placeholder: Option<&Placeholder>) -> Option<&'a Node> {
     let tx_styles = master.first_descendant("txStyles")?;
     let kind = placeholder
-        .and_then(|key| key.kind.as_deref())
+        .map(|key| key.kind.as_deref().unwrap_or("body"))
         .unwrap_or("other");
     let style_name = if title_kind(kind) {
         "titleStyle"

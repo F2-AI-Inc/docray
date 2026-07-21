@@ -69,6 +69,7 @@ impl Extractor for PdfExtractor {
                         rotation: 0,
                         scanned: false,
                         elements: vec![],
+                        hidden: vec![],
                     });
                 }
             }
@@ -133,6 +134,7 @@ fn empty_page(page: &PdfPage, page_number: u32) -> Page {
         rotation: rotation_degrees(page),
         scanned: false,
         elements: vec![],
+        hidden: vec![],
     }
 }
 
@@ -237,6 +239,7 @@ fn extract_page(
         rotation,
         scanned,
         elements,
+        hidden: vec![],
     })
 }
 
