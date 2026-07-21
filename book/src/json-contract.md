@@ -46,7 +46,7 @@ covering ≥ 85% of the page area** — the signal that a page's text
 is not machine-readable and needs OCR to recover. It also flags pre-rendered
 (rasterized-slide) pages, which have the same property.
 
-Granularity-shaped schema `1.4` pages can also carry a `hidden` array. The
+Granularity-shaped schema `1.5` pages can also carry a `hidden` array. The
 field is omitted when empty and is copied unchanged across granularities:
 
 ```json
@@ -99,7 +99,7 @@ geometrically and deterministically; whitespace characters separate words and
 are not emitted as `chars`. Word order is content-stream order — reading
 order is not inferred.
 
-Schema `1.4` granularity-shaped text elements can additionally carry `runs`.
+Schema `1.5` granularity-shaped text elements can additionally carry `runs`.
 Each run preserves its own content, resolved font, color, and optional external
 hyperlink target:
 
@@ -124,7 +124,7 @@ detail.
 
 ### table
 
-Schema `1.4` adds first-class table elements for PPTX:
+Schema `1.5` carries first-class table elements for PPTX:
 
 ```json
 {
@@ -157,7 +157,10 @@ itself is never embedded.
 ### path
 
 Bounding box plus paint: fill/stroke colors and stroke width. Path operator
-lists are not included.
+lists are not included. Schema `1.5` compact element/word paths retain the
+same optional `fill`, `stroke`, and `stroke_width` fields while rounding the
+bbox and stroke width to one decimal. An absent paint field is omitted;
+compact images remain bbox-only.
 
 ### annotation
 
@@ -168,7 +171,7 @@ links.
 
 - The no-parameter response is frozen at schema `1.1` — new fields are only
   ever additive, and granularity-shaped responses carry their own version
-  (`1.4`) and a `granularity` discriminator. PDF emits no hidden items, runs,
+  (`1.5`) and a `granularity` discriminator. PDF emits no hidden items, runs,
   or tables, so its
   no-parameter `1.1` bytes remain unchanged.
 - Element IDs, field names, and the coordinate system are load-bearing
