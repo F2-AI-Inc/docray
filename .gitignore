@@ -6,3 +6,6 @@
 .DS_Store
 /book/book
 /web/try
+
+# Private agent scratch — never commit
+.superpowers/
