@@ -35,6 +35,7 @@ with a stable exit code:
 | 5 | `io_error` | file unreadable / missing |
 | 6 | `too_many_pages` | over the `--max-pages` cap |
 | 7 | `bad_format` | invalid format, or lean requested with `char` granularity |
+| 8 | `granularity_unavailable` | the requested granularity is finer than this source provides |
 
 Anything else (e.g. 101, or death by signal) means the parser crashed —
 treat it as `crash`. The server does exactly this mapping.
