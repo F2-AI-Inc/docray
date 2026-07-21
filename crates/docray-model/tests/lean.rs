@@ -139,7 +139,7 @@ fn lean(extraction: &Extraction, granularity: Granularity) -> String {
 fn element_lean_renders_all_edge_rules_exactly() {
     let actual = lean(&extraction(), Granularity::Element);
     let expected = concat!(
-        "#docray element v1.4 pages=1 warnings=1\n",
+        "#docray element v1.5 pages=1 warnings=1\n",
         "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin\n",
         "#warning recovered with omissions\n",
         "#page 1 612x792.1 rot=90 scanned\n",

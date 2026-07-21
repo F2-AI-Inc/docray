@@ -81,7 +81,7 @@ impl Extractor for PptxExtractor {
 
         Ok(Extraction {
             // The base model remains schema 1.1 internally; dispatch requires
-            // explicit element granularity, whose wrapper serializes as 1.4.
+            // explicit element granularity, whose wrapper serializes as 1.5.
             schema_version: "1.1".into(),
             source: Source {
                 format: "pptx".into(),

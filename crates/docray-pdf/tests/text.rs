@@ -50,7 +50,7 @@ fn extracts_text_hierarchy_from_simple_pdf() {
     let hello = texts.iter().find(|t| t.content.contains("Hello")).unwrap();
     assert!(
         texts.iter().all(|text| text.runs.is_none()),
-        "PDF must not populate schema-1.4 run detail"
+        "PDF must not populate granularity-shaped run detail"
     );
     let lines = hello
         .lines

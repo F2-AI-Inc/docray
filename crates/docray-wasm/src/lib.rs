@@ -298,7 +298,7 @@ mod tests {
         let json = extract_inner(bytes, "element", 0, 0).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(value["schema_version"], "1.4");
+        assert_eq!(value["schema_version"], "1.5");
         assert_eq!(value["granularity"], "element");
         assert_eq!(value["source"]["format"], "pptx");
         assert_eq!(value["pages"][0]["elements"][0]["type"], "table");
