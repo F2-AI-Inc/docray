@@ -92,9 +92,11 @@ The element ID is present only when the item annotates a visible element. The
 block appears after that page's elements and before the next `#page`. Documents
 without hidden items omit both the block and its legend line.
 
-Hidden content uses the same two escapes as visible text: backslash becomes
-`\\`, and newline becomes `\n`. An item's content therefore occupies exactly
-one physical line and can never produce a line equal to `</hidden>` or forge a
+Hidden content uses the same escapes as visible text and annotation URIs:
+backslash becomes `\\`, LF becomes `\n`, CR becomes `\r`, and every other
+control character plus U+2028/U+2029 becomes `\u{hex}` with lowercase,
+unpadded hexadecimal digits. An item's content therefore occupies exactly one
+physical line and can never produce a line equal to `</hidden>` or forge a
 visible element record.
 
 Hidden kinds are stable contract strings:
@@ -118,10 +120,11 @@ The style token concatenates `b` for bold and `i` for italic, or uses `-` when
 neither applies. A non-default text fill is appended as lowercase RGB hex,
 for example `b#231f20` or `-#ff0000`.
 
-Text, word, and hidden content runs to end of line. Exactly two escapes are defined:
-backslash becomes `\\`, and a newline becomes the two characters `\n`.
-Everything else is literal, including tabs. A fixed-position optional value
-that is absent is `-`.
+Text, word, annotation URI, and hidden content runs to end of line. Backslash
+becomes `\\`, LF becomes `\n`, and CR becomes `\r`. Every other Unicode
+control character, U+2028, and U+2029 becomes `\u{hex}` with lowercase,
+unpadded hexadecimal digits (for example, tab is `\u{9}`). All other
+characters are literal. A fixed-position optional value that is absent is `-`.
 
 ## JSON versus lean
 
