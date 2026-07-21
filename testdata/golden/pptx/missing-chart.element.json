@@ -3,15 +3,16 @@
   "schema_version": "1.5",
   "source": {
     "format": "pptx",
-    "sha256": "6c49b5d1646b69eb47df887254d8906d22ce704747019cc9b7ddc58952c2be9d",
-    "size_bytes": 8166
+    "sha256": "05b73613b84edfb9dfb684c057895ceb6cfd983e468e90ef7b7b4f9b36f65603",
+    "size_bytes": 9238
   },
   "document": {
     "page_count": 1,
     "metadata": {}
   },
   "warnings": [
-    "page 1: chart graphicFrame part is missing or unreadable: referenced part is missing: ppt/charts/missing.xml"
+    "page 1: chart graphicFrame part is missing or unreadable: referenced part is missing: ppt/charts/missing.xml",
+    "page 1: chart graphicFrame has no extractable text"
   ],
   "pages": [
     {

@@ -281,9 +281,13 @@ fn main() {
         )],
     );
 
+    // Covers three graphicFrame warning paths on one slide: a chart whose part
+    // is missing, a chart whose part parses but has no extractable text, and a
+    // surviving shape proving the rest of the slide still extracts.
     let missing_chart = slide(&format!(
-        "{}{}",
+        "{}{}{}",
         r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Missing chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="3657600" cy="1828800"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdMissingChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Empty chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="4572000" y="914400"/><a:ext cx="3657600" cy="1828800"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdEmptyChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
         shape(
             3,
             "Survivor",
@@ -298,9 +302,13 @@ fn main() {
         "missing-chart",
         missing_chart,
         default_slide_rels(
-            r#"<Relationship Id="rIdMissingChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/missing.xml"/>"#,
+            r#"<Relationship Id="rIdMissingChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/missing.xml"/><Relationship Id="rIdEmptyChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/empty.xml"/>"#,
         ),
-        vec![],
+        vec![(
+            "ppt/charts/empty.xml".into(),
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:barChart/></c:plotArea></c:chart></c:chartSpace>"#.to_vec(),
+        )],
     );
 
     let styled_text = slide(

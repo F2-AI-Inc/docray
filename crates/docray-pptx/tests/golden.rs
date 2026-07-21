@@ -202,9 +202,16 @@ fn missing_chart_part_warns_and_the_rest_of_the_slide_survives() {
         panic!("shape after missing chart must still extract");
     };
     assert_eq!(text.content, "Slide still extracts");
-    assert_eq!(extraction.warnings.len(), 1);
-    assert!(extraction.warnings[0].contains("chart graphicFrame part is missing or unreadable"));
-    assert!(extraction.warnings[0].contains("ppt/charts/missing.xml"));
+    // Missing part -> warn; valid-but-empty chart part -> warn (rule 3: an
+    // extracted graphic that yields no text must not vanish silently).
+    assert_eq!(extraction.warnings.len(), 2);
+    assert!(extraction.warnings.iter().any(|w| w
+        .contains("chart graphicFrame part is missing or unreadable")
+        && w.contains("ppt/charts/missing.xml")));
+    assert!(extraction
+        .warnings
+        .iter()
+        .any(|w| w == "page 1: chart graphicFrame has no extractable text"));
 }
 
 #[test]

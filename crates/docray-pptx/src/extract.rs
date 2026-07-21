@@ -676,7 +676,11 @@ fn extract_graphic_frame(
         ) {
             Ok(chart) => {
                 let content = chart_text(&chart);
-                if !content.is_empty() {
+                if content.is_empty() {
+                    warnings.push(format!(
+                        "page {page_number}: chart graphicFrame has no extractable text"
+                    ));
+                } else {
                     push_synthesized_text(content, bbox, context, page_number, elements);
                 }
             }
@@ -694,7 +698,11 @@ fn extract_graphic_frame(
         ) {
             Ok(diagram) => {
                 let content = descendant_text(&diagram, "t", "\n");
-                if !content.is_empty() {
+                if content.is_empty() {
+                    warnings.push(format!(
+                        "page {page_number}: SmartArt graphicFrame has no extractable text"
+                    ));
+                } else {
                     push_synthesized_text(content, bbox, context, page_number, elements);
                 }
             }
