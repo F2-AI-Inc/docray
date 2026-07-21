@@ -1,0 +1,38 @@
+{
+  "granularity": "element",
+  "schema_version": "1.4",
+  "source": {
+    "format": "pptx",
+    "sha256": "7370783e8536dda5918eb545bae1a22e5f59ef56f9ff809f9d8a6d0e8a1f5bd0",
+    "size_bytes": 8432
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            100.0,
+            80.0,
+            500.0,
+            280.0
+          ],
+          "text": "Discover\nBuild\nDeliver",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          }
+        }
+      ]
+    }
+  ]
+}
