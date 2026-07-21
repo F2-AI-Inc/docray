@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>docray · Playground</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -22,6 +23,7 @@
     --c-image: #ff7ac2;
     --c-path: #9dff70;
     --c-annotation: #ffd166;
+    --c-table: #c79cff;
     --mono: "IBM Plex Mono", ui-monospace, monospace;
     --serif: "Instrument Serif", serif;
   }
@@ -157,10 +159,12 @@
   .chip.on[data-t="image"] { color: var(--c-image); border-color: currentColor; }
   .chip.on[data-t="path"] { color: var(--c-path); border-color: currentColor; }
   .chip.on[data-t="annotation"] { color: var(--c-annotation); border-color: currentColor; }
+  .chip.on[data-t="table"] { color: var(--c-table); border-color: currentColor; }
   .chip .dot[data-t="text"] { background: var(--c-text); }
   .chip .dot[data-t="image"] { background: var(--c-image); }
   .chip .dot[data-t="path"] { background: var(--c-path); }
   .chip .dot[data-t="annotation"] { background: var(--c-annotation); }
+  .chip .dot[data-t="table"] { background: var(--c-table); }
   .badge-scan {
     font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
     color: #241a08; background: var(--c-annotation);
@@ -188,12 +192,20 @@
   .film-frame { position: relative; flex: none; box-shadow: 0 0 0 1px var(--hair), 0 18px 50px -18px rgba(0,0,0,0.85), 0 0 60px -20px rgba(232,163,61,0.18); }
   .film-frame canvas { display: block; background: var(--film); }
   .film-frame.xray canvas { filter: grayscale(0.9) brightness(0.42) contrast(0.9); }
+  .schematic-caption {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    padding: 7px 10px; pointer-events: none;
+    color: #241a08; background: rgba(232,163,61,0.96);
+    font-size: 9px; font-weight: 600; letter-spacing: 0.08em;
+    text-align: center; text-transform: uppercase;
+  }
   .overlay { position: absolute; inset: 0; }
   .overlay rect { stroke-width: 1; vector-effect: non-scaling-stroke; cursor: crosshair; transition: fill-opacity 0.12s; }
   .overlay rect.t-text       { stroke: var(--c-text);       fill: var(--c-text); }
   .overlay rect.t-image      { stroke: var(--c-image);      fill: var(--c-image); }
   .overlay rect.t-path       { stroke: var(--c-path);       fill: var(--c-path); }
   .overlay rect.t-annotation { stroke: var(--c-annotation); fill: var(--c-annotation); }
+  .overlay rect.t-table      { stroke: var(--c-table);      fill: var(--c-table); }
   .overlay.filled rect { fill-opacity: 0.16; }
   .overlay.wire rect { fill-opacity: 0; }
   .overlay rect:hover { fill-opacity: 0.38; }
@@ -212,6 +224,7 @@
   .tv-el[data-t="image"] { border-left-color: var(--c-image); }
   .tv-el[data-t="path"] { border-left-color: var(--c-path); }
   .tv-el[data-t="annotation"] { border-left-color: var(--c-annotation); }
+  .tv-el[data-t="table"] { border-left-color: var(--c-table); }
   .tv-el.hid { display: none; }
 
   /* json view */
@@ -264,8 +277,8 @@
     </select>
   </div>
   <button class="btn" id="docjson" disabled>document json</button>
-  <button class="btn btn-amber" id="pick">upload pdf</button>
-  <input type="file" id="file" accept="application/pdf">
+  <button class="btn btn-amber" id="pick">upload pdf or pptx</button>
+  <input type="file" id="file" accept="application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.pptx">
 </header>
 <div class="ruler"></div>
 <div class="status" id="status"></div>
@@ -274,9 +287,9 @@
   <div class="drop" id="drop">
     <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
     <h1>Put a document <em>on the table</em>.</h1>
-    <p>Two panels, five lenses — source, boxes, x-ray, text, json.</p>
+    <p>Two panels, six lenses — source, boxes, x-ray, text, json, llm format.</p>
     <p>Click any box and the JSON finds itself.</p>
-    <p class="hint">drop a pdf anywhere · or click to browse</p>
+    <p class="hint">drop a pdf or pptx anywhere · or click to browse</p>
   </div>
 </div>
 
@@ -313,7 +326,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 
 const $ = (s, r) => (r || document).querySelector(s);
-const TYPES = ["text", "image", "path", "annotation"];
+const TYPES = ["text", "image", "path", "annotation", "table"];
 const VIEWS = [
   ["source", "source"], ["boxes", "boxes"], ["xray", "x-ray"],
   ["text", "text"], ["json", "json"], ["lean", "llm format"],
@@ -323,7 +336,7 @@ const VIEWS = [
 // flight for an older generation abandons before touching DOM or caches.
 const state = {
   gen: 0, file: null, fileName: "",
-  extraction: null, pdf: null,
+  extraction: null, pdf: null, format: null,
   pageIdx: 0, zoom: 1,
   filters: new Set(TYPES),
   panelModes: ["source", "boxes"],
@@ -354,6 +367,18 @@ document.addEventListener("drop", e => {
   if (f) load(f);
 });
 $("#gran").onchange = () => { if (state.file) load(state.file, state.pageIdx); };
+
+async function sniffFileFormat(file) {
+  const bytes = new Uint8Array(await file.slice(0, 1028).arrayBuffer());
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b &&
+      bytes[2] === 0x03 && bytes[3] === 0x04) return "pptx";
+  const end = Math.min(bytes.length - 5, 1023);
+  for (let i = 0; i <= end; i += 1) {
+    if (bytes[i] === 0x25 && bytes[i + 1] === 0x50 && bytes[i + 2] === 0x44 &&
+        bytes[i + 3] === 0x46 && bytes[i + 4] === 0x2d) return "pdf";
+  }
+  return "other";
+}
 
 /* ── extraction engines ──
    "server": POST to this deployment's /v1/extract (native speed, subprocess
@@ -491,8 +516,9 @@ async function serverExtract(file, gran, signal) {
 }
 
 async function probeEngines() {
+  const staticTry = /\/try\/(?:index\.html)?$/.test(location.pathname);
   const [server, browser] = await Promise.all([
-    fetch("/healthz").then(r => r.ok).catch(() => false),
+    staticTry ? Promise.resolve(false) : fetch("/healthz").then(r => r.ok).catch(() => false),
     fetch("wasm/docray_wasm.js", { method: "HEAD" }).then(r => r.ok).catch(() => false),
   ]);
   if (server) engines.available.push("server");
@@ -529,7 +555,20 @@ async function load(file, keepPageIdx) {
   // The current document is NOT torn down yet: a failed upload must leave the
   // previous workbench fully functional. Teardown happens on success below.
 
-  const gran = $("#gran").value;
+  let format;
+  try {
+    format = await sniffFileFormat(file);
+  } catch (e) {
+    if (gen !== state.gen) return;
+    status("file read failed · " + e.message, true);
+    restoreRetainedDocument(gen);
+    return;
+  }
+  if (gen !== state.gen || ctrl.signal.aborted) return;
+  // PPTX is element-native: requesting char/word would correctly produce the
+  // stable granularity_unavailable error, so the playground selects the
+  // supported lens before dispatching to either engine.
+  const gran = format === "pptx" ? "element" : $("#gran").value;
   status("extracting · " + gran + " …");
   $("#status").classList.add("blink");
 
@@ -561,20 +600,22 @@ async function load(file, keepPageIdx) {
   }
   if (gen !== state.gen) return;
 
-  let pdf;
-  try {
-    const data = new Uint8Array(await file.arrayBuffer());
-    if (gen !== state.gen || ctrl.signal.aborted) return; // superseded during read
-    // isEvalSupported: defense in depth on top of the >=4.2.67 pin.
-    pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
-  } catch (e) {
-    if (gen !== state.gen) return;
-    $("#status").classList.remove("blink");
-    status("pdf render failed · " + e.message, true);
-    restoreRetainedDocument(gen);
-    return;
+  let pdf = null;
+  if (format === "pdf") {
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      if (gen !== state.gen || ctrl.signal.aborted) return; // superseded during read
+      // isEvalSupported: defense in depth on top of the >=4.2.67 pin.
+      pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+    } catch (e) {
+      if (gen !== state.gen) return;
+      $("#status").classList.remove("blink");
+      status("pdf render failed · " + e.message, true);
+      restoreRetainedDocument(gen);
+      return;
+    }
+    if (gen !== state.gen) { pdf.destroy(); return; }
   }
-  if (gen !== state.gen) { pdf.destroy(); return; }
 
   const ms = Math.round(performance.now() - t0);
   $("#status").classList.remove("blink");
@@ -588,9 +629,15 @@ async function load(file, keepPageIdx) {
   state.extraction = extraction;
   state.leanCache = {}; // canonical lean bytes, keyed by granularity
   state.pdf = pdf;
+  state.format = format;
   state.pageIdx = Math.min(keepPageIdx || 0, extraction.pages.length - 1);
   state.zoom = 1;
   $("#zoom-pct").textContent = "fit";
+  const granularity = $("#gran");
+  granularity.value = gran;
+  for (const option of granularity.options) {
+    option.disabled = format === "pptx" && option.value !== "element";
+  }
 
   const els = extraction.pages.reduce((n, p) => n + p.elements.length, 0);
   $("#doc-name").textContent = file.name;
@@ -621,7 +668,7 @@ function fmtBytes(n) {
    retained document (blank frames, placeholder thumbs). Re-render everything
    under the new generation so the old document stays fully usable. */
 function restoreRetainedDocument(gen) {
-  if (!state.extraction || !state.pdf || gen !== state.gen) return;
+  if (!state.extraction || (!state.pdf && state.format !== "pptx") || gen !== state.gen) return;
   buildRail(gen);
   renderPanels(gen);
 }
@@ -655,7 +702,16 @@ function buildRail(gen) {
 }
 
 async function renderThumb(el, gen) {
-  if (gen !== state.gen || !state.pdf) return;
+  if (gen !== state.gen) return;
+  if (state.format === "pptx") {
+    const pageJson = state.extraction.pages[Number(el.dataset.idx)];
+    const rendered = schematicBitmap(pageJson, 92, 1, 1);
+    if (gen !== state.gen || !rendered) return;
+    const ph = el.querySelector(".ph");
+    if (ph) ph.replaceWith(rendered.canvas);
+    return;
+  }
+  if (!state.pdf) return;
   try {
     const page = await state.pdf.getPage(Number(el.dataset.idx) + 1);
     if (gen !== state.gen) return;
@@ -832,8 +888,11 @@ async function renderPanel(i, gen) {
       }
       const note = document.createElement("p");
       note.style.cssText = "color:var(--fg-dim);font-size:11px;margin:0 0 12px;max-width:60ch";
-      note.innerHTML = 'docray\u2019s <b style="color:var(--fg)">lean</b> format: the same content as the JSON, ' +
-        '25\u201340% fewer tokens \u2014 built for feeding documents to LLMs. ' +
+      const tokenCopy = state.format === "pptx"
+        ? "a compact canonical representation built for feeding presentations to LLMs. "
+        : "25\u201340% fewer tokens \u2014 built for feeding documents to LLMs. ";
+      note.innerHTML = '<b style="color:var(--amber);letter-spacing:.08em">LLM OPTIMIZED FORMAT</b><br>' +
+        'docray\u2019s <b style="color:var(--fg)">lean</b> format: the same content as the JSON, ' + tokenCopy +
         'Available via <code>--format lean</code> and <code>?format=lean</code>. ' +
         '<a href="https://f2-ai-inc.github.io/docray/output-formats.html" target="_blank" rel="noopener" style="color:var(--amber)">docs \u2197</a>' +
         ($("#gran").value === "char" ? "<br>(showing element granularity \u2014 lean has no char level)" : "");
@@ -902,6 +961,13 @@ async function renderPanel(i, gen) {
   canvas.style.height = rendered.cssH + "px";
   canvas.getContext("2d").drawImage(rendered.canvas, 0, 0);
 
+  if (state.format === "pptx") {
+    const caption = document.createElement("div");
+    caption.className = "schematic-caption";
+    caption.textContent = "STRUCTURE SCHEMATIC - reconstructed from docray's extraction, not a visual render of the slide.";
+    frame.appendChild(caption);
+  }
+
   if (mode !== "source") {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "overlay " + (mode === "boxes" ? "filled" : "wire"));
@@ -936,6 +1002,151 @@ function cachePut(key, entry) {
   }
 }
 
+const SCHEMATIC_COLORS = {
+  text: "#1376a8", image: "#b32674", path: "#3d7d24",
+  annotation: "#9a6a00", table: "#7650a8",
+};
+
+function validSchematicBBox(value) {
+  const b = normBBox(value);
+  if (!b) return null;
+  const nums = [b.x0, b.y0, b.x1, b.y1].map(Number);
+  if (!nums.every(Number.isFinite)) return null;
+  const [x0, y0, x1, y1] = nums;
+  if (x1 < x0 || y1 < y0) return null;
+  return { x0, y0, x1, y1 };
+}
+
+function schematicText(ctx, value, bbox, k, font) {
+  const text = String(value || "");
+  if (!text) return;
+  const x = bbox.x0 * k + 4;
+  const y = bbox.y0 * k + 4;
+  const width = Math.max((bbox.x1 - bbox.x0) * k - 8, 1);
+  const height = Math.max((bbox.y1 - bbox.y0) * k - 8, 1);
+  const size = Math.max(7, Math.min(24, Number(font && font.size || 12) * k));
+  const style = font && font.italic ? "italic " : "";
+  const weight = font && font.bold ? "600 " : "";
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, width, height);
+  ctx.clip();
+  ctx.fillStyle = "#29241e";
+  ctx.font = `${style}${weight}${size}px "IBM Plex Mono", monospace`;
+  ctx.textBaseline = "top";
+  const lineHeight = size * 1.25;
+  let cy = y;
+  for (const paragraph of text.split("\n")) {
+    let line = "";
+    for (const token of paragraph.split(/(\s+)/)) {
+      const candidate = line + token;
+      if (line && ctx.measureText(candidate).width > width) {
+        ctx.fillText(line, x, cy, width);
+        cy += lineHeight;
+        line = token.trimStart();
+        if (cy > y + height) break;
+      } else {
+        line = candidate;
+      }
+    }
+    if (cy > y + height) break;
+    if (line) ctx.fillText(line, x, cy, width);
+    cy += lineHeight;
+  }
+  ctx.restore();
+}
+
+function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement) {
+  const bbox = validSchematicBBox(el.bbox);
+  if (!bbox) return;
+  const color = SCHEMATIC_COLORS[el.type] || "#6f675b";
+  const x = bbox.x0 * k;
+  const y = bbox.y0 * k;
+  const width = Math.max((bbox.x1 - bbox.x0) * k, 0.5);
+  const height = Math.max((bbox.y1 - bbox.y0) * k, 0.5);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, width, height);
+  ctx.fillStyle = color + "12";
+  ctx.fillRect(x, y, width, height);
+
+  if (el.type === "text") {
+    schematicText(ctx, elementText(el), bbox, k, el.font);
+  } else if (el.type === "table") {
+    for (const cell of el.cells || []) {
+      const cb = validSchematicBBox(cell.bbox);
+      if (!cb) continue;
+      ctx.strokeRect(
+        cb.x0 * k, cb.y0 * k,
+        Math.max((cb.x1 - cb.x0) * k, 0.5),
+        Math.max((cb.y1 - cb.y0) * k, 0.5),
+      );
+      schematicText(ctx, cell.content, cb, k, cell.runs && cell.runs[0] && cell.runs[0].font);
+    }
+  } else {
+    const label = el.type === "annotation" && el.subtype ? el.subtype : el.type;
+    ctx.fillStyle = color;
+    ctx.font = '600 10px "IBM Plex Mono", monospace';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(label || "element").toUpperCase(), x + width / 2, y + height / 2, Math.max(width - 8, 1));
+  }
+
+  const id = el.id || `p${pageJson.page_number}-e${idx}`;
+  const role = roleByElement.get(id);
+  if (role) {
+    ctx.font = '600 8px "IBM Plex Mono", monospace';
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const label = "ROLE " + String(role);
+    const labelWidth = Math.min(ctx.measureText(label).width + 8, Math.max(width, 1));
+    ctx.fillStyle = "rgba(22,19,15,0.88)";
+    ctx.fillRect(x, y, labelWidth, 14);
+    ctx.fillStyle = "#e8a33d";
+    ctx.fillText(label, x + 4, y + 3, Math.max(labelWidth - 8, 1));
+  }
+  ctx.restore();
+}
+
+function schematicBitmap(pageJson, fitWidth, zoom, dpr = window.devicePixelRatio || 1) {
+  const pageWidth = Number(pageJson.width);
+  const pageHeight = Number(pageJson.height);
+  if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
+      pageWidth <= 0 || pageHeight <= 0) return null;
+  const cssW = Math.min(Math.max(fitWidth, 240), 900) * zoom;
+  const k = cssW / pageWidth;
+  const cssH = pageHeight * k;
+  const pixelW = Math.floor(cssW * dpr);
+  const pixelH = Math.floor(cssH * dpr);
+  // Refuse hostile slide dimensions before allocating a backing store.
+  if (pixelW < 1 || pixelH < 1 || pixelW > 16384 || pixelH > 16384 ||
+      pixelW * pixelH * 4 > CACHE_BYTE_CAP) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = pixelW;
+  canvas.height = pixelH;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = "#f2eee5";
+  ctx.fillRect(0, 0, cssW, cssH);
+  ctx.strokeStyle = "rgba(22,19,15,0.06)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < cssW; x += 24) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cssH); ctx.stroke();
+  }
+  for (let y = 0; y < cssH; y += 24) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+  }
+  const roleByElement = new Map(
+    (pageJson.hidden || [])
+      .filter(item => item.kind === "role" && item.element)
+      .map(item => [item.element, item.content]),
+  );
+  pageJson.elements.forEach((el, idx) =>
+    drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement));
+  return { canvas, cssW, cssH, k };
+}
+
 /* Renders (or reuses) the current page's bitmap at the current zoom. */
 async function pageBitmap(gen, fitWidth) {
   // Everything key-relevant is captured at entry: if the user navigates or
@@ -943,13 +1154,18 @@ async function pageBitmap(gen, fitWidth) {
   const pageNo = state.pageIdx + 1;
   const pageJson = state.extraction.pages[state.pageIdx];
   const zoom = state.zoom;
-  const key = pageNo + "@" + zoom.toFixed(2) + "@" + Math.round(fitWidth);
+  const key = state.format + "@" + pageNo + "@" + zoom.toFixed(2) + "@" + Math.round(fitWidth);
   if (state.renderCache.has(key)) {
     // True LRU: re-insert on hit so hot entries survive eviction.
     const hit = state.renderCache.get(key);
     state.renderCache.delete(key);
     state.renderCache.set(key, hit);
     return hit;
+  }
+  if (state.format === "pptx") {
+    const entry = schematicBitmap(pageJson, fitWidth, zoom);
+    if (entry) cachePut(key, entry);
+    return entry;
   }
   try {
     const page = await state.pdf.getPage(pageNo);
@@ -1076,6 +1292,7 @@ function elementText(el) {
   return el.content !== undefined ? el.content
        : el.text !== undefined ? el.text
        : el.words ? el.words.map(w => Array.isArray(w) ? w[0] : w.content).join(" ")
+       : el.cells ? el.cells.map(cell => cell.content || "").filter(Boolean).join(" | ")
        : el.uri || "";
 }
 

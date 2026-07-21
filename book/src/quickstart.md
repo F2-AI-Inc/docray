@@ -46,9 +46,10 @@ docray-server listening on http://localhost:41619
 playground UI:        http://localhost:41619/playground
 ```
 
-Open the playground, drop a PDF on it, and you'll see every page rendered
-beside its extracted bounding boxes with live JSON. It is the fastest way to
-build intuition for what docray emits — see [the playground](playground.md).
+Open the playground and drop a PDF or PPTX on it. PDFs appear as rendered
+pages; PPTX slides appear as clearly labeled structure schematics reconstructed
+from extraction data, not visual slide renders. Both sit beside extracted
+bounding boxes and live JSON — see [the playground](playground.md).
 
 Extract over HTTP:
 
