@@ -36,13 +36,7 @@
               "content": "Inherited title",
               "font": {
                 "name": "Fixture Serif",
-                "size": 32.0,
-                "bold": false,
-                "italic": false
-              },
-              "color": {
-                "fill": null,
-                "stroke": null
+                "size": 32.0
               }
             }
           ]
@@ -65,13 +59,7 @@
               "content": "Inherited body",
               "font": {
                 "name": "Fixture Sans",
-                "size": 20.0,
-                "bold": false,
-                "italic": false
-              },
-              "color": {
-                "fill": null,
-                "stroke": null
+                "size": 20.0
               }
             }
           ]

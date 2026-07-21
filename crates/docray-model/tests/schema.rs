@@ -198,6 +198,90 @@ fn text_runs_and_tables_serialize_with_stable_shapes_and_roundtrip() {
 }
 
 #[test]
+fn compact_runs_use_the_same_font_and_color_projection_as_parent_text() {
+    let runs = vec![
+        TextRun {
+            content: "plain".into(),
+            font: Font {
+                name: "Helvetica".into(),
+                size: 12.0,
+                bold: false,
+                italic: false,
+            },
+            color: TextColor {
+                fill: Some([0, 0, 0]),
+                stroke: None,
+            },
+            href: None,
+        },
+        TextRun {
+            content: "red".into(),
+            font: Font {
+                name: "Helvetica".into(),
+                size: 12.0,
+                bold: true,
+                italic: false,
+            },
+            color: TextColor {
+                fill: Some([255, 0, 0]),
+                stroke: None,
+            },
+            href: None,
+        },
+    ];
+    let mut extraction = sample();
+    let Element::Text(text) = &mut extraction.pages[0].elements[0] else {
+        panic!("sample text element missing");
+    };
+    text.runs = Some(runs.clone());
+    extraction.pages[0]
+        .elements
+        .push(Element::Table(TableElement {
+            id: "p1-e1".into(),
+            bbox: BBox {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 30.0,
+                y1: 40.0,
+            },
+            rows: 1,
+            cols: 1,
+            cells: vec![TableCell {
+                bbox: BBox {
+                    x0: 10.0,
+                    y0: 20.0,
+                    x1: 30.0,
+                    y1: 40.0,
+                },
+                row: 0,
+                col: 0,
+                row_span: 1,
+                col_span: 1,
+                content: "plainred".into(),
+                runs: Some(runs),
+            }],
+        }));
+
+    let value = serde_json::to_value(extraction.with_granularity(Granularity::Element)).unwrap();
+    let text_runs = &value["pages"][0]["elements"][0]["runs"];
+    let cell_runs = &value["pages"][0]["elements"][1]["cells"][0]["runs"];
+    let expected = serde_json::json!([
+        {
+            "content": "plain",
+            "font": {"name": "Helvetica", "size": 12.0}
+        },
+        {
+            "content": "red",
+            "font": {"name": "Helvetica", "size": 12.0, "bold": true},
+            "color": {"fill": [255, 0, 0]}
+        }
+    ]);
+    assert_eq!(text_runs, &expected);
+    assert_eq!(cell_runs, &expected);
+    assert!(value["pages"][0]["elements"][0].get("color").is_none());
+}
+
+#[test]
 fn hidden_items_serialize_with_stable_shape_and_optional_element() {
     let mut extraction = sample();
     extraction.pages[0].hidden = vec![

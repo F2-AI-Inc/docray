@@ -36,13 +36,7 @@
               "content": "Nested transform",
               "font": {
                 "name": "Fixture Sans",
-                "size": 18.0,
-                "bold": false,
-                "italic": false
-              },
-              "color": {
-                "fill": null,
-                "stroke": null
+                "size": 18.0
               }
             }
           ]

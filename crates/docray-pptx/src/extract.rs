@@ -1119,7 +1119,10 @@ fn resolve_runs(
     let mut runs = Vec::new();
     for paragraph in tx_body.children_named("p") {
         let paragraph_style = paragraph_default_style(tx_body, paragraph, context);
-        for run in paragraph.children_named("r") {
+        for run in &paragraph.children {
+            if !matches!(run.local_name(), "r" | "fld") {
+                continue;
+            }
             let run_style = run.child("rPr").map(|node| partial_style(node, context));
             let mut styles = Vec::with_capacity(2 + inherited.len());
             styles.push(run_style);
@@ -1140,7 +1143,7 @@ fn resolve_runs(
                 content,
                 font: Font {
                     name: style.font_name,
-                    size: round3(style.size * size_scale),
+                    size: scaled_font_size(style.size, size_scale),
                     bold: style.bold,
                     italic: style.italic,
                 },
@@ -1186,10 +1189,7 @@ fn partial_style(node: &Node, context: &SlideContext<'_>) -> PartialStyle {
             .child("latin")
             .and_then(|latin| latin.attr("typeface"))
             .map(str::to_owned),
-        size: node
-            .attr("sz")
-            .and_then(|value| value.parse::<f64>().ok())
-            .map(|value| value / 100.0),
+        size: node.attr("sz").and_then(parse_font_size),
         bold: node.attr("b").map(parse_bool),
         italic: node.attr("i").map(parse_bool),
         color: node
@@ -1242,7 +1242,7 @@ fn autofit_scale(tx_body: &Node) -> f64 {
     tx_body
         .first_descendant("normAutofit")
         .and_then(|node| node.attr("fontScale"))
-        .and_then(|value| value.parse::<f64>().ok())
+        .and_then(parse_finite_number)
         .map(|value| value / 100_000.0)
         .unwrap_or(1.0)
 }
@@ -1259,8 +1259,18 @@ fn text_content(tx_body: &Node) -> String {
         .children_named("p")
         .map(|paragraph| {
             paragraph
-                .descendants("t")
-                .map(|text| text.text.as_str())
+                .children
+                .iter()
+                .filter_map(|child| match child.local_name() {
+                    "r" | "fld" => Some(
+                        child
+                            .descendants("t")
+                            .map(|text| text.text.as_str())
+                            .collect::<String>(),
+                    ),
+                    "br" => Some("\n".to_owned()),
+                    _ => None,
+                })
                 .collect::<String>()
         })
         .filter(|paragraph| !paragraph.is_empty())
@@ -1410,6 +1420,20 @@ fn parse_finite_number(value: &str) -> Option<f64> {
     value.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
+fn parse_font_size(value: &str) -> Option<f64> {
+    let points = parse_finite_number(value)? / 100.0;
+    round3(points).is_finite().then_some(points)
+}
+
+fn scaled_font_size(size: f64, scale: f64) -> f64 {
+    let scaled = round3(size * scale);
+    if scaled.is_finite() {
+        scaled
+    } else {
+        round3(size)
+    }
+}
+
 fn bool_attr(node: &Node, name: &str) -> bool {
     node.attr(name).is_some_and(parse_bool)
 }
@@ -1544,6 +1568,101 @@ mod tests {
         for coordinate in ["x0", "y0", "x1", "y1"] {
             assert!(!json.contains(&format!(r#""{coordinate}":null"#)));
         }
+    }
+
+    #[test]
+    fn invalid_run_sizes_fall_back_to_finite_inherited_size() {
+        let tx_body = parse_test_xml(
+            r#"<txBody>
+                <lstStyle/>
+                <p>
+                    <pPr><defRPr sz="2400"/></pPr>
+                    <r><rPr sz="NaN"/><t>nan</t></r>
+                    <r><rPr sz="1e308"/><t>huge</t></r>
+                </p>
+            </txBody>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+        let runs = resolve_cell_runs(&tx_body, &context);
+
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|run| run.font.size == 24.0));
+        assert!(runs.iter().all(|run| run.font.size.is_finite()));
+
+        let extraction = Extraction {
+            schema_version: "1.1".into(),
+            source: Source {
+                format: "pptx".into(),
+                sha256: "test".into(),
+                size_bytes: 0,
+            },
+            document: DocumentInfo {
+                page_count: 1,
+                metadata: DocMetadata {
+                    title: None,
+                    author: None,
+                },
+            },
+            warnings: Vec::new(),
+            pages: vec![Page {
+                page_number: 1,
+                width: 100.0,
+                height: 100.0,
+                rotation: 0,
+                scanned: false,
+                elements: vec![Element::Text(TextElement {
+                    id: "p1-e0".into(),
+                    bbox: BBox {
+                        x0: 0.0,
+                        y0: 0.0,
+                        x1: 10.0,
+                        y1: 10.0,
+                    },
+                    content: "nanhuge".into(),
+                    font: runs[0].font.clone(),
+                    color: runs[0].color.clone(),
+                    lines: None,
+                    runs: Some(runs),
+                })],
+                hidden: Vec::new(),
+            }],
+        };
+        let docray_model::GranularExtraction::Compact(compact) =
+            extraction.with_granularity(Granularity::Element)
+        else {
+            unreachable!();
+        };
+        let json = serde_json::to_string(&compact).unwrap();
+        assert!(!json.contains(r#""size":null"#));
+        let lean = compact.to_lean();
+        assert!(!lean.contains("NaN"));
+        assert!(!lean.to_ascii_lowercase().contains("inf"));
+    }
+
+    #[test]
+    fn hard_breaks_and_fields_preserve_paragraph_document_order() {
+        let tx_body = parse_test_xml(
+            r#"<txBody><lstStyle/><p>
+                <r><rPr/><t>A</t></r>
+                <br/>
+                <fld id="{field}"><rPr b="1"/><t>7</t></fld>
+            </p></txBody>"#,
+        );
+        let slide_rels = Relationships::default();
+        let theme = Theme::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+
+        assert_eq!(text_content(&tx_body), "A\n7");
+        let runs = resolve_cell_runs(&tx_body, &context);
+        assert_eq!(runs.len(), 2, "a:br is content, not a styled TextRun");
+        assert_eq!(runs[0].content, "A");
+        assert!(!runs[0].font.bold);
+        assert_eq!(runs[1].content, "7");
+        assert!(runs[1].font.bold);
     }
 
     #[test]

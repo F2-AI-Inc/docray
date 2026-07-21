@@ -360,7 +360,7 @@ pub struct CompactTextElement {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<CompactTextColor>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub runs: Option<Vec<TextRun>>,
+    pub runs: Option<Vec<CompactTextRun>>,
 }
 
 #[derive(Serialize)]
@@ -391,7 +391,17 @@ pub struct CompactTableCell {
     pub col_span: usize,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub runs: Option<Vec<TextRun>>,
+    pub runs: Option<Vec<CompactTextRun>>,
+}
+
+#[derive(Serialize)]
+pub struct CompactTextRun {
+    pub content: String,
+    pub font: CompactFont,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<CompactTextColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -425,8 +435,8 @@ pub struct CompactTextColor {
     pub stroke: Option<[u8; 3]>,
 }
 
-const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
-const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const LEGACY_ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const LEGACY_WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const HIDDEN_LEGEND: &str =
@@ -545,14 +555,29 @@ impl CompactExtraction {
                             table.cols
                         )?;
                         for cell in &table.cells {
+                            let (font, size, style) = cell
+                                .runs
+                                .as_deref()
+                                .and_then(|runs| runs.first())
+                                .map(|run| {
+                                    (
+                                        lean_font_name(&run.font.name),
+                                        lean_number(run.font.size),
+                                        lean_run_style(run),
+                                    )
+                                })
+                                .unwrap_or_else(|| ("-".into(), "-".into(), "-".into()));
                             writeln!(
                                 output,
-                                "c {} {} {} {} {} {}",
+                                "c {} {} {} {} {} {} {} {} {}",
                                 cell.row,
                                 cell.col,
                                 cell.row_span,
                                 cell.col_span,
                                 lean_bbox(&cell.bbox),
+                                font,
+                                size,
+                                style,
                                 escape_text(&cell.content)
                             )?;
                             write_lean_runs(output, cell.runs.as_deref())?;
@@ -633,8 +658,12 @@ fn lean_style(text: &CompactTextElement) -> String {
     )
 }
 
-fn lean_run_style(run: &TextRun) -> String {
-    lean_style_parts(run.font.bold, run.font.italic, run.color.fill)
+fn lean_run_style(run: &CompactTextRun) -> String {
+    lean_style_parts(
+        run.font.bold,
+        run.font.italic,
+        run.color.as_ref().and_then(|color| color.fill),
+    )
 }
 
 fn lean_style_parts(bold: bool, italic: bool, fill: Option<[u8; 3]>) -> String {
@@ -655,8 +684,10 @@ fn lean_style_parts(bold: bool, italic: bool, fill: Option<[u8; 3]>) -> String {
     style
 }
 
-fn write_lean_runs<W: fmt::Write>(output: &mut W, runs: Option<&[TextRun]>) -> fmt::Result {
-    let Some(runs) = runs.filter(|runs| runs.len() > 1) else {
+fn write_lean_runs<W: fmt::Write>(output: &mut W, runs: Option<&[CompactTextRun]>) -> fmt::Result {
+    let Some(runs) =
+        runs.filter(|runs| runs.len() > 1 || runs.iter().any(|run| run.href.is_some()))
+    else {
         return Ok(());
     };
     for run in runs {
@@ -749,6 +780,19 @@ fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
     }
 }
 
+fn compact_runs(runs: &Option<Vec<TextRun>>) -> Option<Vec<CompactTextRun>> {
+    runs.as_ref().map(|runs| {
+        runs.iter()
+            .map(|run| CompactTextRun {
+                content: run.content.clone(),
+                font: compact_font(&run.font),
+                color: compact_color(&run.color),
+                href: run.href.clone(),
+            })
+            .collect()
+    })
+}
+
 impl Extraction {
     /// Converts an explicit granularity request. Callers must serialize an
     /// `Extraction` directly when granularity is absent, preserving v1.1 bytes.
@@ -832,7 +876,7 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
                 content,
                 font: compact_font(&text.font),
                 color: compact_color(&text.color),
-                runs: text.runs.clone(),
+                runs: compact_runs(&text.runs),
             })
         }
         Element::Table(table) => CompactElement::Table(CompactTableElement {
@@ -849,7 +893,7 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
                     row_span: cell.row_span,
                     col_span: cell.col_span,
                     content: cell.content.clone(),
-                    runs: cell.runs.clone(),
+                    runs: compact_runs(&cell.runs),
                 })
                 .collect(),
         }),

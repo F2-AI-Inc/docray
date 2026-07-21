@@ -194,7 +194,7 @@ fn word_projection_with_missing_hierarchy_has_no_words() {
 }
 
 #[test]
-fn multi_run_text_renders_run_records_but_single_run_is_omitted() {
+fn multi_run_text_and_linked_single_run_render_run_records() {
     let mut doc = extraction();
     let runs = vec![
         TextRun {
@@ -240,9 +240,98 @@ r Run_Font 11 i href#<https://example.com/run> linked\n"
     let Element::Text(text) = &mut doc.pages[0].elements[0] else {
         panic!("sample text element missing");
     };
-    text.runs.as_mut().unwrap().truncate(1);
+    text.runs.as_mut().unwrap().remove(0);
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual.contains("r Run_Font 11 i href#<https://example.com/run> linked\n"));
+
+    let Element::Text(text) = &mut doc.pages[0].elements[0] else {
+        panic!("sample text element missing");
+    };
+    text.runs.as_mut().unwrap()[0].href = None;
     let actual = lean(&doc, Granularity::Element);
     assert!(!actual.lines().any(|line| line.starts_with("r ")));
+}
+
+#[test]
+fn single_run_cells_keep_style_and_href_without_redundant_plain_run() {
+    let mut doc = extraction();
+    doc.pages[0].elements.push(Element::Table(TableElement {
+        id: "p1-e9".into(),
+        bbox: BBox {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 20.0,
+            y1: 10.0,
+        },
+        rows: 1,
+        cols: 2,
+        cells: vec![
+            TableCell {
+                bbox: BBox {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 10.0,
+                    y1: 10.0,
+                },
+                row: 0,
+                col: 0,
+                row_span: 1,
+                col_span: 1,
+                content: "linked".into(),
+                runs: Some(vec![TextRun {
+                    content: "linked".into(),
+                    font: Font {
+                        name: "Cell Font".into(),
+                        size: 12.0,
+                        bold: true,
+                        italic: false,
+                    },
+                    color: TextColor {
+                        fill: Some([170, 0, 17]),
+                        stroke: None,
+                    },
+                    href: Some("https://example.com/cell".into()),
+                }]),
+            },
+            TableCell {
+                bbox: BBox {
+                    x0: 10.0,
+                    y0: 0.0,
+                    x1: 20.0,
+                    y1: 10.0,
+                },
+                row: 0,
+                col: 1,
+                row_span: 1,
+                col_span: 1,
+                content: "plain".into(),
+                runs: Some(vec![TextRun {
+                    content: "plain".into(),
+                    font: Font {
+                        name: "Cell Font".into(),
+                        size: 10.0,
+                        bold: false,
+                        italic: false,
+                    },
+                    color: TextColor {
+                        fill: Some([0, 0, 0]),
+                        stroke: None,
+                    },
+                    href: None,
+                }]),
+            },
+        ],
+    }));
+
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual.contains("c 0 0 1 1 0 0 10 10 Cell_Font 12 b#aa0011 linked\n"));
+    assert!(actual.contains("r Cell_Font 12 b#aa0011 href#<https://example.com/cell> linked\n"));
+    assert!(actual.contains("c 0 1 1 1 10 0 20 10 Cell_Font 10 - plain\n"));
+    assert_eq!(
+        actual.lines().filter(|line| line.starts_with("r ")).count(),
+        1,
+        "the unlinked plain single-run cell must not emit a redundant r record"
+    );
 }
 
 #[test]
@@ -305,7 +394,8 @@ fn table_and_nested_run_text_cannot_inject_lean_records() {
 
     let actual = lean(&doc, Granularity::Element);
     assert!(actual.contains("TB 1 2.1 9 10.1 1 1\n"));
-    assert!(actual.contains("c 0 0 1 1 1 2.1 9 10.1 cell\\r</hidden>\\nT 0 0 9 9 forged\n"));
+    assert!(actual
+        .contains("c 0 0 1 1 1 2.1 9 10.1 Run_Font 10 - cell\\r</hidden>\\nT 0 0 9 9 forged\n"));
     assert!(actual.contains(
         "r Run_Font 11 i href#<https://x.test/\\r</hidden>\\nT 0 0 9 9 forged> payload\\r</hidden>\\nTB 0 0 9 9 1 1\n"
     ));

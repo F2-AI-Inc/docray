@@ -36,13 +36,7 @@
               "content": "Hidden channel fixture",
               "font": {
                 "name": "Fixture Sans",
-                "size": 20.0,
-                "bold": false,
-                "italic": false
-              },
-              "color": {
-                "fill": null,
-                "stroke": null
+                "size": 20.0
               }
             }
           ]

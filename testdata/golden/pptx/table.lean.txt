@@ -1,7 +1,7 @@
 #docray element v1.4 pages=1
-#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #page 1 720x540
 TB 72 90 272 170 2 2
-c 0 0 1 2 72 90 272 120 Merged
-c 1 0 1 1 72 120 152 170 Left
-c 1 1 1 1 152 120 272 170 Right
+c 0 0 1 2 72 90 272 120 Fixture_Sans 18 - Merged
+c 1 0 1 1 72 120 152 170 Fixture_Sans 18 - Left
+c 1 1 1 1 152 120 272 170 Fixture_Sans 18 - Right

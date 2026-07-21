@@ -45,29 +45,21 @@
               "font": {
                 "name": "Fixture Serif",
                 "size": 24.0,
-                "bold": true,
-                "italic": false
+                "bold": true
               },
               "color": {
                 "fill": [
                   64,
                   77,
                   89
-                ],
-                "stroke": null
+                ]
               }
             },
             {
               "content": " theme",
               "font": {
                 "name": "Fixture Sans",
-                "size": 14.4,
-                "bold": false,
-                "italic": false
-              },
-              "color": {
-                "fill": null,
-                "stroke": null
+                "size": 14.4
               }
             },
             {
@@ -75,12 +67,7 @@
               "font": {
                 "name": "Fixture Sans",
                 "size": 14.4,
-                "bold": false,
                 "italic": true
-              },
-              "color": {
-                "fill": null,
-                "stroke": null
               },
               "href": "https://example.com/styled-run"
             }
