@@ -19,9 +19,11 @@ provide and returns `granularity_unavailable`, with guidance to retry using
 ## Extracted content
 
 - Text shapes are emitted as one text element, with paragraphs separated by
-  newlines. The dominant summary remains on the text element, while `runs`
-  preserves each run's resolved font, size, emphasis, theme color, normal-
-  autofit scaling, and external hyperlink target.
+  newlines and explicit DrawingML hard breaks preserved at their document
+  position. The dominant summary remains on the text element, while `runs`
+  preserves each ordinary run and field's resolved font, size, emphasis,
+  theme color, normal-autofit scaling, and external hyperlink target. A hard
+  break contributes `\n` to aggregate content but is not a styled `TextRun`.
 - Tables are emitted as first-class table elements with grid dimensions and
   row-major anchor cells. Grid and row dimensions determine cell boxes;
   merged-cell continuations are omitted and the anchor carries the row/column

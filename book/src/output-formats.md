@@ -36,13 +36,13 @@ newline. The first two lines are always:
 When the response contains per-run or table detail, the element legend is:
 
 ```text
-#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
 
 and the word legend is:
 
 ```text
-#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
 
 Responses without run or table detail retain the preceding schema-1.3 legend
@@ -79,13 +79,13 @@ T x0 y0 x1 y1 <font> <size> <style> <text to end of line>
 T x0 y0 x1 y1 <font> <size> <style>
 w x0 y0 x1 y1 <word text to end of line>
 
-# emitted directly after T when the text element has more than one run
+# emitted directly after T when the text element has multiple runs or a linked run
 r <font> <size> <style> <text to end of line>
 r <font> <size> <style> href#<external-uri> <text to end of line>
 
 TB x0 y0 x1 y1 <rows> <cols>
-c <row> <col> <rowspan> <colspan> x0 y0 x1 y1 <cell text to end of line>
-# multi-run cells use the same r records directly after their c record
+c <row> <col> <rowspan> <colspan> x0 y0 x1 y1 <font> <size> <style> <cell text to end of line>
+# multi-run or linked cells use the same r records directly after their c record
 
 I x0 y0 x1 y1
 P x0 y0 x1 y1
@@ -130,10 +130,12 @@ character in a font name becomes `_`; a missing font name is `-`.
 
 `TB` introduces a first-class table and is followed by one `c` record per
 merge-anchor cell in row-major order. Row and column indices are zero-based;
-spans are at least one. A single run adds no information beyond its parent
-`T` or `c` record, so `r` records are emitted only when the parent has more
-than one run. A linked run inserts the literal token `href#<`, the escaped
-external URI, and `>` before its text.
+spans are at least one. Each `c` carries the font, size, and style of its first
+run as its cell summary; an empty cell uses `-` for all three. A plain single
+run adds no information beyond its parent `T` or `c` record, so it has no `r`
+record. Multiple runs emit every `r`, and a linked single run emits its one
+`r` so the hyperlink is not lost. A linked run inserts the literal token
+`href#<`, the escaped external URI, and `>` before its text.
 
 The style token concatenates `b` for bold and `i` for italic, or uses `-` when
 neither applies. A non-default text fill is appended as lowercase RGB hex,

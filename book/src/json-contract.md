@@ -107,17 +107,20 @@ hyperlink target:
 "runs": [
   {
     "content": "linked text",
-    "font": { "name": "Aptos", "size": 18.0, "bold": true, "italic": false },
-    "color": { "fill": [31, 78, 121], "stroke": null },
+    "font": { "name": "Aptos", "size": 18.0, "bold": true },
+    "color": { "fill": [31, 78, 121] },
     "href": "https://example.com"
   }
 ]
 ```
 
-`href` is omitted for an unlinked run. PDF text has no separate native shape
-run layer and omits `runs`, preserving the frozen no-parameter schema `1.1`
-bytes. PPTX text keeps `content`, `font`, and `color` as the concatenated and
-dominant summary while using `runs` for the per-run detail.
+`href` is omitted for an unlinked run. Element/word compact output applies the
+same compact font and color rules to runs as to their parent: false emphasis
+flags, black fill, and empty color objects are omitted. PDF text has no
+separate native shape run layer and omits `runs`, preserving the frozen
+no-parameter schema `1.1` bytes. PPTX text keeps `content`, `font`, and `color`
+as the concatenated and dominant summary while using `runs` for the per-run
+detail.
 
 ### table
 
