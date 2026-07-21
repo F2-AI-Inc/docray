@@ -5,6 +5,13 @@ use std::collections::BTreeMap;
 
 const MAX_XML_DEPTH: usize = 256;
 
+/// Bounds the parsed DOM independently of inflated byte size. A part's inflated
+/// bytes are already capped, but the `Node` tree is ~10-25x larger than its
+/// source, and the OPC compression-ratio guard is computed from spoofable
+/// central-directory sizes. This cap turns a DOM-amplification attempt into a
+/// clean `parse_failure` instead of relying on the worker memory rlimit.
+const MAX_XML_NODES: usize = 5_000_000;
+
 #[derive(Debug, Clone)]
 pub(crate) struct Node {
     pub(crate) name: String,
@@ -72,17 +79,26 @@ impl<'a, 'b> Iterator for Descendants<'a, 'b> {
 }
 
 pub(crate) fn parse(bytes: &[u8], part: &str) -> Result<Node, ExtractError> {
+    parse_with_limits(bytes, part, MAX_XML_NODES)
+}
+
+fn parse_with_limits(bytes: &[u8], part: &str, max_nodes: usize) -> Result<Node, ExtractError> {
     let mut reader = Reader::from_reader(bytes);
     reader.config_mut().check_end_names = true;
     reader.config_mut().trim_text(false);
     let mut stack: Vec<Node> = Vec::new();
     let mut root = None;
+    let mut node_count = 0_usize;
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(start)) => {
                 if stack.len() >= MAX_XML_DEPTH {
                     return Err(parse_error(part, "XML nesting depth limit exceeded"));
+                }
+                node_count += 1;
+                if node_count > max_nodes {
+                    return Err(parse_error(part, "XML element count limit exceeded"));
                 }
                 stack.push(Node {
                     name: decode(start.name().as_ref(), part)?,
@@ -92,6 +108,10 @@ pub(crate) fn parse(bytes: &[u8], part: &str) -> Result<Node, ExtractError> {
                 });
             }
             Ok(Event::Empty(empty)) => {
+                node_count += 1;
+                if node_count > max_nodes {
+                    return Err(parse_error(part, "XML element count limit exceeded"));
+                }
                 let node = Node {
                     name: decode(empty.name().as_ref(), part)?,
                     attrs: attributes(&empty, reader.decoder(), part)?,
@@ -214,4 +234,36 @@ fn parse_error(part: &str, message: &str) -> ExtractError {
 
 pub(crate) fn local_name(name: &str) -> &str {
     name.rsplit_once(':').map_or(name, |(_, local)| local)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_count_over_limit_is_a_parse_failure_not_a_panic() {
+        // 50 sibling elements against a limit of 8 must be rejected cleanly.
+        let mut xml = String::from("<root>");
+        for _ in 0..50 {
+            xml.push_str("<a/>");
+        }
+        xml.push_str("</root>");
+
+        let err = parse_with_limits(xml.as_bytes(), "test.xml", 8).unwrap_err();
+        let ExtractError::ParseFailure(message) = err else {
+            panic!("expected parse_failure");
+        };
+        assert!(
+            message.contains("element count limit exceeded"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn node_count_at_limit_parses() {
+        // root + 4 children = 5 nodes, exactly at the limit.
+        let node = parse_with_limits(b"<root><a/><a/><a/><a/></root>", "test.xml", 5).unwrap();
+        assert_eq!(node.local_name(), "root");
+        assert_eq!(node.children.len(), 4);
+    }
 }
