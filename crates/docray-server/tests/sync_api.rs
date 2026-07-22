@@ -98,6 +98,26 @@ fn playground_pptx_source_isolation_contract() {
 }
 
 #[test]
+fn playground_pptx_thumbnail_isolation_contract() {
+    let html = include_str!("../assets/playground.html");
+    assert!(html.contains("iframe.setAttribute(\"sandbox\", PPTX_IFRAME_SANDBOX);"));
+    assert!(!html.contains("allow-same-origin"));
+    assert!(html.contains("iframe.srcdoc = pptxThumbRendererSrcdoc();"));
+    assert!(html.contains("event.source !== iframe.contentWindow || event.origin !== \"null\""));
+    assert!(html.contains("data.index !== active.request.index"));
+    assert!(html.contains("PPTX_THUMB_DATA_URL_MAX = 3 * 1024 * 1024"));
+    assert!(html.contains("value.startsWith(\"data:image/png;base64,\")"));
+    assert!(html.contains("value.startsWith(\"data:image/webp;base64,\")"));
+    assert!(html.contains("image.src = dataUrl;"));
+    assert!(!html.contains("innerHTML = dataUrl"));
+    assert!(html.contains("cmd: \"renderThumb\""));
+    assert!(html.contains("[bytes]"));
+    assert!(html.contains("viewer.renderThumbnailToContainer(data.slideIndex"));
+    assert!(html.contains("pptxThumbCacheBytes <= PPTX_THUMB_BYTE_CAP"));
+    assert!(html.contains("image.dataset.thumbKind = \"rendered\";"));
+}
+
+#[test]
 fn healthz_and_sync_extract_and_errors() {
     let server = TestServer::start();
 
