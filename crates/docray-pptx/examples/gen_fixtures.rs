@@ -232,6 +232,19 @@ fn main() {
     );
     write_pptx("table", table, default_slide_rels(""), vec![]);
 
+    // Auto-height rows: PowerPoint writes h="0" and sizes rows to content. A
+    // sized frame (cy>0) lets the heights be derived; these tables must extract,
+    // not be dropped. Two rows x two columns, all h="0".
+    let autoheight_table = slide(
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Auto table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="2540000" cy="1016000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="1270000"/><a:gridCol w="1270000"/></a:tblGrid><a:tr h="0"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>A1</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>B1</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr><a:tr h="0"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>A2</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>B2</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>"#,
+    );
+    write_pptx(
+        "autoheight-table",
+        autoheight_table,
+        default_slide_rels(""),
+        vec![],
+    );
+
     let chart = slide(
         r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Revenue chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="4572000" cy="2743200"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
     );

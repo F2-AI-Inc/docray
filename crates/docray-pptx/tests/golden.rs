@@ -134,6 +134,36 @@ fn table_fixture_geometry_matches_prefix_sum_math() {
 }
 
 #[test]
+fn autoheight_rows_are_extracted_not_dropped() {
+    // Regression: PowerPoint writes h="0" for auto-height rows. The extractor
+    // must derive heights from the frame extent and emit the table, not skip it.
+    let bytes = fs::read(root().join("testdata/pptx/autoheight-table.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert!(
+        extraction.warnings.is_empty(),
+        "a sized frame with auto-height rows needs no warning: {:?}",
+        extraction.warnings
+    );
+    let Element::Table(table) = &extraction.pages[0].elements[0] else {
+        panic!("auto-height table must still be extracted as a first-class table");
+    };
+    assert_eq!((table.rows, table.cols), (2, 2));
+    assert_eq!(
+        table
+            .cells
+            .iter()
+            .map(|cell| cell.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["A1", "B1", "A2", "B2"]
+    );
+    // Frame is 1016000 EMU tall (80pt); two auto rows split it -> 40pt each.
+    assert_eq!(table.cells[0].bbox.y0, 72.0);
+    assert_eq!(table.cells[0].bbox.y1, 112.0);
+    assert_eq!(table.cells[2].bbox.y0, 112.0);
+    assert_eq!(table.cells[2].bbox.y1, 152.0);
+}
+
+#[test]
 fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
     let bytes = fs::read(root().join("testdata/pptx/chart.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();

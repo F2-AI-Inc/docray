@@ -10,6 +10,9 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 const EMU_PER_POINT: f64 = 12_700.0;
+/// Fallback height for a table row with no authored height in a zero-height
+/// frame (~0.3in). Used only to keep auto-sized table content, with a warning.
+const DEFAULT_AUTO_ROW_EMU: f64 = 274_320.0;
 const CFB_MAGIC: &[u8; 8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
 const MAX_GROUP_DEPTH: usize = 64;
 
@@ -782,11 +785,33 @@ fn extract_table_frame(
         ));
         return;
     };
-    if columns.is_empty() || rows.is_empty() || heights.contains(&0.0) {
+    if columns.is_empty() || rows.is_empty() {
         warnings.push(format!(
             "page {page_number}: table {table_name:?} grid geometry is incomplete, table skipped"
         ));
         return;
+    }
+    // PowerPoint writes h="0" for auto-height rows (sized to their content) and,
+    // less often, w="0" for auto-width columns; these are valid, not malformed.
+    // Derive the missing extents from the frame so legitimate auto-sized tables
+    // are not dropped. Only geometry we cannot derive at all is skipped below.
+    let columns = distribute_track(columns, frame_xfrm.ext.x);
+    let mut heights = distribute_track(heights, frame_xfrm.ext.y);
+    if columns.iter().sum::<f64>() <= 0.0 {
+        warnings.push(format!(
+            "page {page_number}: table {table_name:?} grid geometry could not be derived, table skipped"
+        ));
+        return;
+    }
+    // A fully auto-height table in a zero-height frame (h="0" rows, cy="0")
+    // carries no authored vertical geometry — PowerPoint sizes it to content at
+    // render time. Rather than drop the table (losing its text), synthesize a
+    // nominal row height and disclose that the row geometry is approximate.
+    if heights.iter().sum::<f64>() <= 0.0 {
+        heights = vec![DEFAULT_AUTO_ROW_EMU; heights.len()];
+        warnings.push(format!(
+            "page {page_number}: table {table_name:?} has no authored row heights; row geometry is approximate"
+        ));
     }
 
     let (Some(col_prefix), Some(row_prefix)) = (prefix_sums(&columns), prefix_sums(&heights))
@@ -1032,6 +1057,34 @@ fn extract_graphic_frame_picture(
         content_hash,
     }));
     Ok(())
+}
+
+/// Fills zero-sized tracks (auto-height rows / auto-width columns, which
+/// PowerPoint encodes as `0`) using the frame's extent along that axis: an
+/// all-zero set splits the frame equally, a partially-zero set splits the
+/// leftover frame extent among the zero tracks. Explicit sizes are preserved.
+fn distribute_track(tracks: Vec<f64>, frame_extent: f64) -> Vec<f64> {
+    let zeros = tracks.iter().filter(|value| **value <= 0.0).count();
+    if zeros == 0 {
+        return tracks;
+    }
+    let specified: f64 = tracks.iter().filter(|value| **value > 0.0).sum();
+    if specified <= 0.0 {
+        // Fully auto-sized: divide the frame extent evenly across all tracks.
+        if frame_extent > 0.0 && !tracks.is_empty() {
+            return vec![frame_extent / tracks.len() as f64; tracks.len()];
+        }
+        return tracks;
+    }
+    let leftover = (frame_extent - specified).max(0.0);
+    if leftover <= 0.0 {
+        return tracks;
+    }
+    let share = leftover / zeros as f64;
+    tracks
+        .into_iter()
+        .map(|value| if value <= 0.0 { share } else { value })
+        .collect()
 }
 
 fn prefix_sums(values: &[f64]) -> Option<Vec<f64>> {
@@ -1774,6 +1827,22 @@ fn parse_failure(message: impl Into<String>) -> ExtractError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distribute_track_fills_auto_sized_tracks_from_the_frame() {
+        // No zero tracks: unchanged.
+        assert_eq!(distribute_track(vec![10.0, 20.0], 100.0), vec![10.0, 20.0]);
+        // All auto (all zero): split the frame extent equally.
+        assert_eq!(distribute_track(vec![0.0, 0.0], 100.0), vec![50.0, 50.0]);
+        // Partial auto: the single zero row takes the leftover frame extent.
+        assert_eq!(
+            distribute_track(vec![30.0, 0.0, 20.0], 100.0),
+            vec![30.0, 50.0, 20.0]
+        );
+        // Zero frame extent and all auto: nothing to derive, left as-is (the
+        // caller then applies a nominal fallback + warning).
+        assert_eq!(distribute_track(vec![0.0, 0.0], 0.0), vec![0.0, 0.0]);
+    }
 
     fn parse_test_xml(xml: &str) -> Node {
         parse(xml.as_bytes(), "test.xml").unwrap()
