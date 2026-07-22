@@ -122,15 +122,26 @@
     padding: 12px 0 40px;
   }
   .thumb { padding: 6px 14px; cursor: pointer; text-align: center; }
-  .thumb canvas, .thumb img, .thumb .ph {
+  .thumb canvas, .thumb img, .thumb .ph, .thumb .pptx-thumb-visual {
     width: 92px; display: block; margin: 0 auto;
     background: var(--film); box-shadow: 0 0 0 1px var(--hair);
     opacity: 0.75; transition: opacity 0.15s, box-shadow 0.15s;
   }
   .thumb img { height: auto; }
   .thumb .ph { background: var(--ink-3); }
+  .thumb .pptx-thumb-visual { position: relative; overflow: hidden; }
+  .thumb .pptx-thumb-visual canvas {
+    width: 100%; height: 100%; margin: 0; box-shadow: none; opacity: 1;
+  }
+  .thumb .pptx-live-thumb {
+    position: absolute; left: 0; top: 0; border: 0; margin: 0;
+    transform: scale(var(--pptx-thumb-scale)); transform-origin: top left;
+    visibility: hidden; pointer-events: none; background: var(--film);
+  }
+  .thumb .pptx-live-thumb.rendered { visibility: visible; }
   .thumb .n { font-size: 9.5px; color: var(--fg-dim); margin-top: 4px; }
-  .thumb.cur canvas, .thumb.cur img, .thumb.cur .ph { opacity: 1; box-shadow: 0 0 0 2px var(--amber); }
+  .thumb.cur canvas, .thumb.cur img, .thumb.cur .ph, .thumb.cur .pptx-thumb-visual { opacity: 1; box-shadow: 0 0 0 2px var(--amber); }
+  .thumb.cur .pptx-thumb-visual canvas { box-shadow: none; }
   .thumb.cur .n { color: var(--amber); }
   .thumb .sc { display: inline-block; font-size: 8px; letter-spacing: 0.1em; color: #241a08; background: var(--c-annotation); padding: 0 4px; border-radius: 2px; margin-left: 4px; }
 
@@ -274,7 +285,8 @@
     #panels { grid-template-columns: 1fr; }
     .panel + .panel { border-left: 0; border-top: 1px dashed var(--hair); }
     #rail { width: 84px; }
-    .thumb canvas, .thumb img, .thumb .ph { width: 60px; }
+    .thumb canvas, .thumb img, .thumb .ph, .thumb .pptx-thumb-visual { width: 60px; }
+    .thumb .pptx-thumb-visual { --pptx-thumb-scale: 0.25 !important; }
   }
 </style>
 </head>
@@ -41328,7 +41340,6 @@ const state = {
   filters: new Set(TYPES),
   panelModes: ["source", "boxes"],
   renderCache: new Map(), // "pageNo@zoom@fit" -> {canvas, cssW, cssH, k}
-  pptxThumbCache: new Map(), // slide index -> {dataUrl, bytes}; insertion order is LRU
 };
 
 /* ── status ── */
@@ -41382,10 +41393,9 @@ const BROWSER_OUTPUT_NOTE = "output_too_large"; // enforced inside worker.js
 const BROWSER_TIMEOUT_MS = 120_000;
 const PPTX_RENDER_TIMEOUT_MS = 15_000;
 const PPTX_CANVAS_BYTE_CAP = 256 * 1024 * 1024;
-const PPTX_THUMB_TIMEOUT_MS = 15_000;
-const PPTX_THUMB_TARGET_WIDTH = 240;
-const PPTX_THUMB_DATA_URL_MAX = 3 * 1024 * 1024;
-const PPTX_THUMB_BYTE_CAP = 256 * 1024 * 1024;
+const PPTX_LIVE_THUMB_TIMEOUT_MS = 15_000;
+const PPTX_LIVE_THUMB_RENDER_WIDTH = 240;
+const PPTX_LIVE_THUMB_MAX = 4;
 const PPTX_IFRAME_SANDBOX = "allow-scripts";
 // base-uri and form-action do NOT fall back to default-src, so pin them
 // explicitly (belt-and-suspenders with the forms-less sandbox) to close a
@@ -41549,6 +41559,10 @@ let inflight = null;
 
 async function load(file, keepPageIdx) {
   const gen = ++state.gen;
+  // A generation owns every hostile-deck iframe. Tear live thumbnails down
+  // immediately, even if this upload later fails and the retained document is
+  // rebuilt, so no old frame can outlive an upload or engine switch.
+  resetPptxLiveThumbs();
   if (inflight) inflight.abort();
   const ctrl = (inflight = new AbortController());
   state.requestedFile = file;
@@ -41622,11 +41636,8 @@ async function load(file, keepPageIdx) {
 
   // Success: replace the old document wholesale.
   if (state.pdf) state.pdf.destroy();
-  resetPptxThumbRenderer();
   state.renderCache.clear();
   cacheBytes = 0;
-  state.pptxThumbCache.clear();
-  pptxThumbCacheBytes = 0;
   state.file = file;
   state.fileName = file.name;
   state.extraction = extraction;
@@ -41673,14 +41684,13 @@ function fmtBytes(n) {
 function restoreRetainedDocument(gen) {
   if (!state.extraction || (!state.pdf && state.format !== "pptx") || gen !== state.gen) return;
   buildRail(gen);
-  renderPanels(gen);
+  goto(state.pageIdx, gen);
 }
 
 /* ── thumbnail rail (lazy) ── */
 let railObserver = null;
-let pptxThumbRenderer = null;
-let pptxThumbCacheBytes = 0;
-let pptxThumbInitFailedGen = -1;
+const pptxLiveThumbs = new Map(); // slide index -> live iframe; insertion order is LRU
+let pptxLiveThumbUnavailableGen = -1;
 
 function buildRail(gen) {
   const rail = $("#rail");
@@ -41706,14 +41716,20 @@ function buildRail(gen) {
       <div class="n">${p.page_number}${p.scanned ? '<span class="sc">scan</span>' : ""}</div>`;
     t.onclick = () => goto(i, state.gen);
     rail.appendChild(t);
-    observer.observe(t);
+    if (state.format === "pptx") {
+      // The extraction-derived miniature is the reliable baseline for every
+      // slide. Only navigation, never rail visibility, upgrades one to live.
+      mountPptxSchematicThumb(t, i, gen);
+    } else {
+      observer.observe(t);
+    }
   });
 }
 
 async function renderThumb(el, gen) {
   if (gen !== state.gen) return;
   if (state.format === "pptx") {
-    renderPptxThumb(el, Number(el.dataset.idx), gen);
+    mountPptxSchematicThumb(el, Number(el.dataset.idx), gen);
     return;
   }
   if (!state.pdf) return;
@@ -41740,274 +41756,167 @@ async function renderThumb(el, gen) {
 function mountPptxSchematicThumb(el, index, gen) {
   if (gen !== state.gen || !el.isConnected) return;
   const pageJson = state.extraction.pages[index];
-  const rendered = schematicBitmap(pageJson, 92, 1, 1, { minCssW: 92, maxCssH: 160 });
+  const rendered = schematicBitmap(pageJson, 92, 1, 1, {
+    minCssW: 92, maxCssH: 160, thumbnail: true,
+  });
   if (!rendered) return;
   rendered.canvas.dataset.thumbKind = "schematic";
-  const old = el.querySelector("img, canvas, .ph");
+  const old = Array.from(el.children).find(child =>
+    child.matches(".pptx-thumb-visual, img, canvas, .ph"));
   if (old) old.replaceWith(rendered.canvas);
 }
 
-function validPptxThumbDataUrl(value) {
-  return typeof value === "string" && value.length <= PPTX_THUMB_DATA_URL_MAX &&
-    (value.startsWith("data:image/png;base64,") ||
-     value.startsWith("data:image/webp;base64,"));
-}
-
-function pptxThumbCacheGet(index) {
-  const hit = state.pptxThumbCache.get(index);
-  if (!hit) return null;
-  state.pptxThumbCache.delete(index);
-  state.pptxThumbCache.set(index, hit);
-  return hit;
-}
-
-function pptxThumbCacheDelete(index) {
-  const entry = state.pptxThumbCache.get(index);
-  if (!entry) return;
-  pptxThumbCacheBytes -= entry.bytes;
-  state.pptxThumbCache.delete(index);
-}
-
-function pptxThumbCachePut(index, dataUrl, decodedBytes, gen) {
-  pptxThumbCacheDelete(index);
-  // Account for both decoded pixels and the retained base64 string. Browsers
-  // vary in when decoded image memory is released, so the larger estimate is
-  // the conservative cache charge.
-  const encodedBytes = Math.ceil(dataUrl.length * 3 / 4);
-  const entry = { dataUrl, bytes: Math.max(decodedBytes, encodedBytes) };
-  if (entry.bytes > PPTX_THUMB_BYTE_CAP) return false;
-  state.pptxThumbCache.set(index, entry);
-  pptxThumbCacheBytes += entry.bytes;
-  for (const [evictedIndex, evicted] of state.pptxThumbCache) {
-    if (pptxThumbCacheBytes <= PPTX_THUMB_BYTE_CAP) break;
-    state.pptxThumbCache.delete(evictedIndex);
-    pptxThumbCacheBytes -= evicted.bytes;
-    const mounted = document.querySelector(`.thumb[data-idx="${evictedIndex}"] img[data-thumb-kind="rendered"]`);
-    if (mounted) mountPptxSchematicThumb(mounted.closest(".thumb"), evictedIndex, gen);
-  }
-  return state.pptxThumbCache.has(index);
-}
-
-function mountPptxThumbImage(el, index, dataUrl, gen) {
-  const image = new Image();
-  image.alt = `Rendered slide ${index + 1} thumbnail`;
-  image.decoding = "async";
-  image.dataset.thumbKind = "rendered";
-  image.onload = () => {
-    if (gen !== state.gen || !el.isConnected) return;
-    const cached = state.pptxThumbCache.get(index);
-    if (!cached || cached.dataUrl !== dataUrl) {
-      mountPptxSchematicThumb(el, index, gen);
-      return;
-    }
-    const old = el.querySelector("img, canvas, .ph");
-    if (old) old.replaceWith(image);
-  };
-  image.onerror = () => {
-    pptxThumbCacheDelete(index);
-    mountPptxSchematicThumb(el, index, gen);
-  };
-  // The validated inert image URL is used only as an img src. It is never
-  // parsed as markup or inserted through innerHTML.
-  image.src = dataUrl;
-}
-
-function pptxThumbDimensions(pageJson) {
+function pptxLiveThumbDimensions(pageJson) {
   const width = Number(pageJson.width);
   const height = Number(pageJson.height);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return null;
   }
-  const maxHeight = Math.ceil(PPTX_THUMB_TARGET_WIDTH * 160 / 92);
+  const maxHeight = Math.ceil(PPTX_LIVE_THUMB_RENDER_WIDTH * 160 / 92);
+  const renderHeight = Math.max(1, Math.min(
+    Math.ceil(PPTX_LIVE_THUMB_RENDER_WIDTH * height / width), maxHeight,
+  ));
   return {
-    width: PPTX_THUMB_TARGET_WIDTH,
-    height: Math.max(1, Math.min(Math.ceil(PPTX_THUMB_TARGET_WIDTH * height / width), maxHeight)),
+    width: PPTX_LIVE_THUMB_RENDER_WIDTH,
+    height: renderHeight,
+    cssWidth: 92,
+    cssHeight: 92 * renderHeight / PPTX_LIVE_THUMB_RENDER_WIDTH,
   };
 }
 
-function renderPptxThumb(el, index, gen) {
-  const pageJson = state.extraction.pages[index];
-  const dimensions = pptxThumbDimensions(pageJson);
-  const pageParseFailed = (state.extraction.warnings || []).some(warning =>
+function pptxPageParseFailed(index) {
+  return (state.extraction.warnings || []).some(warning =>
     typeof warning === "string" && warning.startsWith(`page ${index + 1} failed to parse:`));
-  if (!dimensions || state.file.size > BROWSER_INPUT_CAP || pageParseFailed ||
-      pptxThumbInitFailedGen === gen) {
-    mountPptxSchematicThumb(el, index, gen);
-    return;
-  }
-  const cached = pptxThumbCacheGet(index);
-  if (cached) {
-    mountPptxThumbImage(el, index, cached.dataUrl, gen);
-    return;
-  }
-  // Show the schematic immediately as a baseline so the rail is never blank
-  // while the render is pending — on a large/heavy deck the sequential render
-  // queue can lag for many seconds. The rendered image upgrades this on
-  // success; on error/timeout the schematic simply remains.
-  if (!el.querySelector('img[data-thumb-kind="rendered"]')) {
-    mountPptxSchematicThumb(el, index, gen);
-  }
-  const renderer = ensurePptxThumbRenderer(gen);
-  if (!renderer) {
-    return;
-  }
-  renderer.queue.push({ el, index, gen, dimensions });
-  pumpPptxThumbQueue(renderer);
 }
 
-function closePptxThumbRenderer(renderer) {
-  if (!renderer || renderer.closed) return;
-  renderer.closed = true;
-  clearTimeout(renderer.readyTimer);
-  if (renderer.active) clearTimeout(renderer.active.timer);
-  removeEventListener("message", renderer.onMessage);
-  renderer.iframe.onerror = null;
-  renderer.iframe.remove();
-  if (pptxThumbRenderer === renderer) pptxThumbRenderer = null;
+function touchPptxLiveThumb(entry) {
+  if (pptxLiveThumbs.get(entry.index) !== entry) return;
+  pptxLiveThumbs.delete(entry.index);
+  pptxLiveThumbs.set(entry.index, entry);
 }
 
-function resetPptxThumbRenderer() {
-  closePptxThumbRenderer(pptxThumbRenderer);
-  pptxThumbInitFailedGen = -1;
-}
-
-function failPptxThumbRenderer(renderer, initFailed) {
-  if (renderer.closed) return;
-  const pending = renderer.active ? [renderer.active.request, ...renderer.queue] : renderer.queue.slice();
-  renderer.queue.length = 0;
-  closePptxThumbRenderer(renderer);
-  if (initFailed) pptxThumbInitFailedGen = renderer.gen;
-  for (const request of pending) {
-    if (request.gen === state.gen) mountPptxSchematicThumb(request.el, request.index, request.gen);
+function disposePptxLiveThumb(entry, restoreSchematic) {
+  if (!entry || entry.closed) return;
+  entry.closed = true;
+  clearTimeout(entry.timer);
+  removeEventListener("message", entry.onMessage);
+  entry.iframe.onerror = null;
+  entry.iframe.remove();
+  if (pptxLiveThumbs.get(entry.index) === entry) pptxLiveThumbs.delete(entry.index);
+  if (restoreSchematic && entry.gen === state.gen && entry.el.isConnected) {
+    mountPptxSchematicThumb(entry.el, entry.index, entry.gen);
   }
 }
 
-function finishPptxThumb(renderer, ok, dataUrl, fatalInit) {
-  const active = renderer.active;
-  if (!active || renderer.closed) return;
-  clearTimeout(active.timer);
-  renderer.active = null;
-  const { request } = active;
-  if (fatalInit) {
-    if (request.gen === state.gen) mountPptxSchematicThumb(request.el, request.index, request.gen);
-    failPptxThumbRenderer(renderer, true);
-    return;
+function resetPptxLiveThumbs() {
+  for (const entry of Array.from(pptxLiveThumbs.values())) {
+    disposePptxLiveThumb(entry, false);
   }
-  if (ok && request.gen === state.gen) {
-    const decodedBytes = request.dimensions.width * request.dimensions.height * 4;
-    if (pptxThumbCachePut(request.index, dataUrl, decodedBytes, request.gen)) {
-      mountPptxThumbImage(request.el, request.index, dataUrl, request.gen);
-    } else {
-      mountPptxSchematicThumb(request.el, request.index, request.gen);
+  pptxLiveThumbUnavailableGen = -1;
+}
+
+function failPptxLiveThumb(entry, engineUnavailable) {
+  if (!entry || entry.closed) return;
+  if (engineUnavailable) {
+    pptxLiveThumbUnavailableGen = entry.gen;
+    for (const live of Array.from(pptxLiveThumbs.values())) {
+      disposePptxLiveThumb(live, true);
     }
-  } else if (request.gen === state.gen) {
-    mountPptxSchematicThumb(request.el, request.index, request.gen);
+    return;
   }
-  pumpPptxThumbQueue(renderer);
+  disposePptxLiveThumb(entry, true);
 }
 
-function ensurePptxThumbRenderer(gen) {
-  if (pptxThumbInitFailedGen === gen) return null;
-  if (pptxThumbRenderer && pptxThumbRenderer.gen === gen && !pptxThumbRenderer.closed) {
-    return pptxThumbRenderer;
+function ensurePptxLiveThumb(index, gen) {
+  if (gen !== state.gen || state.format !== "pptx" || !state.file ||
+      pptxLiveThumbUnavailableGen === gen) return;
+  const existing = pptxLiveThumbs.get(index);
+  if (existing && existing.gen === gen && !existing.closed) {
+    touchPptxLiveThumb(existing);
+    return;
   }
-  closePptxThumbRenderer(pptxThumbRenderer);
+  if (existing) disposePptxLiveThumb(existing, true);
+
+  const el = document.querySelector(`.thumb[data-idx="${index}"]`);
+  const pageJson = state.extraction.pages[index];
+  const dimensions = pptxLiveThumbDimensions(pageJson);
+  if (!el || !dimensions || state.file.size > BROWSER_INPUT_CAP || pptxPageParseFailed(index)) return;
+  let schematic = Array.from(el.children).find(child =>
+    child.matches('canvas[data-thumb-kind="schematic"]'));
+  if (!schematic) {
+    mountPptxSchematicThumb(el, index, gen);
+    schematic = Array.from(el.children).find(child =>
+      child.matches('canvas[data-thumb-kind="schematic"]'));
+  }
+  if (!schematic) return;
+
+  const frame = document.createElement("div");
+  frame.className = "pptx-thumb-visual";
+  frame.dataset.thumbKind = "live-host";
+  frame.style.aspectRatio = `${dimensions.cssWidth} / ${dimensions.cssHeight}`;
+  frame.style.setProperty("--pptx-thumb-scale", String(dimensions.cssWidth / dimensions.width));
   const iframe = document.createElement("iframe");
-  iframe.title = "Sandboxed PowerPoint thumbnail renderer";
+  iframe.title = `Sandboxed PowerPoint live thumbnail ${index + 1}`;
+  iframe.className = "pptx-live-thumb";
+  iframe.dataset.thumbKind = "live";
   iframe.setAttribute("sandbox", PPTX_IFRAME_SANDBOX);
   iframe.setAttribute("referrerpolicy", "no-referrer");
-  iframe.setAttribute("aria-hidden", "true");
-  iframe.style.cssText = "position:fixed;left:-10000px;top:0;width:240px;height:418px;" +
-    "border:0;opacity:0;pointer-events:none";
+  iframe.style.width = dimensions.width + "px";
+  iframe.style.height = dimensions.height + "px";
 
-  const renderer = {
-    iframe, gen, queue: [], active: null, ready: false, initialized: false,
-    bytesPosted: false, closed: false, readyTimer: null, onMessage: null,
+  schematic.replaceWith(frame);
+  frame.append(schematic, iframe);
+  const entry = {
+    index, gen, el, frame, iframe, ready: false, rendered: false,
+    bytesPosted: false, closed: false, timer: null, onMessage: null,
   };
-  renderer.onMessage = event => {
-    if (event.source !== iframe.contentWindow || event.origin !== "null" || renderer.closed) return;
+  pptxLiveThumbs.set(index, entry);
+  while (pptxLiveThumbs.size > PPTX_LIVE_THUMB_MAX) {
+    const oldest = pptxLiveThumbs.values().next().value;
+    disposePptxLiveThumb(oldest, true);
+  }
+
+  entry.onMessage = async event => {
+    if (event.source !== iframe.contentWindow || event.origin !== "null" || entry.closed) return;
     const data = event.data;
     if (!data || typeof data !== "object" || Array.isArray(data)) return;
     const keys = Object.keys(data);
+    if (keys.length !== 1 || keys[0] !== "status" ||
+        !["ready", "rendered", "error"].includes(data.status)) return;
     if (data.status === "ready") {
-      if (keys.length !== 1 || keys[0] !== "status" || renderer.ready) return;
-      renderer.ready = true;
-      clearTimeout(renderer.readyTimer);
-      pumpPptxThumbQueue(renderer);
-      return;
-    }
-    const active = renderer.active;
-    if (!active || !Number.isInteger(data.index) || data.index !== active.request.index) return;
-    if (data.status === "thumb") {
-      if (keys.length !== 3 || !keys.includes("status") || !keys.includes("index") ||
-          !keys.includes("dataUrl") || !validPptxThumbDataUrl(data.dataUrl)) {
-        finishPptxThumb(renderer, false);
-        return;
+      if (entry.ready || entry.bytesPosted) return;
+      entry.ready = true;
+      entry.bytesPosted = true;
+      try {
+        const bytes = await state.file.arrayBuffer();
+        if (entry.closed || gen !== state.gen || pptxLiveThumbs.get(index) !== entry) return;
+        iframe.contentWindow.postMessage({
+          cmd: "render",
+          bytes,
+          slideIndex: index,
+          width: dimensions.width,
+          height: dimensions.height,
+        }, "*", [bytes]);
+      } catch (_) {
+        failPptxLiveThumb(entry, false);
       }
-      renderer.initialized = true;
-      finishPptxThumb(renderer, true, data.dataUrl, false);
-    } else if (data.status === "error") {
-      if (keys.some(key => key !== "status" && key !== "index" && key !== "message") ||
-          (data.message !== undefined &&
-            (typeof data.message !== "string" || data.message.length > 160))) return;
-      const fatalInit = !renderer.initialized && data.message === "init";
-      if (!fatalInit) renderer.initialized = true;
-      finishPptxThumb(renderer, false, undefined, fatalInit);
-    }
-  };
-  addEventListener("message", renderer.onMessage);
-  iframe.onerror = () => failPptxThumbRenderer(renderer, true);
-  renderer.readyTimer = setTimeout(() => failPptxThumbRenderer(renderer, true), PPTX_THUMB_TIMEOUT_MS);
-  document.body.appendChild(iframe);
-  iframe.srcdoc = pptxThumbRendererSrcdoc();
-  pptxThumbRenderer = renderer;
-  return renderer;
-}
-
-async function pumpPptxThumbQueue(renderer) {
-  if (renderer.closed || !renderer.ready || renderer.active) return;
-  let request;
-  while ((request = renderer.queue.shift())) {
-    if (request.gen === state.gen && request.el.isConnected) break;
-    request = null;
-  }
-  if (!request) return;
-  const active = { request, timer: null };
-  renderer.active = active;
-  active.timer = setTimeout(() => {
-    if (renderer.active !== active) return;
-    renderer.active = null;
-    mountPptxSchematicThumb(request.el, request.index, request.gen);
-    const queued = renderer.queue.splice(0);
-    closePptxThumbRenderer(renderer);
-    for (const next of queued) {
-      if (next.gen === state.gen) renderPptxThumb(next.el, next.index, next.gen);
-    }
-  }, PPTX_THUMB_TIMEOUT_MS);
-
-  const message = {
-    cmd: "renderThumb",
-    slideIndex: request.index,
-    width: request.dimensions.width,
-    height: request.dimensions.height,
-  };
-  try {
-    if (!renderer.bytesPosted) {
-      const bytes = await state.file.arrayBuffer();
-      if (renderer.closed || renderer.active !== active || request.gen !== state.gen) return;
-      renderer.bytesPosted = true;
-      message.bytes = bytes;
-      iframePostPptxThumb(renderer.iframe, message, bytes);
+    } else if (data.status === "rendered") {
+      entry.rendered = true;
+      clearTimeout(entry.timer);
+      removeEventListener("message", entry.onMessage);
+      iframe.onerror = null;
+      iframe.classList.add("rendered");
     } else {
-      renderer.iframe.contentWindow.postMessage(message, "*");
+      failPptxLiveThumb(entry, false);
     }
-  } catch (_) {
-    finishPptxThumb(renderer, false, undefined, !renderer.initialized);
-  }
-}
-
-function iframePostPptxThumb(iframe, message, bytes) {
-  iframe.contentWindow.postMessage(message, "*", [bytes]);
+  };
+  addEventListener("message", entry.onMessage);
+  iframe.onerror = () => failPptxLiveThumb(entry, !entry.ready);
+  entry.timer = setTimeout(
+    () => failPptxLiveThumb(entry, !entry.ready),
+    PPTX_LIVE_THUMB_TIMEOUT_MS,
+  );
+  iframe.srcdoc = pptxRendererSrcdoc();
 }
 
 /* ── filter chips ── */
@@ -42041,7 +41950,7 @@ function applyFilters() {
 
 /* ── navigation & zoom ── */
 function goto(idx, gen) {
-  if (!state.extraction) return;
+  if (!state.extraction || gen !== state.gen) return;
   state.pageIdx = Math.max(0, Math.min(idx, state.extraction.pages.length - 1));
   $("#pgno").textContent = `pg. ${state.pageIdx + 1} / ${state.extraction.pages.length}`;
   $("#scan-badge").style.display = state.extraction.pages[state.pageIdx].scanned ? "" : "none";
@@ -42049,6 +41958,7 @@ function goto(idx, gen) {
     t.classList.toggle("cur", Number(t.dataset.idx) === state.pageIdx));
   const cur = document.querySelector(".thumb.cur");
   if (cur) cur.scrollIntoView({ block: "nearest" });
+  if (state.format === "pptx") ensurePptxLiveThumb(state.pageIdx, gen);
   renderPanels(gen);
 }
 $("#prev").onclick = () => goto(state.pageIdx - 1, state.gen);
@@ -42192,233 +42102,6 @@ function pptxIframeMain() {
   reply("ready");
 }
 
-/* Dedicated parse-once thumbnail worker. Like pptxIframeMain, this function is
-   stringified into a null-origin srcdoc and has no access to parent helpers. */
-function pptxThumbIframeMain() {
-  "use strict";
-
-  const MAX_CANVAS_BYTES = 256 * 1024 * 1024;
-  const MAX_CANVAS_DIMENSION = 16384;
-  const MAX_DATA_URL_LENGTH = 3 * 1024 * 1024;
-  const MAX_SVG_BYTES = 16 * 1024 * 1024;
-  let viewer = null;
-  let active = false;
-
-  function reply(data) {
-    parent.postMessage(data, "*");
-  }
-
-  // The thumbnail iframe has exactly the same opaque-origin requirement as
-  // the large SOURCE iframe. Refuse hostile bytes if containment is weakened.
-  let parentAccessDenied = false;
-  try { void parent.location.href; } catch (_) { parentAccessDenied = true; }
-  if (!parentAccessDenied) {
-    reply({ status: "error", index: -1, message: "init" });
-    return;
-  }
-
-  const canvasProto = HTMLCanvasElement.prototype;
-  const widthDescriptor = Object.getOwnPropertyDescriptor(canvasProto, "width");
-  const heightDescriptor = Object.getOwnPropertyDescriptor(canvasProto, "height");
-  const originalGetContext = canvasProto.getContext;
-  const canvasAllocations = new WeakMap();
-  let canvasBytes = 0;
-
-  function canvasDimension(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 0;
-  }
-
-  function chargeCanvas(canvas, width, height) {
-    const w = canvasDimension(width);
-    const h = canvasDimension(height);
-    if (w > MAX_CANVAS_DIMENSION || h > MAX_CANVAS_DIMENSION) {
-      throw new RangeError("canvas dimension cap exceeded");
-    }
-    const next = w * h * 4;
-    const previous = canvasAllocations.get(canvas) || 0;
-    if (!Number.isSafeInteger(next) || next > MAX_CANVAS_BYTES ||
-        canvasBytes - previous + next > MAX_CANVAS_BYTES) {
-      throw new RangeError("canvas memory cap exceeded");
-    }
-    canvasBytes = canvasBytes - previous + next;
-    canvasAllocations.set(canvas, next);
-  }
-
-  Object.defineProperty(canvasProto, "width", {
-    configurable: widthDescriptor.configurable,
-    enumerable: widthDescriptor.enumerable,
-    get: widthDescriptor.get,
-    set(value) {
-      chargeCanvas(this, value, heightDescriptor.get.call(this));
-      widthDescriptor.set.call(this, value);
-    },
-  });
-  Object.defineProperty(canvasProto, "height", {
-    configurable: heightDescriptor.configurable,
-    enumerable: heightDescriptor.enumerable,
-    get: heightDescriptor.get,
-    set(value) {
-      chargeCanvas(this, widthDescriptor.get.call(this), value);
-      heightDescriptor.set.call(this, value);
-    },
-  });
-  canvasProto.getContext = function(...args) {
-    chargeCanvas(this, widthDescriptor.get.call(this), heightDescriptor.get.call(this));
-    return originalGetContext.apply(this, args);
-  };
-
-  const exportCanvas = document.createElement("canvas");
-
-  function stylesheetText() {
-    let text = "";
-    for (const sheet of document.styleSheets) {
-      try {
-        for (const rule of sheet.cssRules) text += rule.cssText + "\n";
-      } catch (_) { /* all srcdoc styles are local; ignore unavailable sheets */ }
-    }
-    return text;
-  }
-
-  async function rasterize(element) {
-    await Promise.all(Array.from(element.querySelectorAll("img")).map(image => {
-      if (image.complete) return image.decode ? image.decode().catch(() => {}) : Promise.resolve();
-      return new Promise(resolve => {
-        image.addEventListener("load", resolve, { once: true });
-        image.addEventListener("error", resolve, { once: true });
-      });
-    }));
-    if (document.fonts && document.fonts.ready) await document.fonts.ready;
-    // requestAnimationFrame may be throttled indefinitely for an intentionally
-    // offscreen iframe. A task turn is enough for media/style completion while
-    // preserving progress under background-tab throttling.
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    const rect = element.getBoundingClientRect();
-    const width = Math.max(1, Math.ceil(rect.width));
-    const height = Math.max(1, Math.ceil(rect.height));
-    if (width > MAX_CANVAS_DIMENSION || height > MAX_CANVAS_DIMENSION ||
-        width * height * 4 > MAX_CANVAS_BYTES) throw new Error("thumbnail dimensions unavailable");
-
-    const clone = element.cloneNode(true);
-    const originalCanvases = element.querySelectorAll("canvas");
-    const clonedCanvases = clone.querySelectorAll("canvas");
-    for (let i = 0; i < originalCanvases.length; i += 1) {
-      const replacement = document.createElement("img");
-      replacement.src = originalCanvases[i].toDataURL("image/png");
-      replacement.setAttribute("style", clonedCanvases[i].getAttribute("style") || "");
-      replacement.width = originalCanvases[i].width;
-      replacement.height = originalCanvases[i].height;
-      clonedCanvases[i].replaceWith(replacement);
-    }
-
-    const svgNs = "http://www.w3.org/2000/svg";
-    const xhtmlNs = "http://www.w3.org/1999/xhtml";
-    const svg = document.createElementNS(svgNs, "svg");
-    svg.setAttribute("width", String(width));
-    svg.setAttribute("height", String(height));
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    const foreignObject = document.createElementNS(svgNs, "foreignObject");
-    foreignObject.setAttribute("width", "100%");
-    foreignObject.setAttribute("height", "100%");
-    const wrapper = document.createElementNS(xhtmlNs, "div");
-    wrapper.setAttribute("style", `width:${width}px;height:${height}px;overflow:hidden;background:#f2eee5`);
-    const style = document.createElementNS(xhtmlNs, "style");
-    style.textContent = stylesheetText();
-    wrapper.append(style, clone);
-    foreignObject.appendChild(wrapper);
-    svg.appendChild(foreignObject);
-
-    // A blob: SVG taints a canvas in an opaque-origin sandbox. A data: SVG is
-    // still CSP-contained and inert, but remains origin-clean for canvas export.
-    const svgBytes = new TextEncoder().encode(new XMLSerializer().serializeToString(svg));
-    if (svgBytes.byteLength > MAX_SVG_BYTES) throw new Error("thumbnail SVG cap exceeded");
-    let binary = "";
-    for (let offset = 0; offset < svgBytes.length; offset += 32_768) {
-      binary += String.fromCharCode(...svgBytes.subarray(offset, offset + 32_768));
-    }
-    const url = "data:image/svg+xml;base64," + btoa(binary);
-    const image = new Image();
-    await new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = reject;
-      image.src = url;
-    });
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-    const context = exportCanvas.getContext("2d");
-    context.clearRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-    const dataUrl = exportCanvas.toDataURL("image/webp", 0.82);
-    if (dataUrl.length > MAX_DATA_URL_LENGTH ||
-        (!dataUrl.startsWith("data:image/png;base64,") &&
-         !dataUrl.startsWith("data:image/webp;base64,"))) {
-      throw new Error("thumbnail output cap exceeded");
-    }
-    return dataUrl;
-  }
-
-  addEventListener("error", () => {
-    if (active) active = false;
-  });
-  addEventListener("unhandledrejection", () => {
-    if (active) active = false;
-  });
-  addEventListener("message", async event => {
-    if (event.source !== parent || active) return;
-    const data = event.data;
-    if (!data || typeof data !== "object" || Array.isArray(data)) return;
-    const keys = Object.keys(data);
-    if (keys.some(key => !["cmd", "bytes", "slideIndex", "width", "height"].includes(key)) ||
-        data.cmd !== "renderThumb" || !Number.isInteger(data.slideIndex) || data.slideIndex < 0 ||
-        !Number.isInteger(data.width) || data.width < 1 || data.width > 1024 ||
-        !Number.isInteger(data.height) || data.height < 1 || data.height > 1024 ||
-        (!viewer && !(data.bytes instanceof ArrayBuffer)) ||
-        (viewer && data.bytes !== undefined)) {
-      return;
-    }
-    active = true;
-    let handle = null;
-    let initializing = false;
-    try {
-      if (!viewer) {
-        initializing = true;
-        const parseRoot = document.getElementById("parse");
-        viewer = await ay.open(data.bytes, parseRoot, {
-          renderMode: "slide",
-          width: data.width,
-          fitMode: "contain",
-          zipLimits: fH,
-          lazyMedia: true,
-          lazySlides: true,
-          pdfjs: false,
-        });
-        initializing = false;
-      }
-      if (data.slideIndex >= viewer.slideCount) throw new Error("slide unavailable");
-      const root = document.getElementById("thumb");
-      root.innerHTML = "";
-      handle = viewer.renderThumbnailToContainer(data.slideIndex, root, {
-        width: data.width,
-        height: data.height,
-      });
-      if (!handle) throw new Error("slide unavailable");
-      await handle.ready;
-      const dataUrl = await rasterize(handle.element);
-      reply({ status: "thumb", index: data.slideIndex, dataUrl });
-    } catch (_) {
-      if (initializing) viewer = null;
-      reply({ status: "error", index: data.slideIndex, message: initializing ? "init" : "render" });
-    } finally {
-      if (handle) handle.dispose();
-      document.getElementById("thumb").innerHTML = "";
-      active = false;
-    }
-  });
-
-  reply({ status: "ready" });
-}
-
 const pptxRendererSourceEl = $("#pptx-renderer-source");
 // The wrapper contributes one newline on each side; remove only those two so
 // the bytes inserted into srcdoc still match the recorded vendor SHA-256.
@@ -42433,17 +42116,6 @@ function pptxRendererSrcdoc() {
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta http-equiv="Content-Security-Policy" content="' + PPTX_IFRAME_CSP + '">' +
     "<style>" + style + "</style></head><body><div id=\"slide\"></div>" +
-    '<script type="module">' + PPTX_RENDERER_SOURCE + glue + "</scr" + "ipt></body></html>";
-}
-
-function pptxThumbRendererSrcdoc() {
-  const style = "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f2eee5}" +
-    "#parse{position:absolute;left:-10000px;top:0}" +
-    "#thumb{position:relative;overflow:hidden;background:#f2eee5}";
-  const glue = ";(" + pptxThumbIframeMain.toString() + ")();";
-  return '<!doctype html><html><head><meta charset="utf-8">' +
-    '<meta http-equiv="Content-Security-Policy" content="' + PPTX_IFRAME_CSP + '">' +
-    "<style>" + style + "</style></head><body><div id=\"parse\"></div><div id=\"thumb\"></div>" +
     '<script type="module">' + PPTX_RENDERER_SOURCE + glue + "</scr" + "ipt></body></html>";
 }
 
@@ -42840,14 +42512,18 @@ function schematicRgb(value, fallback) {
   return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
 }
 
-function schematicText(ctx, value, bbox, k, font, color) {
+function schematicText(ctx, value, bbox, k, font, color, thumbnail = false) {
   const text = String(value || "");
   if (!text) return;
-  const x = bbox.x0 * k + 4;
-  const y = bbox.y0 * k + 4;
-  const width = Math.max((bbox.x1 - bbox.x0) * k - 8, 1);
-  const height = Math.max((bbox.y1 - bbox.y0) * k - 8, 1);
-  const size = Math.max(7, Math.min(24, Number(font && font.size || 12) * k));
+  const padding = thumbnail ? 0 : 4;
+  const x = bbox.x0 * k + padding;
+  const y = bbox.y0 * k + padding;
+  const width = Math.max((bbox.x1 - bbox.x0) * k - padding * 2, 1);
+  const height = Math.max((bbox.y1 - bbox.y0) * k - padding * 2, 1);
+  const authoredSize = Number(font && font.size || 12) * k;
+  const size = thumbnail
+    ? Math.max(1.5, Math.min(8, authoredSize))
+    : Math.max(7, Math.min(24, authoredSize));
   const style = font && font.italic ? "italic " : "";
   const weight = font && font.bold ? "600 " : "";
   ctx.save();
@@ -42883,7 +42559,7 @@ function schematicText(ctx, value, bbox, k, font, color) {
 // slide. The colored per-element bounding boxes belong to the BOXES / X-RAY
 // lenses (drawn as an SVG overlay on top of this canvas), so the SOURCE view
 // must not stroke them here.
-function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement) {
+function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement, thumbnail = false) {
   const bbox = validSchematicBBox(el.bbox);
   if (!bbox) return;
   const x = bbox.x0 * k;
@@ -42893,7 +42569,7 @@ function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement) {
   ctx.save();
 
   if (el.type === "text") {
-    schematicText(ctx, elementText(el), bbox, k, el.font, el.color);
+    schematicText(ctx, elementText(el), bbox, k, el.font, el.color, thumbnail);
   } else if (el.type === "table") {
     // Gridlines are part of a table's actual appearance (content), not an
     // analysis overlay — draw them in a neutral ink, like a real table.
@@ -42909,20 +42585,22 @@ function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement) {
       );
       const firstRun = cell.runs && cell.runs[0];
       schematicText(ctx, cell.content, cb, k,
-        firstRun && firstRun.font, firstRun && firstRun.color);
+        firstRun && firstRun.font, firstRun && firstRun.color, thumbnail);
     }
   } else if (el.type === "image") {
     // A picture region we cannot render: neutral placeholder, not a colored box.
     ctx.fillStyle = "rgba(22,19,15,0.06)";
     ctx.fillRect(x, y, width, height);
-    ctx.strokeStyle = "rgba(22,19,15,0.16)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x, y, width, height);
-    ctx.fillStyle = "rgba(22,19,15,0.42)";
-    ctx.font = '600 10px "IBM Plex Mono", monospace';
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("IMAGE", x + width / 2, y + height / 2, Math.max(width - 8, 1));
+    if (!thumbnail) {
+      ctx.strokeStyle = "rgba(22,19,15,0.16)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, width, height);
+      ctx.fillStyle = "rgba(22,19,15,0.42)";
+      ctx.font = '600 10px "IBM Plex Mono", monospace';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("IMAGE", x + width / 2, y + height / 2, Math.max(width - 8, 1));
+    }
   } else if (el.type === "path") {
     // The rectangle is the compact shape proxy; its authored paint is visible
     // content, unlike the colored analysis boxes owned by the X-RAY lens.
@@ -42942,7 +42620,7 @@ function drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement) {
 
   const id = el.id || `p${pageJson.page_number}-e${idx}`;
   const role = roleByElement.get(id);
-  if (role) {
+  if (role && !thumbnail) {
     ctx.font = '600 8px "IBM Plex Mono", monospace';
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
@@ -42987,13 +42665,15 @@ function schematicBitmap(pageJson, fitWidth, zoom, dpr = window.devicePixelRatio
   ctx.scale(dpr, dpr);
   ctx.fillStyle = "#f2eee5";
   ctx.fillRect(0, 0, cssW, cssH);
-  ctx.strokeStyle = "rgba(22,19,15,0.06)";
-  ctx.lineWidth = 1;
-  for (let x = 0; x < cssW; x += 24) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cssH); ctx.stroke();
-  }
-  for (let y = 0; y < cssH; y += 24) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+  if (!opts.thumbnail) {
+    ctx.strokeStyle = "rgba(22,19,15,0.06)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < cssW; x += 24) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cssH); ctx.stroke();
+    }
+    for (let y = 0; y < cssH; y += 24) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+    }
   }
   const roleByElement = new Map(
     (pageJson.hidden || [])
@@ -43001,7 +42681,7 @@ function schematicBitmap(pageJson, fitWidth, zoom, dpr = window.devicePixelRatio
       .map(item => [item.element, item.content]),
   );
   pageJson.elements.forEach((el, idx) =>
-    drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement));
+    drawSchematicElement(ctx, pageJson, el, idx, k, roleByElement, opts.thumbnail === true));
   return { canvas, cssW, cssH, k };
 }
 
