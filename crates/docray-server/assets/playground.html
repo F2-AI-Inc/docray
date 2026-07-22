@@ -41840,9 +41840,15 @@ function renderPptxThumb(el, index, gen) {
     mountPptxThumbImage(el, index, cached.dataUrl, gen);
     return;
   }
+  // Show the schematic immediately as a baseline so the rail is never blank
+  // while the render is pending — on a large/heavy deck the sequential render
+  // queue can lag for many seconds. The rendered image upgrades this on
+  // success; on error/timeout the schematic simply remains.
+  if (!el.querySelector('img[data-thumb-kind="rendered"]')) {
+    mountPptxSchematicThumb(el, index, gen);
+  }
   const renderer = ensurePptxThumbRenderer(gen);
   if (!renderer) {
-    mountPptxSchematicThumb(el, index, gen);
     return;
   }
   renderer.queue.push({ el, index, gen, dimensions });
