@@ -359,6 +359,6 @@ above, without any additional terms or conditions.
 ---
 
 <p align="center">
-  <a href="https://github.com/F2-AI-Inc"><img src="book/src/f2-logo.png" alt="F2 AI" width="40" height="40"></a><br>
-  <sub>Built by <a href="https://github.com/F2-AI-Inc">F2 AI</a></sub>
+  <sub>Built by</sub><br>
+  <a href="https://f2.ai"><img src="book/src/f2-logo.png" alt="F2 AI" width="40" height="40"></a>
 </p>

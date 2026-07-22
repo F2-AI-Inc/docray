@@ -21,17 +21,18 @@
     var footer = document.createElement("footer");
     footer.id = "f2-footer";
     var link = document.createElement("a");
-    link.href = "https://github.com/F2-AI-Inc";
+    link.href = "https://f2.ai";
     link.target = "_blank";
     link.rel = "noopener";
+    link.setAttribute("aria-label", "F2 AI");
+    var label = document.createElement("span");
+    label.textContent = "Built by";
     var img = document.createElement("img");
     img.src = root + "f2-logo.png";
     img.alt = "F2 AI";
     img.width = 26;
     img.height = 26;
-    var label = document.createElement("span");
-    label.textContent = "Built by F2 AI";
-    link.append(img, label);
+    link.append(label, img);
     footer.appendChild(link);
     main.appendChild(footer);
   }
