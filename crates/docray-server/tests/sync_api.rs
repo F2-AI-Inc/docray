@@ -102,19 +102,28 @@ fn playground_pptx_thumbnail_isolation_contract() {
     let html = include_str!("../assets/playground.html");
     assert!(html.contains("iframe.setAttribute(\"sandbox\", PPTX_IFRAME_SANDBOX);"));
     assert!(!html.contains("allow-same-origin"));
-    assert!(html.contains("iframe.srcdoc = pptxThumbRendererSrcdoc();"));
+    assert!(html.contains(
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'"
+    ));
+    assert!(html.contains("iframe.srcdoc = pptxRendererSrcdoc();"));
     assert!(html.contains("event.source !== iframe.contentWindow || event.origin !== \"null\""));
-    assert!(html.contains("data.index !== active.request.index"));
-    assert!(html.contains("PPTX_THUMB_DATA_URL_MAX = 3 * 1024 * 1024"));
-    assert!(html.contains("value.startsWith(\"data:image/png;base64,\")"));
-    assert!(html.contains("value.startsWith(\"data:image/webp;base64,\")"));
-    assert!(html.contains("image.src = dataUrl;"));
-    assert!(!html.contains("innerHTML = dataUrl"));
-    assert!(html.contains("cmd: \"renderThumb\""));
+    assert!(html.contains("keys.length !== 1 || keys[0] !== \"status\""));
+    assert!(html.contains("![\"ready\", \"rendered\", \"error\"].includes(data.status)"));
+    assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(!html.contains("PPTX_THUMB_DATA_URL_MAX"));
+    assert!(!html.contains("cmd: \"renderThumb\""));
+    assert!(!html.contains("dataUrl"));
+    assert!(!html.contains("XMLSerializer().serializeToString"));
+    assert!(!html.contains("iframe.contentDocument"));
+    assert!(html.contains("state.file.arrayBuffer()"));
     assert!(html.contains("[bytes]"));
-    assert!(html.contains("viewer.renderThumbnailToContainer(data.slideIndex"));
-    assert!(html.contains("pptxThumbCacheBytes <= PPTX_THUMB_BYTE_CAP"));
-    assert!(html.contains("image.dataset.thumbKind = \"rendered\";"));
+    assert!(html.contains("const PPTX_LIVE_THUMB_MAX = 4;"));
+    assert!(html.contains("while (pptxLiveThumbs.size > PPTX_LIVE_THUMB_MAX)"));
+    assert!(html.contains("ensurePptxLiveThumb(state.pageIdx, gen)"));
+    assert!(html.contains("resetPptxLiveThumbs();"));
+    assert!(html.contains("thumbnail: true"));
+    assert!(html.contains("if (role && !thumbnail)"));
+    assert!(html.contains("if (!opts.thumbnail)"));
 }
 
 #[test]
