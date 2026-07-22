@@ -1,6 +1,6 @@
 [book]
 title = "docray"
-description = "X-ray for documents: lossless PDF-to-JSON extraction with bounding boxes"
+description = "X-ray for documents: lossless PDF & PPTX extraction to JSON with bounding boxes, fonts, and colors"
 authors = []
 language = "en"
 src = "src"

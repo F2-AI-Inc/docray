@@ -13,7 +13,33 @@
     a.innerHTML = "Try docray <span>in your browser — no install, documents never leave your machine</span>";
     sidebar.prepend(a);
   }
+  // Site-wide "Built by F2" footer — docray is owned by F2 AI.
+  function injectFooter() {
+    var main = document.querySelector("main");
+    if (!main || document.getElementById("f2-footer")) return;
+    var root = typeof path_to_root !== "undefined" ? path_to_root : "";
+    var footer = document.createElement("footer");
+    footer.id = "f2-footer";
+    var link = document.createElement("a");
+    link.href = "https://github.com/F2-AI-Inc";
+    link.target = "_blank";
+    link.rel = "noopener";
+    var img = document.createElement("img");
+    img.src = root + "f2-logo.png";
+    img.alt = "F2 AI";
+    img.width = 26;
+    img.height = 26;
+    var label = document.createElement("span");
+    label.textContent = "Built by F2 AI";
+    link.append(img, label);
+    footer.appendChild(link);
+    main.appendChild(footer);
+  }
+  function run() {
+    inject();
+    injectFooter();
+  }
   document.readyState === "loading"
-    ? document.addEventListener("DOMContentLoaded", inject)
-    : inject();
+    ? document.addEventListener("DOMContentLoaded", run)
+    : run();
 })();
