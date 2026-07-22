@@ -389,6 +389,14 @@ fn extract_children(
     warnings: &mut Vec<String>,
 ) -> Result<(), ExtractError> {
     for child in &parent.children {
+        // PowerPoint does not render shapes marked hidden; a physical-element
+        // extractor must not emit them, and must not warn (they are
+        // intentionally not visible, not a skipped-due-to-limitation failure).
+        // This covers hidden OLE data containers such as think-cell's objects,
+        // which otherwise produce a warning per slide with no visible content.
+        if is_hidden_shape(child) {
+            continue;
+        }
         if context.source_layer.is_some()
             && child.local_name() == "sp"
             && placeholder(child).is_some()
@@ -1743,6 +1751,16 @@ struct Placeholder {
     kind: Option<String>,
 }
 
+/// A shape is hidden (`<p:cNvPr hidden="1">`) when PowerPoint does not render
+/// it. The shape's own `cNvPr` is the first one in its non-visual properties,
+/// so the first descendant is the right node for every shape kind (sp, pic,
+/// cxnSp, graphicFrame, grpSp).
+fn is_hidden_shape(shape: &Node) -> bool {
+    shape
+        .first_descendant("cNvPr")
+        .is_some_and(|c_nv_pr| c_nv_pr.attr("hidden") == Some("1"))
+}
+
 fn placeholder(shape: &Node) -> Option<Placeholder> {
     let ph = shape
         .child("nvSpPr")
@@ -1935,6 +1953,22 @@ fn parse_failure(message: impl Into<String>) -> ExtractError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hidden_shapes_are_detected_by_cnvpr() {
+        let visible =
+            parse_test_xml(r#"<p:sp><p:nvSpPr><p:cNvPr id="1" name="V"/></p:nvSpPr></p:sp>"#);
+        assert!(!is_hidden_shape(&visible));
+        let hidden = parse_test_xml(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="H" hidden="1"/></p:nvSpPr></p:sp>"#,
+        );
+        assert!(is_hidden_shape(&hidden));
+        // hidden="0" means shown.
+        let shown = parse_test_xml(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="3" name="S" hidden="0"/></p:nvSpPr></p:sp>"#,
+        );
+        assert!(!is_hidden_shape(&shown));
+    }
 
     #[test]
     fn distribute_track_fills_auto_sized_tracks_from_the_frame() {
