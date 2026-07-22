@@ -253,10 +253,26 @@ fn chart_values_render_with_their_percent_format() {
     // render as percentages, not raw/scientific-notation floats.
     let bytes = fs::read(root().join("testdata/pptx/percent-chart.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();
-    let Element::Text(chart) = &extraction.pages[0].elements[0] else {
-        panic!("percent chart must emit synthesized text");
+    let Element::Chart(chart) = &extraction.pages[0].elements[0] else {
+        panic!("percent chart must emit a first-class chart");
     };
-    assert_eq!(chart.content, "Direct: 41%\nReseller: 59%");
+    assert_eq!(chart.chart_type, "doughnut");
+    assert_eq!(chart.title, None);
+    assert_eq!(chart.series.len(), 1);
+    assert_eq!(chart.series[0].name, None);
+    assert_eq!(
+        chart.series[0].points,
+        vec![
+            docray_model::ChartPoint {
+                category: Some("Direct".into()),
+                value: "41%".into(),
+            },
+            docray_model::ChartPoint {
+                category: Some("Reseller".into()),
+                value: "59%".into(),
+            },
+        ]
+    );
 }
 
 #[test]
@@ -324,19 +340,38 @@ fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
     let bytes = fs::read(root().join("testdata/pptx/chart.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();
     assert!(extraction.warnings.is_empty());
-    let Element::Text(chart) = &extraction.pages[0].elements[0] else {
-        panic!("chart fixture must emit synthesized text");
+    let Element::Chart(chart) = &extraction.pages[0].elements[0] else {
+        panic!("chart fixture must emit a first-class chart");
     };
     // Frame (72,72) + (360,216) points; chart internals have no authored bbox.
     assert_eq!(
         (chart.bbox.x0, chart.bbox.y0, chart.bbox.x1, chart.bbox.y1),
         (72.0, 72.0, 432.0, 288.0)
     );
+    assert_eq!(chart.chart_type, "bar");
+    assert_eq!(chart.title.as_deref(), Some("Quarterly revenue"));
     assert_eq!(
-        chart.content,
-        "Quarterly revenue\nQuarter\nUSD millions\nRevenue\nQ1: 10.5\nQ2: 12\nCosts\nQ1: 7\nQ2: 8.25"
+        chart
+            .series
+            .iter()
+            .map(|series| series.name.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("Revenue"), Some("Costs")]
     );
-    assert_eq!(chart.runs, None);
+    assert_eq!(
+        chart
+            .series
+            .iter()
+            .flat_map(|series| series.points.iter())
+            .map(|point| (point.category.as_deref(), point.value.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("Q1"), "10.5"),
+            (Some("Q2"), "12"),
+            (Some("Q1"), "7"),
+            (Some("Q2"), "8.25"),
+        ]
+    );
 
     let bytes = fs::read(root().join("testdata/pptx/smartart.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();

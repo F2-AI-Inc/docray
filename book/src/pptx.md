@@ -28,9 +28,11 @@ provide and returns `granularity_unavailable`, with guidance to retry using
   row-major anchor cells. Grid and row dimensions determine cell boxes;
   merged-cell continuations are omitted and the anchor carries the row/column
   span and merged box. Cell text also preserves per-run styles.
-- Chart titles, axis titles, series names, category labels, and finite values
-  are read from the related chart part and emitted as one text element at the
-  graphic-frame bbox. Category/value points are paired by source index.
+- Charts are emitted as first-class chart elements at the graphic-frame bbox,
+  with chart type, optional title, and ordered series containing optional names
+  and category/value points. Category/value points are paired by source index,
+  and values reuse the chart series' number format (for example, `0.41` with
+  `0%` becomes `41%`). Combo charts use the first chart node for `chart_type`.
 - SmartArt text is read from the related diagram-data part in document order
   and emitted as one text element at the graphic-frame bbox.
 - Pictures are emitted as image elements. Their content hash covers the exact
@@ -73,10 +75,10 @@ accessibility metadata for slide-visible text.
 
 PPTX extraction does not provide character or word geometry, render slides, or
 reconstruct chart and SmartArt visual geometry: OOXML stores those layouts for
-the application to render, so docray reports their text at the containing
-frame bbox. OLE and unknown graphic frames with no extractable text produce a
-warning. Legacy `.ppt`, encrypted Office documents, and other ZIP-based Office
-formats are rejected.
+the application to render. Charts report their structure at the containing
+frame bbox; SmartArt remains a text element at that bbox. OLE and unknown
+graphic frames with no extractable text produce a warning. Legacy `.ppt`,
+encrypted Office documents, and other ZIP-based Office formats are rejected.
 
 ## Container safety
 

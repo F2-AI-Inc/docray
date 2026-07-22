@@ -30,6 +30,7 @@ fn element_bbox(element: &Element) -> BBox {
     match element {
         Element::Text(element) => element.bbox,
         Element::Table(element) => element.bbox,
+        Element::Chart(element) => element.bbox,
         Element::Image(element) => element.bbox,
         Element::Path(element) => element.bbox,
         Element::Annotation(element) => element.bbox,
@@ -170,6 +171,7 @@ fn recursively_flattens_form_objects_in_page_space() {
         let id = match element {
             Element::Text(element) => &element.id,
             Element::Table(element) => &element.id,
+            Element::Chart(element) => &element.id,
             Element::Image(element) => &element.id,
             Element::Path(element) => &element.id,
             Element::Annotation(element) => &element.id,

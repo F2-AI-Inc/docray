@@ -27,14 +27,14 @@ fn extracts_pdf_to_json_stdout() {
 }
 
 #[test]
-fn explicit_char_has_v1_5_envelope_and_lossless_hierarchy() {
+fn explicit_char_has_v1_6_envelope_and_lossless_hierarchy() {
     dps()
         .arg("extract")
         .arg(testdata("simple.pdf"))
         .args(["--granularity", "char"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\":\"1.5\""))
+        .stdout(predicate::str::contains("\"schema_version\":\"1.6\""))
         .stdout(predicate::str::contains("\"granularity\":\"char\""))
         .stdout(predicate::str::contains("\"chars\""));
 }
@@ -49,7 +49,7 @@ fn lean_defaults_to_element_and_emits_fixed_header_lines() {
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
     let mut lines = stdout.lines();
-    assert_eq!(lines.next(), Some("#docray element v1.5 pages=1"));
+    assert_eq!(lines.next(), Some("#docray element v1.6 pages=1"));
     assert_eq!(
         lines.next(),
         Some(
@@ -143,5 +143,5 @@ fn pptx_requires_element_granularity_and_supports_lean() {
         .args(["--format", "lean"])
         .assert()
         .success()
-        .stdout(predicate::str::starts_with("#docray element v1.5 pages=1"));
+        .stdout(predicate::str::starts_with("#docray element v1.6 pages=1"));
 }

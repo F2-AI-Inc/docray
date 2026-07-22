@@ -81,7 +81,7 @@ hashes, path stroke properties. This is the archival shape — see
 - **Never omitted:** page dimensions, element type, bbox, `scanned` flags, and
   any *non-empty* `warnings` array. Silent-failure freedom survives every
   granularity.
-- Compact responses report `"schema_version": "1.5"` and echo the
+- Compact responses report `"schema_version": "1.6"` and echo the
   `"granularity"` you asked for.
 - Every compact granularity carries each page's non-visible `hidden` items
   verbatim; granularity changes visible text detail, not supplemental context.

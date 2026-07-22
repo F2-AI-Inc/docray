@@ -79,6 +79,7 @@ pub struct HiddenItem {
 pub enum Element {
     Text(TextElement),
     Table(TableElement),
+    Chart(ChartElement),
     Image(ImageElement),
     Path(PathElement),
     Annotation(AnnotationElement),
@@ -125,6 +126,30 @@ pub struct TableCell {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub runs: Option<Vec<TextRun>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartElement {
+    pub id: String,
+    pub bbox: BBox,
+    pub chart_type: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    pub series: Vec<ChartSeries>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartSeries {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    pub points: Vec<ChartPoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartPoint {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category: Option<String>,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -346,6 +371,7 @@ pub struct CompactPage {
 pub enum CompactElement {
     Text(CompactTextElement),
     Table(CompactTableElement),
+    Chart(CompactChartElement),
     Image(CompactBoxElement),
     Path(CompactPathElement),
     Annotation(CompactAnnotationElement),
@@ -392,6 +418,29 @@ pub struct CompactTableCell {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<CompactTextRun>>,
+}
+
+#[derive(Serialize)]
+pub struct CompactChartElement {
+    pub bbox: [f64; 4],
+    pub chart_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub series: Vec<CompactChartSeries>,
+}
+
+#[derive(Serialize)]
+pub struct CompactChartSeries {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub points: Vec<CompactChartPoint>,
+}
+
+#[derive(Serialize)]
+pub struct CompactChartPoint {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    pub value: String,
 }
 
 #[derive(Serialize)]
@@ -446,8 +495,8 @@ pub struct CompactTextColor {
     pub stroke: Option<[u8; 3]>,
 }
 
-const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
-const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
+const WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const LEGACY_ELEMENT_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const LEGACY_WORD_LEGEND: &str = "#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin";
 const HIDDEN_LEGEND: &str =
@@ -481,16 +530,16 @@ impl CompactExtraction {
             write!(output, " warnings={}", self.warnings.len())?;
         }
         output.write_char('\n')?;
-        let has_run_or_table_detail = self.pages.iter().any(|page| {
+        let has_structured_detail = self.pages.iter().any(|page| {
             page.elements.iter().any(|element| match element {
                 CompactElement::Text(text) => text.runs.is_some(),
-                CompactElement::Table(_) => true,
+                CompactElement::Table(_) | CompactElement::Chart(_) => true,
                 CompactElement::Image(_)
                 | CompactElement::Path(_)
                 | CompactElement::Annotation(_) => false,
             })
         });
-        output.write_str(match (self.granularity, has_run_or_table_detail) {
+        output.write_str(match (self.granularity, has_structured_detail) {
             (Granularity::Element, true) => ELEMENT_LEGEND,
             (Granularity::Word, true) => WORD_LEGEND,
             (Granularity::Element, false) => LEGACY_ELEMENT_LEGEND,
@@ -592,6 +641,25 @@ impl CompactExtraction {
                                 escape_text(&cell.content)
                             )?;
                             write_lean_runs(output, cell.runs.as_deref())?;
+                        }
+                    }
+                    CompactElement::Chart(chart) => {
+                        write!(output, "CH {} {}", lean_bbox(&chart.bbox), chart.chart_type)?;
+                        if let Some(title) = &chart.title {
+                            write!(output, " {}", escape_text(title))?;
+                        }
+                        output.write_char('\n')?;
+                        for series in &chart.series {
+                            if let Some(name) = &series.name {
+                                writeln!(output, "s {}", escape_text(name))?;
+                            }
+                            for point in &series.points {
+                                output.write_str("p ")?;
+                                if let Some(category) = &point.category {
+                                    write!(output, "{} ", escape_text(category))?;
+                                }
+                                writeln!(output, "{}", escape_text(&point.value))?;
+                            }
                         }
                     }
                     CompactElement::Image(image) => {
@@ -811,7 +879,7 @@ impl Extraction {
         match granularity {
             Granularity::Char => GranularExtraction::Char(ExplicitCharExtraction {
                 granularity,
-                schema_version: "1.5",
+                schema_version: "1.6",
                 source: &self.source,
                 document: &self.document,
                 warnings: &self.warnings,
@@ -820,7 +888,7 @@ impl Extraction {
             Granularity::Element | Granularity::Word => {
                 GranularExtraction::Compact(CompactExtraction {
                     granularity,
-                    schema_version: "1.5",
+                    schema_version: "1.6",
                     source: self.source.clone(),
                     document: CompactDocumentInfo {
                         page_count: self.document.page_count,
@@ -905,6 +973,26 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
                     col_span: cell.col_span,
                     content: cell.content.clone(),
                     runs: compact_runs(&cell.runs),
+                })
+                .collect(),
+        }),
+        Element::Chart(chart) => CompactElement::Chart(CompactChartElement {
+            bbox: compact_bbox(&chart.bbox),
+            chart_type: chart.chart_type.clone(),
+            title: chart.title.clone(),
+            series: chart
+                .series
+                .iter()
+                .map(|series| CompactChartSeries {
+                    name: series.name.clone(),
+                    points: series
+                        .points
+                        .iter()
+                        .map(|point| CompactChartPoint {
+                            category: point.category.clone(),
+                            value: point.value.clone(),
+                        })
+                        .collect(),
                 })
                 .collect(),
         }),

@@ -2,9 +2,9 @@ use crate::package::Package;
 use crate::xml::{parse, Node};
 use docray_core::{Capabilities, ExtractError, Extractor};
 use docray_model::{
-    round3, AnnotationElement, BBox, DocMetadata, DocumentInfo, Element, Extraction, Font,
-    Granularity, HiddenItem, ImageElement, Page, PathElement, Source, TableCell, TableElement,
-    TextColor, TextElement, TextRun,
+    round3, AnnotationElement, BBox, ChartElement, ChartPoint, ChartSeries, DocMetadata,
+    DocumentInfo, Element, Extraction, Font, Granularity, HiddenItem, ImageElement, Page,
+    PathElement, Source, TableCell, TableElement, TextColor, TextElement, TextRun,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -84,7 +84,7 @@ impl Extractor for PptxExtractor {
 
         Ok(Extraction {
             // The base model remains schema 1.1 internally; dispatch requires
-            // explicit element granularity, whose wrapper serializes as 1.5.
+            // explicit element granularity, whose wrapper serializes as 1.6.
             schema_version: "1.1".into(),
             source: Source {
                 format: "pptx".into(),
@@ -794,13 +794,13 @@ fn extract_graphic_frame(
                 .and_then(|node| node.attr("id")),
         ) {
             Ok(chart) => {
-                let content = chart_text(&chart);
-                if content.is_empty() {
+                let id = next_id(page_number, elements);
+                if let Some(chart) = chart_element(&chart, id, bbox) {
+                    elements.push(Element::Chart(chart));
+                } else {
                     warnings.push(format!(
                         "page {page_number}: chart graphicFrame has no extractable text"
                     ));
-                } else {
-                    push_synthesized_text(content, bbox, context, page_number, elements);
                 }
             }
             Err(error) => warnings.push(format!(
@@ -1058,57 +1058,91 @@ fn descendant_text(node: &Node, local_name: &str, separator: &str) -> String {
         .join(separator)
 }
 
-fn chart_text(root: &Node) -> String {
+fn chart_element(root: &Node, id: String, bbox: BBox) -> Option<ChartElement> {
     let chart = root.first_descendant("chart").unwrap_or(root);
-    let mut lines = Vec::new();
-    if let Some(title) = chart.child("title") {
-        let title = descendant_text(title, "t", "");
-        if !title.is_empty() {
-            lines.push(title);
-        }
-    }
+    let title = chart
+        .child("title")
+        .map(|title| descendant_text(title, "t", ""))
+        .filter(|title| !title.is_empty());
 
     let Some(plot_area) = chart.child("plotArea") else {
-        return lines.join("\n");
+        return title.map(|title| ChartElement {
+            id,
+            bbox,
+            chart_type: "other".into(),
+            title: Some(title),
+            series: Vec::new(),
+        });
     };
-    for axis in &plot_area.children {
-        if matches!(axis.local_name(), "catAx" | "dateAx" | "serAx" | "valAx") {
-            if let Some(title) = axis.child("title") {
-                let title = descendant_text(title, "t", "");
-                if !title.is_empty() {
-                    lines.push(title);
+    // A combo chart can contain multiple chart nodes. Its public type is the
+    // first one in plotArea document order; all c:ser descendants remain in
+    // that same deterministic order below.
+    let chart_type = plot_area
+        .children
+        .iter()
+        .find(|node| node.local_name().ends_with("Chart"))
+        .map(|node| chart_type(node.local_name()))
+        .unwrap_or("other")
+        .to_owned();
+
+    let series = plot_area
+        .descendants("ser")
+        .map(|series| {
+            let name = series.child("tx").and_then(|name| {
+                let rich = descendant_text(name, "t", "");
+                let name = if rich.is_empty() {
+                    descendant_text(name, "v", "")
+                } else {
+                    rich
+                };
+                (!name.is_empty()).then_some(name)
+            });
+
+            let categories = series.child("cat").map(chart_points).unwrap_or_default();
+            let mut values = series
+                .child("val")
+                .map(finite_chart_points)
+                .unwrap_or_default();
+            let mut points = Vec::new();
+            for (index, category) in categories {
+                if let Some(value) = values.remove(&index) {
+                    points.push(ChartPoint {
+                        category: Some(category),
+                        value,
+                    });
                 }
             }
-        }
+            points.extend(values.into_values().map(|value| ChartPoint {
+                category: None,
+                value,
+            }));
+            ChartSeries { name, points }
+        })
+        .collect::<Vec<_>>();
+
+    if title.is_none() && series.is_empty() {
+        return None;
     }
 
-    for series in plot_area.descendants("ser") {
-        if let Some(name) = series.child("tx") {
-            let rich = descendant_text(name, "t", "");
-            let name = if rich.is_empty() {
-                descendant_text(name, "v", "")
-            } else {
-                rich
-            };
-            if !name.is_empty() {
-                lines.push(name);
-            }
-        }
+    Some(ChartElement {
+        id,
+        bbox,
+        chart_type,
+        title,
+        series,
+    })
+}
 
-        let categories = series.child("cat").map(chart_points).unwrap_or_default();
-        let mut values = series
-            .child("val")
-            .map(finite_chart_points)
-            .unwrap_or_default();
-        for (index, category) in categories {
-            match values.remove(&index) {
-                Some(value) => lines.push(format!("{category}: {value}")),
-                None => lines.push(category),
-            }
-        }
-        lines.extend(values.into_values());
+fn chart_type(local_name: &str) -> &'static str {
+    match local_name {
+        "barChart" => "bar",
+        "pieChart" => "pie",
+        "doughnutChart" => "doughnut",
+        "lineChart" => "line",
+        "areaChart" => "area",
+        "scatterChart" => "scatter",
+        _ => "other",
     }
-    lines.join("\n")
 }
 
 fn chart_points(node: &Node) -> BTreeMap<u64, String> {
@@ -2345,7 +2379,7 @@ mod tests {
     }
 
     #[test]
-    fn chart_text_rejects_hostile_indices_and_non_finite_values_without_panicking() {
+    fn chart_element_rejects_hostile_indices_and_non_finite_values_without_panicking() {
         let chart = parse_test_xml(
             r#"<c:chartSpace><c:chart><c:plotArea><c:barChart><c:ser>
                 <c:tx><c:v>Series</c:v></c:tx>
@@ -2361,6 +2395,55 @@ mod tests {
                 </c:numLit></c:val>
             </c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#,
         );
-        assert_eq!(chart_text(&chart), "Series\nFinite: 42.5\nHuge");
+        let element = chart_element(
+            &chart,
+            "p1-e0".into(),
+            BBox {
+                x0: 1.0,
+                y0: 2.0,
+                x1: 3.0,
+                y1: 4.0,
+            },
+        )
+        .expect("the finite chart point is extractable");
+        assert_eq!(element.chart_type, "bar");
+        assert_eq!(element.series.len(), 1);
+        assert_eq!(element.series[0].name.as_deref(), Some("Series"));
+        assert_eq!(
+            element.series[0].points,
+            vec![ChartPoint {
+                category: Some("Finite".into()),
+                value: "42.5".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn combo_chart_uses_the_first_chart_type_and_unknown_types_are_other() {
+        let combo = parse_test_xml(
+            r#"<c:chart><c:plotArea>
+                <c:lineChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>1</c:v></c:pt></c:numLit></c:val></c:ser></c:lineChart>
+                <c:barChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser></c:barChart>
+            </c:plotArea></c:chart>"#,
+        );
+        let bbox = BBox {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 1.0,
+            y1: 1.0,
+        };
+        let chart = chart_element(&combo, "p1-e0".into(), bbox).unwrap();
+        assert_eq!(chart.chart_type, "line");
+        assert_eq!(chart.series.len(), 2);
+
+        let unknown = parse_test_xml(
+            r#"<c:chart><c:plotArea><c:radarChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>3</c:v></c:pt></c:numLit></c:val></c:ser></c:radarChart></c:plotArea></c:chart>"#,
+        );
+        assert_eq!(
+            chart_element(&unknown, "p1-e0".into(), bbox)
+                .unwrap()
+                .chart_type,
+            "other"
+        );
     }
 }
