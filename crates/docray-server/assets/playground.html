@@ -217,7 +217,7 @@
       0 0 60px -20px rgba(232,163,61,0.28);
   }
   .pptx-source-frame iframe { display: block; border: 0; background: #f2eee5; }
-  .pptx-render-caption, .pptx-fallback-note {
+  .pptx-fallback-note {
     padding: 7px 10px; color: var(--amber); background: var(--ink-2);
     font-size: 9px; font-weight: 600; letter-spacing: 0.08em;
     text-align: center; text-transform: uppercase;
@@ -42195,10 +42195,7 @@ function renderPptxSource(panelIndex, body, pageJson, gen, req, pageIndex, fitWi
     const loading = document.createElement("div");
     loading.className = "pptx-render-loading";
     loading.textContent = "rendering slide in isolated frame ...";
-    const caption = document.createElement("div");
-    caption.className = "pptx-render-caption";
-    caption.textContent = "sandboxed pptx visual render - null origin / offline";
-    frame.append(iframe, loading, caption);
+    frame.append(iframe, loading);
     body.appendChild(frame);
 
     const sequence = ++pptxRenderSequence;
