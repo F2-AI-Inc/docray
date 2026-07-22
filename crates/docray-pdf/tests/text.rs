@@ -89,6 +89,7 @@ fn extracts_text_hierarchy_from_simple_pdf() {
         let id = match e {
             Element::Text(t) => &t.id,
             Element::Table(t) => &t.id,
+            Element::Chart(t) => &t.id,
             Element::Image(t) => &t.id,
             Element::Path(t) => &t.id,
             Element::Annotation(t) => &t.id,

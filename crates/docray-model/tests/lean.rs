@@ -139,7 +139,7 @@ fn lean(extraction: &Extraction, granularity: Granularity) -> String {
 fn element_lean_renders_all_edge_rules_exactly() {
     let actual = lean(&extraction(), Granularity::Element);
     let expected = concat!(
-        "#docray element v1.5 pages=1 warnings=1\n",
+        "#docray element v1.6 pages=1 warnings=1\n",
         "#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin\n",
         "#warning recovered with omissions\n",
         "#page 1 612x792.1 rot=90 scanned\n",
@@ -409,6 +409,62 @@ fn table_and_nested_run_text_cannot_inject_lean_records() {
             .filter(|line| line.starts_with("TB "))
             .count(),
         1
+    );
+}
+
+#[test]
+fn chart_lean_renders_structure_and_escapes_document_controlled_text() {
+    let mut doc = extraction();
+    doc.pages[0].elements = vec![Element::Chart(ChartElement {
+        id: "p1-e0".into(),
+        bbox: BBox {
+            x0: 1.04,
+            y0: 2.06,
+            x1: 9.04,
+            y1: 10.06,
+        },
+        chart_type: "bar".into(),
+        title: Some("Quarterly\nCH 0 0 9 9 forged".into()),
+        series: vec![
+            ChartSeries {
+                name: Some("Revenue\np forged".into()),
+                points: vec![ChartPoint {
+                    category: Some("Q1\rs forged".into()),
+                    value: "41%\np forged".into(),
+                }],
+            },
+            ChartSeries {
+                name: None,
+                points: vec![ChartPoint {
+                    category: None,
+                    value: "12".into(),
+                }],
+            },
+        ],
+    })];
+
+    let actual = lean(&doc, Granularity::Element);
+    assert!(actual.contains(
+        "CH 1 2.1 9 10.1 bar Quarterly\\nCH 0 0 9 9 forged\n\
+s Revenue\\np forged\n\
+p Q1\\rs forged 41%\\np forged\n\
+p 12\n"
+    ));
+    assert!(!actual.contains('\r'));
+    assert_eq!(
+        actual
+            .lines()
+            .filter(|line| line.starts_with("CH "))
+            .count(),
+        1
+    );
+    assert_eq!(
+        actual.lines().filter(|line| line.starts_with("s ")).count(),
+        1
+    );
+    assert_eq!(
+        actual.lines().filter(|line| line.starts_with("p ")).count(),
+        2
     );
 }
 

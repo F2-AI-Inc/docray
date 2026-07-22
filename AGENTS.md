@@ -39,7 +39,7 @@ Docker build/smoke test.
 1. **Schema stability.** The no-parameter (`char`) response is frozen at
    schema `1.1` and must stay **byte-identical**: never add, rename, remove,
    or reorder fields on that path. Granularity-shaped responses are schema
-   `1.5`. New capability = new field behind a parameter, or a minor version
+   `1.6`. New capability = new field behind a parameter, or a minor version
    bump with explicit review. Hidden-channel kind strings (`role`, `notes`,
    `alt`, `hidden-slide`, `source-layer`) are also stable contract and must
    never be renamed.

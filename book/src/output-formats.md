@@ -33,23 +33,23 @@ newline. The first two lines are always:
 #legend <the fixed legend for the selected granularity>
 ```
 
-When the response contains per-run or table detail, the element legend is:
+When the response contains run, table, or chart detail, the element legend is:
 
 ```text
-#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
 
 and the word legend is:
 
 ```text
-#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 ```
 
-Responses without run or table detail retain the preceding schema-1.3 legend
-shape (without `r`, `TB`, or `c`). In particular, PDF lean output has no such
-detail. Lean deliberately keeps path records bbox-only, so the schema-1.5
-change to PDF lean bytes is limited to the header version token; compact JSON
-paths additionally carry their authored paint.
+Responses without run, table, or chart detail retain the preceding schema-1.3
+legend shape (without `r`, `TB`, `c`, `CH`, `s`, or `p`). In particular, PDF
+lean output has no such detail. Lean deliberately keeps path records bbox-only,
+so the schema-1.6 bump changes PDF lean bytes only in the header version token;
+compact JSON paths additionally carry their authored paint.
 
 When any page contains non-visible context, one additional legend line follows
 the element/word legend:
@@ -88,6 +88,10 @@ r <font> <size> <style> href#<external-uri> <text to end of line>
 TB x0 y0 x1 y1 <rows> <cols>
 c <row> <col> <rowspan> <colspan> x0 y0 x1 y1 <font> <size> <style> <cell text to end of line>
 # multi-run or linked cells use the same r records directly after their c record
+
+CH x0 y0 x1 y1 <chart-type> [<title to end of line>]
+s <series name to end of line>
+p [<category>] <formatted value to end of line>
 
 I x0 y0 x1 y1
 P x0 y0 x1 y1
@@ -140,13 +144,20 @@ record. Multiple runs emit every `r`, and a linked single run emits its one
 `r` so the hyperlink is not lost. A linked run inserts the literal token
 `href#<`, the escaped external URI, and `>` before its text.
 
+`CH` introduces a first-class chart. Its title is optional. Each named series
+emits an `s` record before its points; an unnamed series omits that record.
+Each `p` carries its category followed by the already-formatted value, or only
+the value when the source point has no category. Series and points remain in
+deterministic source/index order.
+
 The style token concatenates `b` for bold and `i` for italic, or uses `-` when
 neither applies. A non-default text fill is appended as lowercase RGB hex,
 for example `b#231f20` or `-#ff0000`.
 
-Text, word, run text, run hyperlink URI, table-cell text, annotation URI, and
-hidden content use the same escaping. Text-bearing fields run to end of line. Backslash
-becomes `\\`, LF becomes `\n`, and CR becomes `\r`. Every other Unicode
+Text, word, run text, run hyperlink URI, table-cell text, chart title, series
+name, chart category, chart value, annotation URI, and hidden content use the
+same escaping. Text-bearing fields run to end of line. Backslash becomes `\\`,
+LF becomes `\n`, and CR becomes `\r`. Every other Unicode
 control character, U+2028, and U+2029 becomes `\u{hex}` with lowercase,
 unpadded hexadecimal digits (for example, tab is `\u{9}`). All other
 characters are literal. A fixed-position optional value that is absent is `-`.

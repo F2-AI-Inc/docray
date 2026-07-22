@@ -1,6 +1,6 @@
 {
   "granularity": "element",
-  "schema_version": "1.5",
+  "schema_version": "1.6",
   "source": {
     "format": "pptx",
     "sha256": "7e9c0fc947f130e9d09a179c3e65fc459c6f0349935293d7d8e2d663cc1c21e0",

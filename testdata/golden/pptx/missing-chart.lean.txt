@@ -1,5 +1,5 @@
-#docray element v1.5 pages=1 warnings=2
-#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#docray element v1.6 pages=1 warnings=2
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #warning page 1: chart graphicFrame part is missing or unreadable: referenced part is missing: ppt/charts/missing.xml
 #warning page 1: chart graphicFrame has no extractable text
 #page 1 720x540

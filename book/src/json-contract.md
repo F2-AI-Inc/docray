@@ -46,7 +46,7 @@ covering ≥ 85% of the page area** — the signal that a page's text
 is not machine-readable and needs OCR to recover. It also flags pre-rendered
 (rasterized-slide) pages, which have the same property.
 
-Granularity-shaped schema `1.5` pages can also carry a `hidden` array. The
+Granularity-shaped schema `1.6` pages can also carry a `hidden` array. The
 field is omitted when empty and is copied unchanged across granularities:
 
 ```json
@@ -100,7 +100,7 @@ geometrically and deterministically; whitespace characters separate words and
 are not emitted as `chars`. Word order is content-stream order — reading
 order is not inferred.
 
-Schema `1.5` granularity-shaped text elements can additionally carry `runs`.
+Schema `1.6` granularity-shaped text elements can additionally carry `runs`.
 Each run preserves its own content, resolved font, color, and optional external
 hyperlink target:
 
@@ -125,7 +125,7 @@ detail.
 
 ### table
 
-Schema `1.5` carries first-class table elements for PPTX:
+Schema `1.6` carries first-class table elements for PPTX:
 
 ```json
 {
@@ -148,6 +148,37 @@ emitted; continuation cells are omitted and the anchor carries the clamped
 span and merged bounding box. Cell paragraphs are joined with `\n`, and cell
 `runs` use the same shape as text-element runs. PDF emits no table elements.
 
+### chart
+
+Schema `1.6` carries first-class chart elements for PPTX:
+
+```json
+{
+  "id": "p1-e3", "type": "chart",
+  "bbox": {"x0": 72.0, "y0": 72.0, "x1": 432.0, "y1": 288.0},
+  "chart_type": "doughnut",
+  "title": "Channel mix",
+  "series": [
+    {
+      "name": "Share",
+      "points": [
+        {"category": "Direct", "value": "41%"},
+        {"category": "Reseller", "value": "59%"}
+      ]
+    }
+  ]
+}
+```
+
+`chart_type` is `bar`, `pie`, `doughnut`, `line`, `area`, `scatter`, or
+`other`, derived from the chart node in `plotArea`. Combo charts use the first
+chart node in document order while retaining every series in document order.
+The optional chart title and series name are omitted when absent. Points pair
+categories and finite values by their source index; unmatched values remain as
+points without `category`. Values are strings formatted with the series'
+OOXML `formatCode`, so a stored `0.41` displayed as `0%` is returned as
+`"41%"`. PDF emits no chart elements.
+
 ### image
 
 Bounding box plus a `quad` (four corner points — meaningful when the image is
@@ -158,7 +189,7 @@ itself is never embedded.
 ### path
 
 Bounding box plus paint: fill/stroke colors and stroke width. Path operator
-lists are not included. Schema `1.5` compact element/word paths retain the
+lists are not included. Schema `1.6` compact element/word paths retain the
 same optional `fill`, `stroke`, and `stroke_width` fields while rounding the
 bbox and stroke width to one decimal. An absent paint field is omitted;
 compact images remain bbox-only.
@@ -172,8 +203,8 @@ links.
 
 - The no-parameter response is frozen at schema `1.1` — new fields are only
   ever additive, and granularity-shaped responses carry their own version
-  (`1.5`) and a `granularity` discriminator. PDF emits no hidden items, runs,
-  or tables, so its
+  (`1.6`) and a `granularity` discriminator. PDF emits no hidden items, runs,
+  tables, or charts, so its
   no-parameter `1.1` bytes remain unchanged.
 - Element IDs, field names, and the coordinate system are load-bearing
   contract; they do not change within a major schema version. Hidden kind

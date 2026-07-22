@@ -1,4 +1,4 @@
-#docray word v1.5 pages=1
+#docray word v1.6 pages=1
 #legend T x0 y0 x1 y1 font size style | w x0 y0 x1 y1 word | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #page 1 612x792
 T 72 60.7 134 74.7 Helvetica 12 -

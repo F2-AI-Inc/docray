@@ -1,4 +1,10 @@
-#docray element v1.5 pages=1
-#legend T x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#docray element v1.6 pages=1
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
 #page 1 720x540
-T 72 72 432 288 Fixture_Sans 18 - Quarterly revenue\nQuarter\nUSD millions\nRevenue\nQ1: 10.5\nQ2: 12\nCosts\nQ1: 7\nQ2: 8.25
+CH 72 72 432 288 bar Quarterly revenue
+s Revenue
+p Q1 10.5
+p Q2 12
+s Costs
+p Q1 7
+p Q2 8.25

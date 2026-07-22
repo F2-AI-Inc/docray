@@ -198,6 +198,73 @@ fn text_runs_and_tables_serialize_with_stable_shapes_and_roundtrip() {
 }
 
 #[test]
+fn charts_serialize_with_stable_shapes_roundtrip_and_compact_bbox() {
+    let chart = Element::Chart(ChartElement {
+        id: "p1-e1".into(),
+        bbox: BBox {
+            x0: 10.04,
+            y0: 20.06,
+            x1: 110.04,
+            y1: 70.06,
+        },
+        chart_type: "doughnut".into(),
+        title: Some("Channel mix".into()),
+        series: vec![ChartSeries {
+            name: None,
+            points: vec![
+                ChartPoint {
+                    category: Some("Direct".into()),
+                    value: "41%".into(),
+                },
+                ChartPoint {
+                    category: None,
+                    value: "59%".into(),
+                },
+            ],
+        }],
+    });
+    let value = serde_json::to_value(&chart).unwrap();
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "type": "chart",
+            "id": "p1-e1",
+            "bbox": {"x0": 10.04, "y0": 20.06, "x1": 110.04, "y1": 70.06},
+            "chart_type": "doughnut",
+            "title": "Channel mix",
+            "series": [{
+                "points": [
+                    {"category": "Direct", "value": "41%"},
+                    {"value": "59%"}
+                ]
+            }]
+        })
+    );
+    let decoded: Element = serde_json::from_value(value).unwrap();
+    assert_eq!(decoded, chart);
+
+    let mut extraction = sample();
+    extraction.pages[0].elements = vec![chart];
+    let compact = serde_json::to_value(extraction.with_granularity(Granularity::Element)).unwrap();
+    assert_eq!(compact["schema_version"], "1.6");
+    assert_eq!(
+        compact["pages"][0]["elements"][0],
+        serde_json::json!({
+            "type": "chart",
+            "bbox": [10.0, 20.1, 110.0, 70.1],
+            "chart_type": "doughnut",
+            "title": "Channel mix",
+            "series": [{
+                "points": [
+                    {"category": "Direct", "value": "41%"},
+                    {"value": "59%"}
+                ]
+            }]
+        })
+    );
+}
+
+#[test]
 fn compact_runs_use_the_same_font_and_color_projection_as_parent_text() {
     let runs = vec![
         TextRun {
@@ -314,7 +381,7 @@ fn compact_paths_keep_paint_while_images_remain_bbox_only() {
     ];
 
     let value = serde_json::to_value(extraction.with_granularity(Granularity::Element)).unwrap();
-    assert_eq!(value["schema_version"], "1.5");
+    assert_eq!(value["schema_version"], "1.6");
     assert_eq!(
         value["pages"][0]["elements"][0],
         serde_json::json!({
@@ -368,7 +435,7 @@ fn explicit_granularities_keep_nonempty_warnings() {
     extraction.warnings = vec!["page 1 recovered with omissions".into()];
     for level in [Granularity::Char, Granularity::Word, Granularity::Element] {
         let value = serde_json::to_value(extraction.with_granularity(level)).unwrap();
-        assert_eq!(value["schema_version"], "1.5");
+        assert_eq!(value["schema_version"], "1.6");
         assert_eq!(value["granularity"], level.as_str());
         assert_eq!(
             value["warnings"],
