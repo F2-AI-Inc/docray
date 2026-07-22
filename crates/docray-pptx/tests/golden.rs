@@ -248,6 +248,36 @@ fn table_fixture_geometry_matches_prefix_sum_math() {
 }
 
 #[test]
+fn hidden_shapes_are_skipped_without_warnings() {
+    // Regression: hidden shapes (cNvPr hidden="1") — including think-cell's
+    // hidden OLE data objects — must be skipped silently, not extracted and not
+    // warned about (this deck class produced a warning per slide before).
+    let bytes = fs::read(root().join("testdata/pptx/hidden-shapes.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert!(
+        extraction.warnings.is_empty(),
+        "hidden shapes must not warn: {:?}",
+        extraction.warnings
+    );
+    let texts: Vec<&str> = extraction.pages[0]
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            Element::Text(text) => Some(text.content.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, vec!["Visible"], "hidden text must not be extracted");
+    assert!(
+        !extraction.pages[0]
+            .elements
+            .iter()
+            .any(|element| matches!(element, Element::Table(_) | Element::Image(_))),
+        "the hidden OLE frame must not produce an element"
+    );
+}
+
+#[test]
 fn autoheight_rows_are_extracted_not_dropped() {
     // Regression: PowerPoint writes h="0" for auto-height rows. The extractor
     // must derive heights from the frame extent and emit the table, not skip it.

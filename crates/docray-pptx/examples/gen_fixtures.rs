@@ -366,6 +366,21 @@ fn main() {
     );
     write_pptx("table", table, default_slide_rels(""), vec![]);
 
+    // Hidden shapes (cNvPr hidden="1") are not rendered by PowerPoint and must
+    // be skipped without a warning (e.g. think-cell's hidden OLE data objects).
+    // One visible text shape + one hidden text shape + a hidden OLE frame.
+    let hidden_shapes = slide(concat!(
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Visible"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="3657600" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Visible</a:t></a:r></a:p></p:txBody></p:sp>"#,
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="3" name="Hidden text" hidden="1"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="2286000"/><a:ext cx="3657600" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Hidden secret</a:t></a:r></a:p></p:txBody></p:sp>"#,
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="think-cell data - do not delete" hidden="1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="1588" y="1588"/><a:ext cx="1588" cy="1588"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/presentationml/2006/ole"><p:oleObj name="obj" progId="TCLayout.ActiveDocument.1"><p:embed/></p:oleObj></a:graphicData></a:graphic></p:graphicFrame>"#,
+    ));
+    write_pptx(
+        "hidden-shapes",
+        hidden_shapes,
+        default_slide_rels(""),
+        vec![],
+    );
+
     // Auto-height rows: PowerPoint writes h="0" and sizes rows to content. A
     // sized frame (cy>0) lets the heights be derived; these tables must extract,
     // not be dropped. Two rows x two columns, all h="0".
