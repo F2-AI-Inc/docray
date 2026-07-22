@@ -423,7 +423,7 @@ fn extract_children(
                 elements,
                 hidden,
                 warnings,
-            )?,
+            ),
             "cxnSp" => extract_path(
                 child,
                 context,
@@ -643,36 +643,19 @@ fn extract_picture(
     elements: &mut Vec<Element>,
     hidden: &mut Vec<HiddenItem>,
     warnings: &mut Vec<String>,
-) -> Result<(), ExtractError> {
+) {
     let Some(xfrm) = shape_transform(picture) else {
         let name = object_name(picture, "unnamed picture");
         warnings.push(format!(
             "page {page_number}: picture {name:?} geometry could not be resolved, picture skipped"
         ));
-        return Ok(());
+        return;
     };
     let corners = transformed_corners(xfrm, groups);
     let bbox = bbox_from_points(&corners);
     let id = next_id(page_number, elements);
     push_alt(picture, &id, hidden);
-    let embed = picture
-        .first_descendant("blip")
-        .and_then(|node| node.attr("embed"));
-    let mut content_hash = None;
-    match embed.and_then(|rel_id| context.part_rels.get(rel_id)) {
-        Some(relation) if !relation.external => {
-            let media_path = resolve_target(context.part_path, &relation.target)?;
-            match package.read(&media_path)? {
-                Some(bytes) => content_hash = Some(hex(&Sha256::digest(bytes))),
-                None => warnings.push(format!(
-                    "{id}: referenced picture media part is missing: {media_path}"
-                )),
-            }
-        }
-        _ => warnings.push(format!(
-            "{id}: picture media relationship is missing or broken"
-        )),
-    }
+    let content_hash = picture_content_hash(package, picture, context, &id, warnings);
     elements.push(Element::Image(ImageElement {
         id,
         bbox,
@@ -682,7 +665,45 @@ fn extract_picture(
         colorspace: None,
         content_hash,
     }));
-    Ok(())
+}
+
+/// Resolves a picture's embedded media relationship to its content hash.
+/// Every failure — a missing or external relationship, a target that escapes
+/// the package root, or a missing/unreadable media part — degrades to a
+/// warning: the picture element itself is still emitted at its geometry, and
+/// one hostile relationship must never discard the rest of the slide.
+fn picture_content_hash(
+    package: &mut Package<'_>,
+    picture: &Node,
+    context: &SlideContext<'_>,
+    id: &str,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let embed = picture
+        .first_descendant("blip")
+        .and_then(|node| node.attr("embed"));
+    match embed.and_then(|rel_id| context.part_rels.get(rel_id)) {
+        Some(relation) if !relation.external => {
+            match resolve_target(context.part_path, &relation.target) {
+                Ok(media_path) => match package.read(&media_path) {
+                    Ok(Some(bytes)) => return Some(hex(&Sha256::digest(bytes))),
+                    Ok(None) => warnings.push(format!(
+                        "{id}: referenced picture media part is missing: {media_path}"
+                    )),
+                    Err(error) => warnings.push(format!(
+                        "{id}: referenced picture media part is unreadable: {error}"
+                    )),
+                },
+                Err(error) => warnings.push(format!(
+                    "{id}: picture media relationship is invalid: {error}"
+                )),
+            }
+        }
+        _ => warnings.push(format!(
+            "{id}: picture media relationship is missing or broken"
+        )),
+    }
+    None
 }
 
 fn push_shape_hidden(
@@ -840,7 +861,7 @@ fn extract_graphic_frame(
             elements,
             hidden,
             warnings,
-        )?;
+        );
     } else {
         let content = descendant_text(graphic_data, "t", "\n");
         if content.is_empty() {
@@ -1223,30 +1244,13 @@ fn extract_graphic_frame_picture(
     elements: &mut Vec<Element>,
     hidden: &mut Vec<HiddenItem>,
     warnings: &mut Vec<String>,
-) -> Result<(), ExtractError> {
+) {
     let picture = graphic_data.first_descendant("pic").unwrap_or(graphic_data);
     let corners = transformed_corners(frame_xfrm, groups);
     let bbox = bbox_from_points(&corners);
     let id = next_id(page_number, elements);
     push_alt(picture, &id, hidden);
-    let embed = picture
-        .first_descendant("blip")
-        .and_then(|node| node.attr("embed"));
-    let mut content_hash = None;
-    match embed.and_then(|rel_id| context.part_rels.get(rel_id)) {
-        Some(relation) if !relation.external => {
-            let media_path = resolve_target(context.part_path, &relation.target)?;
-            match package.read(&media_path)? {
-                Some(bytes) => content_hash = Some(hex(&Sha256::digest(bytes))),
-                None => warnings.push(format!(
-                    "{id}: referenced picture media part is missing: {media_path}"
-                )),
-            }
-        }
-        _ => warnings.push(format!(
-            "{id}: picture media relationship is missing or broken"
-        )),
-    }
+    let content_hash = picture_content_hash(package, picture, context, &id, warnings);
     elements.push(Element::Image(ImageElement {
         id,
         bbox,
@@ -1256,7 +1260,6 @@ fn extract_graphic_frame_picture(
         colorspace: None,
         content_hash,
     }));
-    Ok(())
 }
 
 /// Fills zero-sized tracks (auto-height rows / auto-width columns, which
