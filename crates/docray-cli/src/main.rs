@@ -3,6 +3,7 @@ use docray_core::{check_granularity, sniff_format, Capabilities, ExtractError, E
 use docray_model::{Extraction, GranularExtraction, Granularity, OutputFormat};
 use docray_pdf::PdfExtractor;
 use docray_pptx::PptxExtractor;
+use std::io::Write;
 use std::process::ExitCode;
 use std::str::FromStr;
 
@@ -121,7 +122,7 @@ fn run_extract(
         .and_then(|()| backend.extract(&bytes, max_pages));
     match result {
         Ok(extraction) => {
-            match format {
+            let output = match format {
                 OutputFormat::Lean => {
                     let compact = match extraction
                         .with_granularity(granularity.expect("lean granularity is validated above"))
@@ -131,10 +132,10 @@ fn run_extract(
                             unreachable!("lean char granularity is rejected above")
                         }
                     };
-                    print!("{}", compact.to_lean());
+                    compact.to_lean()
                 }
                 OutputFormat::Json => {
-                    let json = if let Some(level) = granularity {
+                    let mut json = if let Some(level) = granularity {
                         if pretty {
                             serde_json::to_string_pretty(&extraction.with_granularity(level))
                         } else {
@@ -146,12 +147,32 @@ fn run_extract(
                         serde_json::to_string(&extraction)
                     }
                     .expect("model serialization cannot fail");
-                    println!("{json}");
+                    json.push('\n');
+                    json
                 }
-            }
-            ExitCode::SUCCESS
+            };
+            write_stdout(&output)
         }
         Err(e) => fail(&e),
+    }
+}
+
+/// Write extraction output to stdout without panicking on a closed pipe.
+///
+/// `println!` panics on EPIPE (Rust ignores SIGPIPE), so `docray extract x.pdf
+/// | head` would exit 101 with a panic message — outside the stable error
+/// contract. A broken pipe means the reader chose to stop and is a quiet
+/// success (the convention of cat/grep/ripgrep); any other stdout write
+/// failure maps to the documented io_error / exit 5.
+fn write_stdout(output: &str) -> ExitCode {
+    let mut stdout = std::io::stdout().lock();
+    match stdout
+        .write_all(output.as_bytes())
+        .and_then(|()| stdout.flush())
+    {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        Err(e) => fail(&ExtractError::Io(format!("stdout: {e}"))),
     }
 }
 
