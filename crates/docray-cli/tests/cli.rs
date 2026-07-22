@@ -161,6 +161,35 @@ fn pptx_explicit_element_and_lean_work() {
 }
 
 #[test]
+fn closed_stdout_pipe_is_quiet_success_not_a_panic() {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_docray"))
+        .env(
+            "DOCRAY_PDFIUM_DIR",
+            format!("{}/../../.pdfium/lib", env!("CARGO_MANIFEST_DIR")),
+        )
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Close the pipe's read end now, long before extraction finishes, so the
+    // CLI's eventual stdout write hits EPIPE.
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "CLI panicked on closed stdout: {stderr}"
+    );
+    assert!(
+        output.status.success(),
+        "expected quiet success on closed stdout, got {:?} (stderr: {stderr})",
+        output.status
+    );
+}
+
+#[test]
 fn version_flag_reports_the_crate_version() {
     dps()
         .arg("--version")
