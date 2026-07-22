@@ -8,7 +8,7 @@ version.workspace = true
 docray-model = { path = "../docray-model" }
 docray-core = { path = "../docray-core" }
 quick-xml = "=0.41.0"
-sha2 = "0.10"
+sha2 = "0.11"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
