@@ -12,3 +12,12 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+
+  # pdfium-render is excluded: it is pinned in lockstep with the pdfium binary
+  # in scripts/fetch-pdfium.sh (AGENTS.md rule 7), so bump it deliberately.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "pdfium-render"
