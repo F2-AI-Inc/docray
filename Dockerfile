@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY --from=build /src/target/release/docray /usr/local/bin/docray
 COPY --from=build /src/target/release/docray-server /usr/local/bin/docray-server
 COPY --from=build /src/.pdfium/lib /opt/pdfium
+COPY --from=build /src/LICENSE-MIT /src/LICENSE-APACHE /src/NOTICE /src/THIRD_PARTY_NOTICES.md /usr/share/doc/docray/
 ENV DOCRAY_PDFIUM_DIR=/opt/pdfium \
     DOCRAY_CLI_PATH=/usr/local/bin/docray \
     DOCRAY_DATA_DIR=/data \
