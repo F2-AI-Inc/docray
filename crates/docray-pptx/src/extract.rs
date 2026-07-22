@@ -478,6 +478,34 @@ fn extract_children(
                 result?;
                 continue;
             }
+            // ECMA-376 Part 3 markup-compatibility wrapper: a consumer
+            // processes the first mc:Choice whose Requires-namespaces it
+            // supports, else mc:Fallback. None of the Choice extension
+            // namespaces (ink, newer chart types, equations, ...) are
+            // supported here, so the Fallback subtree — the compatibility
+            // markup PowerPoint writes for exactly this situation — is
+            // extracted. A wrapper without a Fallback is skipped with a
+            // warning instead of vanishing silently.
+            "AlternateContent" => match child.child("Fallback") {
+                Some(fallback) => {
+                    extract_children(
+                        package,
+                        fallback,
+                        context,
+                        page_number,
+                        groups,
+                        elements,
+                        hidden,
+                        warnings,
+                    )?;
+                    // Skip the source-layer bookkeeping below: the recursive
+                    // call has already recorded it for every emitted element.
+                    continue;
+                }
+                None => warnings.push(format!(
+                    "page {page_number}: AlternateContent without a Fallback, content skipped"
+                )),
+            },
             // Non-visual and transform property records are not page elements.
             "nvGrpSpPr" | "grpSpPr" => {}
             _ => {}

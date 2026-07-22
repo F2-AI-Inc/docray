@@ -40,6 +40,11 @@ deck.pptx` (or a plain upload) just works. Requesting finer detail — `char` or
   referenced media-part bytes, including pictures carried by graphic frames.
 - Geometry-only shapes and connectors are emitted as path elements with the
   fill, stroke, and stroke width represented by the existing JSON model.
+- Markup-compatibility wrappers (`mc:AlternateContent`, used by PowerPoint for
+  ink, newer chart types, equations, and similar extensions) are extracted
+  through their `mc:Fallback` subtree — the compatibility markup written for
+  consumers that do not support the `mc:Choice` extension namespaces. A
+  wrapper without a fallback produces a warning.
 - External click hyperlinks continue to be emitted as link annotations. A
   text run also carries its external target in `href`; targets are returned
   literally and are never fetched.
