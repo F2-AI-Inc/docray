@@ -47,9 +47,10 @@ playground UI:        http://localhost:41619/playground
 ```
 
 Open the playground and drop a PDF or PPTX on it. PDFs appear as rendered
-pages; PPTX slides appear as clearly labeled structure schematics reconstructed
-from extraction data, not visual slide renders. Both sit beside extracted
-bounding boxes and live JSON — see [the playground](playground.md).
+pages; PPTX slides appear as offline visual renders inside a locked-down browser
+sandbox, with an extraction-derived structure schematic as the fallback. Both
+sit beside extracted bounding boxes and live JSON — see
+[the playground](playground.md).
 
 Extract over HTTP:
 

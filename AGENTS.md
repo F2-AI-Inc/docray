@@ -89,6 +89,16 @@ memory is byte-capped; async renders are guarded by generation/request
 tokens. Keep the light-table aesthetic (IBM Plex Mono / Instrument Serif,
 amber on near-black).
 
+PPTX SOURCE is a deliberate hostile-input boundary: the pinned, vendored
+renderer is inlined into an iframe `srcdoc` with exactly
+`sandbox="allow-scripts"` (no other sandbox tokens, therefore a null/opaque
+origin) and CSP `default-src 'none'; script-src 'unsafe-inline'; style-src
+'unsafe-inline'; img-src data: blob:; font-src data:`. Bytes enter only via a
+transferable `ArrayBuffer` in `postMessage`; only a bounded status object may
+come back. The parent never reads the iframe DOM. Keep the renderer offline,
+vendored at an exact version + SHA-256, canvas-byte-capped, and fail closed to
+the extraction-derived schematic on any error or timeout.
+
 ## Docs (book/)
 
 Docs describe **what is, not what is planned** — no roadmaps or intentions
