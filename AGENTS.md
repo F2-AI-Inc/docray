@@ -13,8 +13,10 @@ agents (CLAUDE.md and .cursorrules are symlinks to it).
 | `crates/docray-model` | The serde JSON schema — the contract every consumer depends on |
 | `crates/docray-core` | `Extractor` trait, format sniffing, geometric char→word→line grouping |
 | `crates/docray-pdf` | PDFium-backed extractor (`pdfium-render`, pinned exact version) |
+| `crates/docray-pptx` | Pure-Rust OOXML (PPTX) extractor — a deliberate hostile-input boundary |
 | `crates/docray-cli` | `docray` binary — also the server's isolation worker subprocess |
 | `crates/docray-server` | axum HTTP: sync + async jobs; embedded playground at `/playground` |
+| `crates/docray-wasm` | Browser-facing `wasm32` build (PDF + PPTX); CI enforces WASM↔native parity |
 | `testdata/` | Generated fixtures + golden JSON (see skills below before touching) |
 | `book/` | Docs site (mdBook → GitHub Pages) |
 
