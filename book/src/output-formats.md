@@ -121,8 +121,9 @@ Hidden kinds are stable contract strings:
 | `notes` | page | Speaker-notes body text | not emitted |
 | `alt` | element | Shape/picture `descr`, falling back to `title` | not emitted |
 | `hidden-slide` | page | `true` when the slide has `show="0"` | not emitted |
+| `source-layer` | element | `master` or `layout` for inherited visible shapes | not emitted |
 
-New hidden semantics receive new documented kind strings; these four strings
+New hidden semantics receive new documented kind strings; these five strings
 are never repurposed or renamed.
 
 All coordinates use PDF points with a top-left origin after page rotation.
