@@ -1,4 +1,4 @@
-# docray — Document Parsing Service
+# docray — X-ray for documents
 
 docray extracts structured, deterministic JSON (text with font/color/hierarchy,
 images, vector paths, and annotations, all with page-space coordinates) from
@@ -355,3 +355,10 @@ documents. Validate it for your own use case. See [NOTICE](NOTICE). Unless you e
 otherwise, any contribution intentionally submitted for inclusion in docray
 by you, as defined in the Apache-2.0 license, shall be dual licensed as
 above, without any additional terms or conditions.
+
+---
+
+<p align="center">
+  <a href="https://github.com/F2-AI-Inc"><img src="book/src/f2-logo.png" alt="F2 AI" width="40" height="40"></a><br>
+  <sub>Built by <a href="https://github.com/F2-AI-Inc">F2 AI</a></sub>
+</p>
