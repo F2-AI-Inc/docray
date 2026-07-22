@@ -32,7 +32,11 @@ impl Backend {
 }
 
 #[derive(Parser)]
-#[command(name = "docray", version, about = "docray — X-ray for documents: extract PDF & PPTX to JSON")]
+#[command(
+    name = "docray",
+    version,
+    about = "docray — X-ray for documents: extract PDF & PPTX to JSON"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -113,8 +117,8 @@ fn run_extract(
         }
         other => other,
     };
-    let result =
-        check_granularity(&capabilities, granularity).and_then(|()| backend.extract(&bytes, max_pages));
+    let result = check_granularity(&capabilities, granularity)
+        .and_then(|()| backend.extract(&bytes, max_pages));
     match result {
         Ok(extraction) => {
             match format {
