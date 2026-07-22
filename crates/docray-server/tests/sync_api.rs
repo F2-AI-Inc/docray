@@ -80,6 +80,24 @@ fn fixture(name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn playground_pptx_source_isolation_contract() {
+    let html = include_str!("../assets/playground.html");
+    assert!(html.contains("const PPTX_IFRAME_SANDBOX = \"allow-scripts\";"));
+    assert!(!html.contains("allow-same-origin"));
+    assert!(html.contains(
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'"
+    ));
+    assert!(html.contains("event.origin !== \"null\""));
+    assert!(html.contains("void parent.location.href"));
+    assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(html.contains("state.file.arrayBuffer()"));
+    assert!(html.contains("[bytes]"));
+    assert!(html.contains("visual render unavailable - showing structure schematic"));
+    assert!(html.contains("PPTX_CANVAS_BYTE_CAP = 256 * 1024 * 1024"));
+    assert!(html.contains("31cf1e39818c52395b185186229f80ecf8333db0d7bb3a06f6c0bd74b87aaad5"));
+}
+
+#[test]
 fn healthz_and_sync_extract_and_errors() {
     let server = TestServer::start();
 

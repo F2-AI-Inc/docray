@@ -46,7 +46,7 @@ jobs:
           mkdir -p "$PKG/bin" "$PKG/lib"
           cp "target/${{ matrix.target }}/release/docray" "target/${{ matrix.target }}/release/docray-server" "$PKG/bin/"
           cp .pdfium/lib/libpdfium.* "$PKG/lib/"
-          cp LICENSE-MIT LICENSE-APACHE README.md "$PKG/"
+          cp LICENSE-MIT LICENSE-APACHE NOTICE THIRD_PARTY_NOTICES.md README.md "$PKG/"
           # Exe-relative pdfium lookup must work from an unrelated CWD.
           (cd /tmp && "$GITHUB_WORKSPACE/$PKG/bin/docray" extract "$GITHUB_WORKSPACE/testdata/simple.pdf" | head -c 32 | grep -q schema_version)
           tar -czf "$PKG.tar.gz" "$PKG"

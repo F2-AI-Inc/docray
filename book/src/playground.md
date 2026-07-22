@@ -16,8 +16,8 @@ Drop a PDF or PPTX on it and every page or slide appears with:
 - **A thumbnail rail** for navigation (arrow keys work; scanned pages carry a
   badge).
 - **Two independent panels**, each switchable between six lenses:
-  - **source** — the rendered PDF page, or a clearly labeled PPTX structure
-    schematic reconstructed from docray's extraction (not a visual slide render)
+  - **source** — the rendered PDF page, or an offline visual PPTX render inside
+    a locked-down, null-origin browser sandbox
   - **boxes** — the page with filled, color-coded bounding boxes
     (<span style="color:#5cc8ff">text</span>,
     <span style="color:#ff7ac2">image</span>,
@@ -41,7 +41,12 @@ Hover any box for its content, font, and coordinates.
 
 - The page loads pdf.js and fonts from CDNs, so the **browser** needs
   internet access for PDF rendering and web fonts — the extraction API itself
-  does not. PPTX source views are schematics drawn from extraction data.
+  does not. The PPTX renderer is vendored and makes no network requests.
+- Hostile PPTX visual rendering runs in an iframe with only
+  `sandbox="allow-scripts"` and a `default-src 'none'` Content Security Policy.
+  The parent transfers document bytes in, never reads the iframe DOM, and
+  accepts only a small status message back. Errors and timeouts fall back to
+  the structure schematic built from docray's extraction.
 - Uploads go to the server's own `/v1/extract`; nothing leaves your
   deployment.
 - The UI is a single self-contained HTML file compiled into the server
