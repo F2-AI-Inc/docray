@@ -41,7 +41,8 @@ Docker build/smoke test.
    or reorder fields on that path. Granularity-shaped responses are schema
    `1.5`. New capability = new field behind a parameter, or a minor version
    bump with explicit review. Hidden-channel kind strings (`role`, `notes`,
-   `alt`, `hidden-slide`) are also stable contract and must never be renamed.
+   `alt`, `hidden-slide`, `source-layer`) are also stable contract and must
+   never be renamed.
 2. **Determinism.** Identical input bytes → byte-identical JSON on a given
    platform + PDFium build. No timestamps, randomness, or HashMap iteration
    anywhere near output. Fixture generation must be deterministic too.

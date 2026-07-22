@@ -66,6 +66,7 @@ page. The kind namespace is stable:
 | `notes` | page | Speaker-notes body text | not emitted |
 | `alt` | element | Shape/picture alternative text | not emitted |
 | `hidden-slide` | page | `true` for a slide with `show="0"` | not emitted |
+| `source-layer` | element | `master` or `layout` for inherited visible shapes | not emitted |
 
 ## Elements
 

@@ -49,11 +49,22 @@ provide and returns `granularity_unavailable`, with guidance to retry using
   preferring `descr` and falling back to `title`.
 - Slides with `show="0"` remain ordinary extracted pages and carry a
   page-targeted `hidden-slide` item with content `true`.
+- Visible non-placeholder shapes inherited from the slide master and layout
+  are extracted through the same shape, picture, connector, group, table, and
+  graphic-frame paths as slide-owned content. Their element-targeted
+  `source-layer` hidden item contains `master` or `layout`.
+- Template placeholder shapes are not emitted, so authoring prompts such as
+  "Click to edit ..." do not appear as page content. They still participate in
+  placeholder geometry and style inheritance for slide-owned placeholders.
+- A slide with `showMasterSp="0"` suppresses both layout and master shapes. A
+  layout with `showMasterSp="0"` suppresses master shapes while retaining its
+  own shapes. An absent attribute defaults to showing inherited shapes.
 - Placeholder geometry is inherited from the slide layout and master. Group,
   shape, picture, and frame rotation/flip transforms are flattened into slide
   coordinates.
 
-Elements follow `p:spTree` document order, which is PowerPoint z-order. docray
+Elements follow PowerPoint z-order: master shapes, layout shapes, then the
+slide's own `p:spTree`, with document order preserved inside each layer. docray
 does not infer a semantic reading order. Hidden items are explicitly marked as
 non-visible context in JSON and lean so consumers do not mistake notes or
 accessibility metadata for slide-visible text.

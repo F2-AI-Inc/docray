@@ -68,6 +68,120 @@ fn group_fixture_geometry_matches_hand_math() {
 }
 
 #[test]
+fn inherited_shapes_use_template_order_relationships_and_provenance() {
+    let bytes = fs::read(root().join("testdata/pptx/inherited-shapes.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    assert!(extraction.warnings.is_empty());
+    let page = &extraction.pages[0];
+    assert_eq!(page.elements.len(), 5);
+
+    let Element::Text(master) = &page.elements[0] else {
+        panic!("master shape must be first in z-order");
+    };
+    assert_eq!(
+        (master.id.as_str(), master.content.as_str()),
+        ("p1-e0", "Master brand")
+    );
+
+    let Element::Image(layout_picture) = &page.elements[1] else {
+        panic!("layout picture must follow master shapes");
+    };
+    assert_eq!(layout_picture.id, "p1-e1");
+    assert!(
+        layout_picture.content_hash.is_some(),
+        "the image relationship must resolve relative to the layout part"
+    );
+
+    let Element::Path(layout_background) = &page.elements[2] else {
+        panic!("layout background must use the ordinary shape path");
+    };
+    assert_eq!(layout_background.id, "p1-e2");
+    assert_eq!(layout_background.fill, Some([230, 230, 230]));
+
+    let Element::Path(layout_rule) = &page.elements[3] else {
+        panic!("layout connector must use the ordinary connector path");
+    };
+    assert_eq!(layout_rule.id, "p1-e3");
+    assert_eq!(layout_rule.stroke, Some([51, 102, 153]));
+
+    let Element::Text(slide_title) = &page.elements[4] else {
+        panic!("the slide's own title must follow inherited shapes");
+    };
+    assert_eq!(
+        (slide_title.id.as_str(), slide_title.content.as_str()),
+        ("p1-e4", "Slide title")
+    );
+    assert!(page.elements.iter().all(|element| match element {
+        Element::Text(text) => !text.content.contains("Click to edit"),
+        _ => true,
+    }));
+    assert_eq!(
+        page.hidden,
+        vec![
+            HiddenItem {
+                kind: "source-layer".into(),
+                element: Some("p1-e0".into()),
+                content: "master".into(),
+            },
+            HiddenItem {
+                kind: "source-layer".into(),
+                element: Some("p1-e1".into()),
+                content: "layout".into(),
+            },
+            HiddenItem {
+                kind: "source-layer".into(),
+                element: Some("p1-e2".into()),
+                content: "layout".into(),
+            },
+            HiddenItem {
+                kind: "source-layer".into(),
+                element: Some("p1-e3".into()),
+                content: "layout".into(),
+            },
+            HiddenItem {
+                kind: "role".into(),
+                element: Some("p1-e4".into()),
+                content: "title".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn show_master_sp_gates_master_and_layout_shapes_independently() {
+    let bytes = fs::read(root().join("testdata/pptx/layout-hides-master-shapes.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let page = &extraction.pages[0];
+    let contents = page
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            Element::Text(text) => Some(text.content.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec!["Layout gated", "Slide own"]);
+    assert_eq!(
+        page.hidden,
+        vec![HiddenItem {
+            kind: "source-layer".into(),
+            element: Some("p1-e0".into()),
+            content: "layout".into(),
+        }]
+    );
+
+    let bytes = fs::read(root().join("testdata/pptx/slide-hides-template-shapes.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let page = &extraction.pages[0];
+    let Element::Text(slide) = &page.elements[0] else {
+        panic!("slide-owned shape must remain visible");
+    };
+    assert_eq!(page.elements.len(), 1);
+    assert_eq!(slide.content, "Slide own");
+    assert!(page.hidden.is_empty());
+}
+
+#[test]
 fn table_fixture_geometry_matches_prefix_sum_math() {
     let bytes = fs::read(root().join("testdata/pptx/table.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();
