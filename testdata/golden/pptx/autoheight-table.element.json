@@ -1,0 +1,125 @@
+{
+  "granularity": "element",
+  "schema_version": "1.5",
+  "source": {
+    "format": "pptx",
+    "sha256": "2d5b38679a02787180476488bfaee3a70f2199bd4675231eb87c44a9de83a37c",
+    "size_bytes": 8049
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "table",
+          "bbox": [
+            72.0,
+            72.0,
+            272.0,
+            152.0
+          ],
+          "rows": 2,
+          "cols": 2,
+          "cells": [
+            {
+              "bbox": [
+                72.0,
+                72.0,
+                172.0,
+                112.0
+              ],
+              "row": 0,
+              "col": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "A1",
+              "runs": [
+                {
+                  "content": "A1",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 18.0
+                  }
+                }
+              ]
+            },
+            {
+              "bbox": [
+                172.0,
+                72.0,
+                272.0,
+                112.0
+              ],
+              "row": 0,
+              "col": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "B1",
+              "runs": [
+                {
+                  "content": "B1",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 18.0
+                  }
+                }
+              ]
+            },
+            {
+              "bbox": [
+                72.0,
+                112.0,
+                172.0,
+                152.0
+              ],
+              "row": 1,
+              "col": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "A2",
+              "runs": [
+                {
+                  "content": "A2",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 18.0
+                  }
+                }
+              ]
+            },
+            {
+              "bbox": [
+                172.0,
+                112.0,
+                272.0,
+                152.0
+              ],
+              "row": 1,
+              "col": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "B2",
+              "runs": [
+                {
+                  "content": "B2",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 18.0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

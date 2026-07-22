@@ -1,0 +1,8 @@
+#docray element v1.5 pages=1
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#page 1 720x540
+TB 72 72 272 152 2 2
+c 0 0 1 1 72 72 172 112 Fixture_Sans 18 - A1
+c 0 1 1 1 172 72 272 112 Fixture_Sans 18 - B1
+c 1 0 1 1 72 112 172 152 Fixture_Sans 18 - A2
+c 1 1 1 1 172 112 272 152 Fixture_Sans 18 - B2
