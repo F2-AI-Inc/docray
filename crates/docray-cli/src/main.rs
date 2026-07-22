@@ -1,13 +1,42 @@
 use clap::{Parser, Subcommand};
-use docray_core::{check_granularity, sniff_format, ExtractError, Extractor, Format};
-use docray_model::{GranularExtraction, Granularity, OutputFormat};
+use docray_core::{check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format};
+use docray_model::{Extraction, GranularExtraction, Granularity, OutputFormat};
 use docray_pdf::PdfExtractor;
 use docray_pptx::PptxExtractor;
 use std::process::ExitCode;
 use std::str::FromStr;
 
+/// CFB (OLE2) magic — legacy or encrypted Office documents.
+const CFB_MAGIC: &[u8; 8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
+
+/// The extraction backend selected by format sniffing.
+enum Backend {
+    Pdf,
+    Pptx,
+}
+
+impl Backend {
+    fn capabilities(&self) -> Capabilities {
+        match self {
+            Backend::Pdf => PdfExtractor.capabilities(),
+            Backend::Pptx => PptxExtractor.capabilities(),
+        }
+    }
+
+    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Extraction, ExtractError> {
+        match self {
+            Backend::Pdf => PdfExtractor.extract(bytes, max_pages),
+            Backend::Pptx => PptxExtractor.extract(bytes, max_pages),
+        }
+    }
+}
+
 #[derive(Parser)]
-#[command(name = "dps", about = "Document parsing service CLI")]
+#[command(
+    name = "docray",
+    version,
+    about = "docray — X-ray for documents: extract PDF & PPTX to JSON"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -71,22 +100,25 @@ fn run_extract(
         Ok(b) => b,
         Err(e) => return fail(&ExtractError::Io(format!("{file}: {e}"))),
     };
-    let result = match sniff_format(&bytes) {
-        Some(Format::Pdf) => {
-            let extractor = PdfExtractor;
-            check_granularity(&extractor.capabilities(), granularity)
-                .and_then(|()| extractor.extract(&bytes, max_pages))
-        }
-        Some(Format::Zip) => {
-            let extractor = PptxExtractor;
-            check_granularity(&extractor.capabilities(), granularity)
-                .and_then(|()| extractor.extract(&bytes, max_pages))
-        }
-        None if bytes.starts_with(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1") => {
-            PptxExtractor.extract(&bytes, max_pages)
-        }
-        None => Err(ExtractError::UnsupportedFormat),
+    let backend = match sniff_format(&bytes) {
+        Some(Format::Pdf) => Backend::Pdf,
+        Some(Format::Zip) => Backend::Pptx,
+        None if bytes.starts_with(CFB_MAGIC) => Backend::Pptx,
+        None => return fail(&ExtractError::UnsupportedFormat),
     };
+    let capabilities = backend.capabilities();
+    // A missing granularity defaults to the finest the format supports when
+    // that is coarser than char, so `docray extract deck.pptx` yields element
+    // output instead of erroring. PDF (finest = char) keeps None -> the frozen
+    // v1.1 full-hierarchy response.
+    let granularity = match granularity {
+        None if capabilities.finest_granularity.rank() < Granularity::Char.rank() => {
+            Some(capabilities.finest_granularity)
+        }
+        other => other,
+    };
+    let result = check_granularity(&capabilities, granularity)
+        .and_then(|()| backend.extract(&bytes, max_pages));
     match result {
         Ok(extraction) => {
             match format {

@@ -12,9 +12,10 @@ docray extract deck.pptx --granularity element
 docray extract deck.pptx --format lean
 ```
 
-An omitted granularity, `char`, or `word` requests detail that PPTX cannot
-provide and returns `granularity_unavailable`, with guidance to retry using
-`granularity=element`.
+An omitted granularity defaults to `element` for PPTX, so `docray extract
+deck.pptx` (or a plain upload) just works. Requesting finer detail — `char` or
+`word` — asks for a hierarchy PPTX cannot provide and returns
+`granularity_unavailable`, with guidance to retry using `granularity=element`.
 
 ## Extracted content
 
