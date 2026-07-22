@@ -224,12 +224,13 @@ fn extract_slide(
         .unwrap_or_default();
 
     let context = SlideContext {
-        slide_path,
-        slide_rels: &slide_rels,
+        part_path: slide_path,
+        part_rels: &slide_rels,
         layout: layout.as_ref(),
         master: master.as_ref(),
         theme: &theme,
         color_map: &color_map,
+        source_layer: None,
     };
     let tree = slide
         .first_descendant("spTree")
@@ -237,6 +238,49 @@ fn extract_slide(
     let mut elements = Vec::new();
     let mut hidden = Vec::new();
     let mut groups = Vec::new();
+
+    let show_layout_shapes = shows_master_shapes(&slide);
+    let show_master_shapes = show_layout_shapes && layout.as_ref().is_none_or(shows_master_shapes);
+    if show_master_shapes {
+        if let (Some(root), Some(path)) = (master.as_ref(), master_path.as_deref()) {
+            let master_context = SlideContext {
+                part_path: path,
+                part_rels: &master_rels,
+                source_layer: Some("master"),
+                ..context
+            };
+            extract_inherited_layer(
+                package,
+                root,
+                &master_context,
+                page_number,
+                &mut groups,
+                &mut elements,
+                &mut hidden,
+                warnings,
+            );
+        }
+    }
+    if show_layout_shapes {
+        if let (Some(root), Some(path)) = (layout.as_ref(), layout_path.as_deref()) {
+            let layout_context = SlideContext {
+                part_path: path,
+                part_rels: &layout_rels,
+                source_layer: Some("layout"),
+                ..context
+            };
+            extract_inherited_layer(
+                package,
+                root,
+                &layout_context,
+                page_number,
+                &mut groups,
+                &mut elements,
+                &mut hidden,
+                warnings,
+            );
+        }
+    }
     extract_children(
         package,
         tree,
@@ -278,13 +322,59 @@ fn extract_slide(
     })
 }
 
+#[derive(Clone, Copy)]
 struct SlideContext<'a> {
-    slide_path: &'a str,
-    slide_rels: &'a Relationships,
+    part_path: &'a str,
+    part_rels: &'a Relationships,
     layout: Option<&'a Node>,
     master: Option<&'a Node>,
     theme: &'a Theme,
     color_map: &'a BTreeMap<String, String>,
+    source_layer: Option<&'static str>,
+}
+
+fn shows_master_shapes(root: &Node) -> bool {
+    root.attr("showMasterSp") != Some("0")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn extract_inherited_layer(
+    package: &mut Package<'_>,
+    root: &Node,
+    context: &SlideContext<'_>,
+    page_number: u32,
+    groups: &mut Vec<GroupTransform>,
+    elements: &mut Vec<Element>,
+    hidden: &mut Vec<HiddenItem>,
+    warnings: &mut Vec<String>,
+) {
+    let Some(tree) = root.first_descendant("spTree") else {
+        warnings.push(format!(
+            "page {page_number}: {} has no p:spTree, inherited {} shapes skipped",
+            context.part_path,
+            context.source_layer.unwrap_or("template")
+        ));
+        return;
+    };
+    let element_start = elements.len();
+    let hidden_start = hidden.len();
+    if let Err(error) = extract_children(
+        package,
+        tree,
+        context,
+        page_number,
+        groups,
+        elements,
+        hidden,
+        warnings,
+    ) {
+        elements.truncate(element_start);
+        hidden.truncate(hidden_start);
+        warnings.push(format!(
+            "page {page_number}: inherited {} shapes failed to extract: {error}",
+            context.source_layer.unwrap_or("template")
+        ));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -299,6 +389,13 @@ fn extract_children(
     warnings: &mut Vec<String>,
 ) -> Result<(), ExtractError> {
     for child in &parent.children {
+        if context.source_layer.is_some()
+            && child.local_name() == "sp"
+            && placeholder(child).is_some()
+        {
+            continue;
+        }
+        let first_new_element = elements.len();
         match child.local_name() {
             "sp" => extract_shape(
                 child,
@@ -359,7 +456,7 @@ fn extract_children(
                     continue;
                 }
                 groups.push(group);
-                extract_children(
+                let result = extract_children(
                     package,
                     child,
                     context,
@@ -368,12 +465,23 @@ fn extract_children(
                     elements,
                     hidden,
                     warnings,
-                )?;
+                );
                 groups.pop();
+                result?;
+                continue;
             }
             // Non-visual and transform property records are not page elements.
             "nvGrpSpPr" | "grpSpPr" => {}
             _ => {}
+        }
+        if let Some(source_layer) = context.source_layer {
+            for index in first_new_element..elements.len() {
+                hidden.push(HiddenItem {
+                    kind: "source-layer".into(),
+                    element: Some(format!("p{page_number}-e{index}")),
+                    content: source_layer.into(),
+                });
+            }
         }
     }
     Ok(())
@@ -451,7 +559,7 @@ fn extract_shape(
             .descendants("hlinkClick")
             .filter_map(|node| node.attr("id"))
         {
-            if let Some(relation) = context.slide_rels.get(hyperlink) {
+            if let Some(relation) = context.part_rels.get(hyperlink) {
                 if relation.external {
                     let id = next_id(page_number, elements);
                     elements.push(Element::Annotation(AnnotationElement {
@@ -543,9 +651,9 @@ fn extract_picture(
         .first_descendant("blip")
         .and_then(|node| node.attr("embed"));
     let mut content_hash = None;
-    match embed.and_then(|rel_id| context.slide_rels.get(rel_id)) {
+    match embed.and_then(|rel_id| context.part_rels.get(rel_id)) {
         Some(relation) if !relation.external => {
-            let media_path = resolve_target(context.slide_path, &relation.target)?;
+            let media_path = resolve_target(context.part_path, &relation.target)?;
             match package.read(&media_path)? {
                 Some(bytes) => content_hash = Some(hex(&Sha256::digest(bytes))),
                 None => warnings.push(format!(
@@ -892,14 +1000,14 @@ fn related_xml(
 ) -> Result<Node, String> {
     let rel_id = rel_id.ok_or_else(|| "relationship id is missing".to_string())?;
     let relation = context
-        .slide_rels
+        .part_rels
         .get(rel_id)
         .ok_or_else(|| format!("relationship {rel_id:?} is missing"))?;
     if relation.external {
         return Err(format!("relationship {rel_id:?} is external"));
     }
     let path =
-        resolve_target(context.slide_path, &relation.target).map_err(|error| error.to_string())?;
+        resolve_target(context.part_path, &relation.target).map_err(|error| error.to_string())?;
     let bytes = package
         .read(&path)
         .map_err(|error| error.to_string())?
@@ -1033,9 +1141,9 @@ fn extract_graphic_frame_picture(
         .first_descendant("blip")
         .and_then(|node| node.attr("embed"));
     let mut content_hash = None;
-    match embed.and_then(|rel_id| context.slide_rels.get(rel_id)) {
+    match embed.and_then(|rel_id| context.part_rels.get(rel_id)) {
         Some(relation) if !relation.external => {
-            let media_path = resolve_target(context.slide_path, &relation.target)?;
+            let media_path = resolve_target(context.part_path, &relation.target)?;
             match package.read(&media_path)? {
                 Some(bytes) => content_hash = Some(hex(&Sha256::digest(bytes))),
                 None => warnings.push(format!(
@@ -1487,7 +1595,7 @@ fn resolve_runs(
             let href = run
                 .first_descendant("hlinkClick")
                 .and_then(|node| node.attr("id"))
-                .and_then(|id| context.slide_rels.get(id))
+                .and_then(|id| context.part_rels.get(id))
                 .filter(|relation| relation.external)
                 .map(|relation| relation.target.clone());
             runs.push(TextRun {
@@ -1854,12 +1962,13 @@ mod tests {
         color_map: &'a BTreeMap<String, String>,
     ) -> SlideContext<'a> {
         SlideContext {
-            slide_path: "ppt/slides/slide1.xml",
-            slide_rels,
+            part_path: "ppt/slides/slide1.xml",
+            part_rels: slide_rels,
             layout: None,
             master: None,
             theme,
             color_map,
+            source_layer: None,
         }
     }
 

@@ -1,0 +1,61 @@
+{
+  "granularity": "element",
+  "schema_version": "1.5",
+  "source": {
+    "format": "pptx",
+    "sha256": "9ed929ee9e6bc877c23e4fb9a2b56a15678e48cafb0acce1e2c3d8c73961da0a",
+    "size_bytes": 8529
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            10.0,
+            90.0,
+            110.0,
+            120.0
+          ],
+          "text": "Slide own",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          },
+          "color": {
+            "fill": [
+              17,
+              34,
+              51
+            ]
+          },
+          "runs": [
+            {
+              "content": "Slide own",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 18.0
+              },
+              "color": {
+                "fill": [
+                  17,
+                  34,
+                  51
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

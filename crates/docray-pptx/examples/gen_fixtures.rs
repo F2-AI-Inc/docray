@@ -33,6 +33,21 @@ const MASTER: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 const MASTER_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>"#;
 
+#[derive(Clone, Copy)]
+struct TemplateParts<'a> {
+    layout: &'a str,
+    layout_rels: &'a str,
+    master: &'a str,
+    master_rels: &'a str,
+}
+
+const DEFAULT_TEMPLATE: TemplateParts<'static> = TemplateParts {
+    layout: LAYOUT,
+    layout_rels: LAYOUT_RELS,
+    master: MASTER,
+    master_rels: MASTER_RELS,
+};
+
 fn slide(body: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -67,6 +82,7 @@ fn package_entries(
     slide_xml: String,
     slide_rels: String,
     has_notes: bool,
+    template: TemplateParts<'_>,
 ) -> Vec<(String, Vec<u8>)> {
     let content_types = if has_notes {
         CONTENT_TYPES.replace(
@@ -94,19 +110,19 @@ fn package_entries(
         ),
         (
             "ppt/slideLayouts/slideLayout1.xml".into(),
-            LAYOUT.as_bytes().to_vec(),
+            template.layout.as_bytes().to_vec(),
         ),
         (
             "ppt/slideLayouts/_rels/slideLayout1.xml.rels".into(),
-            LAYOUT_RELS.as_bytes().to_vec(),
+            template.layout_rels.as_bytes().to_vec(),
         ),
         (
             "ppt/slideMasters/slideMaster1.xml".into(),
-            MASTER.as_bytes().to_vec(),
+            template.master.as_bytes().to_vec(),
         ),
         (
             "ppt/slideMasters/_rels/slideMaster1.xml.rels".into(),
-            MASTER_RELS.as_bytes().to_vec(),
+            template.master_rels.as_bytes().to_vec(),
         ),
         ("ppt/theme/theme1.xml".into(), THEME.as_bytes().to_vec()),
     ]
@@ -128,10 +144,20 @@ fn write_zip(path: impl AsRef<Path>, entries: &[(String, Vec<u8>)], method: Comp
 }
 
 fn write_pptx(name: &str, slide_xml: String, rels: String, extras: Vec<(String, Vec<u8>)>) {
+    write_pptx_with_template(name, slide_xml, rels, DEFAULT_TEMPLATE, extras);
+}
+
+fn write_pptx_with_template(
+    name: &str,
+    slide_xml: String,
+    rels: String,
+    template: TemplateParts<'_>,
+    extras: Vec<(String, Vec<u8>)>,
+) {
     let has_notes = extras
         .iter()
         .any(|(path, _)| path.starts_with("ppt/notesSlides/"));
-    let mut entries = package_entries(slide_xml, rels, has_notes);
+    let mut entries = package_entries(slide_xml, rels, has_notes, template);
     let mut overrides = String::new();
     for (path, _) in &extras {
         let content_type = if path.starts_with("ppt/charts/") {
@@ -185,6 +211,114 @@ fn main() {
         r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="ctrTitle"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Inherited title</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Inherited body</a:t></a:r></a:p></p:txBody></p:sp>"#,
     );
     write_pptx("placeholders", placeholders, default_slide_rels(""), vec![]);
+
+    let inherited_master = MASTER.replace(
+        "</p:spTree>",
+        &format!(
+            r#"{}<p:sp><p:nvSpPr><p:cNvPr id="91" name="Master prompt"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="91"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="127000" y="127000"/><a:ext cx="1270000" cy="254000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Click to edit master prompt</a:t></a:r></a:p></p:txBody></p:sp></p:spTree>"#,
+            shape(
+                90,
+                "Master brand",
+                127000,
+                127000,
+                1524000,
+                381000,
+                "Master brand"
+            )
+        ),
+    );
+    let inherited_layout = LAYOUT.replace(
+        "</p:spTree>",
+        r#"<p:pic><p:nvPicPr><p:cNvPr id="80" name="Layout logo"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rIdLayoutImage"/></p:blipFill><p:spPr><a:xfrm><a:off x="7620000" y="254000"/><a:ext cx="1016000" cy="508000"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr></p:pic><p:sp><p:nvSpPr><p:cNvPr id="81" name="Layout background"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="6096000"/><a:ext cx="9144000" cy="762000"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="E6E6E6"/></a:solidFill></p:spPr></p:sp><p:cxnSp><p:nvCxnSpPr><p:cNvPr id="82" name="Layout rule"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="635000" y="5715000"/><a:ext cx="7874000" cy="0"/></a:xfrm><a:prstGeom prst="line"/><a:ln w="12700"><a:solidFill><a:srgbClr val="336699"/></a:solidFill></a:ln></p:spPr></p:cxnSp><p:sp><p:nvSpPr><p:cNvPr id="83" name="Layout prompt"/><p:cNvSpPr/><p:nvPr><p:ph type="subTitle" idx="83"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="127000" y="635000"/><a:ext cx="1270000" cy="254000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Click to edit layout prompt</a:t></a:r></a:p></p:txBody></p:sp></p:spTree>"#,
+    );
+    let inherited_layout_rels = LAYOUT_RELS.replace(
+        "</Relationships>",
+        r#"<Relationship Id="rIdLayoutImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/inherited-logo.bin"/></Relationships>"#,
+    );
+    let inherited_title = slide(
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Slide title</a:t></a:r></a:p></p:txBody></p:sp>"#,
+    );
+    write_pptx_with_template(
+        "inherited-shapes",
+        inherited_title,
+        default_slide_rels(""),
+        TemplateParts {
+            layout: &inherited_layout,
+            layout_rels: &inherited_layout_rels,
+            master: &inherited_master,
+            master_rels: MASTER_RELS,
+        },
+        vec![(
+            "ppt/media/inherited-logo.bin".into(),
+            b"deterministic inherited logo bytes".to_vec(),
+        )],
+    );
+
+    let gating_master = MASTER.replace(
+        "</p:spTree>",
+        &format!(
+            "{}</p:spTree>",
+            shape(
+                70,
+                "Gated master",
+                127000,
+                127000,
+                1270000,
+                381000,
+                "Master gated"
+            )
+        ),
+    );
+    let gating_layout = LAYOUT.replace(
+        "</p:spTree>",
+        &format!(
+            "{}</p:spTree>",
+            shape(
+                71,
+                "Gated layout",
+                127000,
+                635000,
+                1270000,
+                381000,
+                "Layout gated"
+            )
+        ),
+    );
+    let gating_slide = slide(&shape(
+        72,
+        "Slide content",
+        127000,
+        1143000,
+        1270000,
+        381000,
+        "Slide own",
+    ));
+    let layout_hides_master =
+        gating_layout.replacen("<p:sldLayout ", "<p:sldLayout showMasterSp=\"0\" ", 1);
+    write_pptx_with_template(
+        "layout-hides-master-shapes",
+        gating_slide.clone(),
+        default_slide_rels(""),
+        TemplateParts {
+            layout: &layout_hides_master,
+            layout_rels: LAYOUT_RELS,
+            master: &gating_master,
+            master_rels: MASTER_RELS,
+        },
+        vec![],
+    );
+    write_pptx_with_template(
+        "slide-hides-template-shapes",
+        gating_slide.replacen("<p:sld ", "<p:sld showMasterSp=\"0\" ", 1),
+        default_slide_rels(""),
+        TemplateParts {
+            layout: &gating_layout,
+            layout_rels: LAYOUT_RELS,
+            master: &gating_master,
+            master_rels: MASTER_RELS,
+        },
+        vec![],
+    );
 
     let groups = slide(
         r#"<p:grpSp><p:nvGrpSpPr/><p:grpSpPr><a:xfrm><a:off x="127000" y="254000"/><a:ext cx="5080000" cy="2540000"/><a:chOff x="127000" y="127000"/><a:chExt cx="2540000" cy="1270000"/></a:xfrm></p:grpSpPr><p:grpSp><p:nvGrpSpPr/><p:grpSpPr><a:xfrm><a:off x="254000" y="254000"/><a:ext cx="1270000" cy="635000"/><a:chOff x="0" y="0"/><a:chExt cx="1270000" cy="635000"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="4" name="Nested"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm rot="5400000" flipH="1"><a:off x="127000" y="127000"/><a:ext cx="508000" cy="254000"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Nested transform</a:t></a:r></a:p></p:txBody></p:sp></p:grpSp></p:grpSp>"#,
