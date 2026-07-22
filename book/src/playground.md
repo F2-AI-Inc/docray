@@ -14,7 +14,8 @@ way to understand what docray extracts and to debug a specific document.
 Drop a PDF or PPTX on it and every page or slide appears with:
 
 - **A thumbnail rail** for navigation (arrow keys work; scanned pages carry a
-  badge).
+  badge). PPTX thumbnails render progressively as they scroll into view and
+  fall back individually to the extraction schematic if visual rendering fails.
 - **Two independent panels**, each switchable between six lenses:
   - **source** — the rendered PDF page, or an offline visual PPTX render inside
     a locked-down, null-origin browser sandbox
@@ -45,8 +46,9 @@ Hover any box for its content, font, and coordinates.
 - Hostile PPTX visual rendering runs in an iframe with only
   `sandbox="allow-scripts"` and a `default-src 'none'` Content Security Policy.
   The parent transfers document bytes in, never reads the iframe DOM, and
-  accepts only a small status message back. Errors and timeouts fall back to
-  the structure schematic built from docray's extraction.
+  accepts only small status messages plus a size-bounded PNG/WebP data URL for
+  each thumbnail; that inert URL is used only as an image source. Errors and
+  timeouts fall back to the structure schematic built from docray's extraction.
 - Uploads go to the server's own `/v1/extract`; nothing leaves your
   deployment.
 - The UI is a single self-contained HTML file compiled into the server
