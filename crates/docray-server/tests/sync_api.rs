@@ -244,14 +244,14 @@ fn pptx_element_no_parameter_and_lean_end_to_end() {
     assert_eq!(v["granularity"], "element");
     assert_eq!(v["pages"][0]["elements"][0]["text"], "First shape");
 
+    // No granularity parameter: PPTX defaults to element (its finest) rather
+    // than erroring, so a plain upload just works.
     let r = upload(&server.base, "/v1/extract", fixture("pptx/basic.pptx"));
-    assert_eq!(r.status(), 400);
+    assert_eq!(r.status(), 200);
     let v: serde_json::Value = r.json().unwrap();
-    assert_eq!(v["error"]["code"], "granularity_unavailable");
-    assert!(v["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("retry with granularity=element"));
+    assert_eq!(v["source"]["format"], "pptx");
+    assert_eq!(v["granularity"], "element");
+    assert_eq!(v["pages"][0]["elements"][0]["text"], "First shape");
 
     let r = upload(
         &server.base,

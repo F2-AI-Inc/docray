@@ -70,6 +70,7 @@ exit 7 and code `bad_format`. `--pretty` affects JSON only. See
 [output formats](output-formats.md) for the line format and its deliberate
 lossless-JSON deltas.
 
-PPTX supports only explicit `--granularity element` and lean (whose default is
-element). Omitted granularity, `word`, and `char` return exit 8 with
-`granularity_unavailable`. See [PowerPoint extraction](pptx.md).
+PPTX supports element granularity. An omitted `--granularity` defaults to
+`element` for PPTX (so `docray extract deck.pptx` just works), and lean also
+defaults to element; asking for finer detail (`word` or `char`) returns exit 8
+with `granularity_unavailable`. See [PowerPoint extraction](pptx.md).
