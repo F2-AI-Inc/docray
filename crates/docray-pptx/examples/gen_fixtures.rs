@@ -411,6 +411,25 @@ fn main() {
         )],
     );
 
+    // Percent-formatted chart: values are stored as fractions (0.41) with a
+    // "0%" number format, so extraction must render "41%", not the raw float.
+    let percent_chart = slide(
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Mix"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="4572000" cy="2743200"/></p:xfrm><a:graphic><a:graphicData xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdPctChart"/></a:graphicData></a:graphic></p:graphicFrame>"#,
+    );
+    let percent_chart_part = r#"<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:doughnutChart><c:ser><c:cat><c:strLit><c:pt idx="0"><c:v>Direct</c:v></c:pt><c:pt idx="1"><c:v>Reseller</c:v></c:pt></c:strLit></c:cat><c:val><c:numRef><c:numCache><c:formatCode>0%</c:formatCode><c:pt idx="0"><c:v>0.41</c:v></c:pt><c:pt idx="1"><c:v>0.5899999999999999</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:doughnutChart></c:plotArea></c:chart></c:chartSpace>"#;
+    write_pptx(
+        "percent-chart",
+        percent_chart,
+        default_slide_rels(
+            r#"<Relationship Id="rIdPctChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>"#,
+        ),
+        vec![(
+            "ppt/charts/chart1.xml".into(),
+            percent_chart_part.as_bytes().to_vec(),
+        )],
+    );
+
     let smartart = slide(
         r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Process diagram"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="1270000" y="1016000"/><a:ext cx="5080000" cy="2540000"/></p:xfrm><a:graphic><a:graphicData xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rIdDiagram"/></a:graphicData></a:graphic></p:graphicFrame>"#,
     );

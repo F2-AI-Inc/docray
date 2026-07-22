@@ -248,6 +248,18 @@ fn table_fixture_geometry_matches_prefix_sum_math() {
 }
 
 #[test]
+fn chart_values_render_with_their_percent_format() {
+    // Regression: values stored as fractions (0.41) with a "0%" format must
+    // render as percentages, not raw/scientific-notation floats.
+    let bytes = fs::read(root().join("testdata/pptx/percent-chart.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let Element::Text(chart) = &extraction.pages[0].elements[0] else {
+        panic!("percent chart must emit synthesized text");
+    };
+    assert_eq!(chart.content, "Direct: 41%\nReseller: 59%");
+}
+
+#[test]
 fn hidden_shapes_are_skipped_without_warnings() {
     // Regression: hidden shapes (cNvPr hidden="1") — including think-cell's
     // hidden OLE data objects — must be skipped silently, not extracted and not
