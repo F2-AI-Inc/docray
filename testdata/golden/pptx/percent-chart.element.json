@@ -1,0 +1,38 @@
+{
+  "granularity": "element",
+  "schema_version": "1.5",
+  "source": {
+    "format": "pptx",
+    "sha256": "faa4f2cc935abf00db5d0d945f6a4ca2480048b6ae582497a72ebd0692a7c315",
+    "size_bytes": 8501
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            72.0,
+            432.0,
+            288.0
+          ],
+          "text": "Direct: 41%\nReseller: 59%",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          }
+        }
+      ]
+    }
+  ]
+}

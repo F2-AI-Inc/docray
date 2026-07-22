@@ -1122,10 +1122,60 @@ fn chart_points(node: &Node) -> BTreeMap<u64, String> {
 }
 
 fn finite_chart_points(node: &Node) -> BTreeMap<u64, String> {
+    // Chart data values are stored as raw numbers (e.g. 0.41, 3.9e-2) with a
+    // display number format alongside them. Apply that format so values read
+    // like the chart ("0%" -> "41%") instead of raw/scientific-notation floats.
+    let format_code = node
+        .first_descendant("formatCode")
+        .map(|fc| fc.text.clone());
     chart_points(node)
         .into_iter()
-        .filter(|(_, value)| parse_finite_number(value).is_some())
+        .filter_map(|(index, raw)| {
+            let value = parse_finite_number(&raw)?;
+            Some((index, format_chart_number(value, format_code.as_deref())))
+        })
         .collect()
+}
+
+/// Formats a chart data value using the series number format when present.
+/// Percent formats multiply by 100 and append `%`; explicit-decimal formats
+/// use their decimal count; otherwise the number is rounded cleanly (never
+/// scientific notation, trailing zeros trimmed).
+fn format_chart_number(value: f64, format_code: Option<&str>) -> String {
+    match format_code {
+        Some(code) if code.contains('%') => {
+            format!("{:.*}%", format_decimals(code), value * 100.0)
+        }
+        Some(code) if code.contains('.') && code.contains(['0', '#']) => {
+            format!("{value:.*}", format_decimals(code))
+        }
+        _ => trim_number(value),
+    }
+}
+
+/// Counts the decimal-place digits in a number format code, ignoring any `%`.
+fn format_decimals(code: &str) -> usize {
+    let integral_and_fraction = code.split('%').next().unwrap_or(code);
+    match integral_and_fraction.rsplit_once('.') {
+        Some((_, fraction)) => fraction
+            .chars()
+            .take_while(|c| *c == '0' || *c == '#')
+            .count(),
+        None => 0,
+    }
+}
+
+/// Renders a finite number without scientific notation, at most four decimals,
+/// with trailing zeros trimmed.
+fn trim_number(value: f64) -> String {
+    if value == value.trunc() && value.abs() < 1e15 {
+        return format!("{}", value.trunc() as i64);
+    }
+    let mut rendered = format!("{value:.4}");
+    while rendered.contains('.') && (rendered.ends_with('0') || rendered.ends_with('.')) {
+        rendered.pop();
+    }
+    rendered
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1953,6 +2003,20 @@ fn parse_failure(message: impl Into<String>) -> ExtractError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chart_numbers_honor_the_series_format() {
+        // Percent formats read like the chart, not as raw fractions/scientific.
+        assert_eq!(format_chart_number(0.41, Some("0%")), "41%");
+        assert_eq!(format_chart_number(0.038975501, Some("0%")), "4%");
+        assert_eq!(format_chart_number(0.15099, Some("0.0%")), "15.1%");
+        // Explicit decimal formats use their decimal count.
+        assert_eq!(format_chart_number(1234.5, Some("#,##0.00")), "1234.50");
+        // No/opaque format -> clean rounding, never scientific notation.
+        assert_eq!(format_chart_number(0.8100315515961396, None), "0.81");
+        assert_eq!(format_chart_number(12.0, None), "12");
+        assert_eq!(format_chart_number(0.038975501, None), "0.039");
+    }
 
     #[test]
     fn hidden_shapes_are_detected_by_cnvpr() {
