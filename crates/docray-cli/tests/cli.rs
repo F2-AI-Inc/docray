@@ -112,12 +112,9 @@ fn page_cap_exits_6() {
 }
 
 #[test]
-fn pptx_requires_element_granularity_and_supports_lean() {
-    for args in [
-        Vec::<&str>::new(),
-        vec!["--granularity", "word"],
-        vec!["--granularity", "char"],
-    ] {
+fn pptx_finer_than_element_exits_8() {
+    // PPTX only supports element granularity; asking for a finer level errors.
+    for args in [vec!["--granularity", "word"], vec!["--granularity", "char"]] {
         dps()
             .arg("extract")
             .arg(testdata("pptx/basic.pptx"))
@@ -127,7 +124,24 @@ fn pptx_requires_element_granularity_and_supports_lean() {
             .stderr(predicate::str::contains("\"granularity_unavailable\""))
             .stderr(predicate::str::contains("retry with granularity=element"));
     }
+}
 
+#[test]
+fn pptx_defaults_to_element_when_granularity_omitted() {
+    // `docray extract deck.pptx` with no flags should just work: default to the
+    // finest granularity the format supports (element), not error.
+    dps()
+        .arg("extract")
+        .arg(testdata("pptx/basic.pptx"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"format\":\"pptx\""))
+        .stdout(predicate::str::contains("\"granularity\":\"element\""))
+        .stdout(predicate::str::contains("\"text\":\"First shape\""));
+}
+
+#[test]
+fn pptx_explicit_element_and_lean_work() {
     dps()
         .arg("extract")
         .arg(testdata("pptx/basic.pptx"))
@@ -144,4 +158,13 @@ fn pptx_requires_element_granularity_and_supports_lean() {
         .assert()
         .success()
         .stdout(predicate::str::starts_with("#docray element v1.6 pages=1"));
+}
+
+#[test]
+fn version_flag_reports_the_crate_version() {
+    dps()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }

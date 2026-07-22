@@ -94,3 +94,23 @@ pre {
   font-size: 0.78em;
   opacity: 0.85;
 }
+
+/* "Built by F2 AI" footer (injected by docray.js). */
+#f2-footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 250, 240, 0.09);
+  text-align: center;
+}
+#f2-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  opacity: 0.68;
+  text-decoration: none;
+  color: inherit;
+  font-size: 0.85em;
+  transition: opacity 0.12s;
+}
+#f2-footer a:hover { opacity: 1; }
+#f2-footer img { border-radius: 5px; display: block; }
