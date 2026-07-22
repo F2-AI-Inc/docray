@@ -85,7 +85,7 @@ fn playground_pptx_source_isolation_contract() {
     assert!(html.contains("const PPTX_IFRAME_SANDBOX = \"allow-scripts\";"));
     assert!(!html.contains("allow-same-origin"));
     assert!(html.contains(
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:"
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'"
     ));
     assert!(html.contains("event.origin !== \"null\""));
     assert!(html.contains("void parent.location.href"));

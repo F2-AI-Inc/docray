@@ -41381,7 +41381,11 @@ const BROWSER_TIMEOUT_MS = 120_000;
 const PPTX_RENDER_TIMEOUT_MS = 15_000;
 const PPTX_CANVAS_BYTE_CAP = 256 * 1024 * 1024;
 const PPTX_IFRAME_SANDBOX = "allow-scripts";
-const PPTX_IFRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:";
+// base-uri and form-action do NOT fall back to default-src, so pin them
+// explicitly (belt-and-suspenders with the forms-less sandbox) to close a
+// hostile-deck <base>/form egress gap. frame-src/connect-src already inherit
+// default-src 'none'. Same-frame self-navigation is not coverable by CSP.
+const PPTX_IFRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'";
 const engines = { available: [], current: null };
 
 let workerInstance = null; // {w: Worker, busy: {reject} | null}
