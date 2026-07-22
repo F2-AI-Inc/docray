@@ -7,7 +7,7 @@ version.workspace = true
 [dependencies]
 docray-model = { path = "../docray-model" }
 docray-core = { path = "../docray-core" }
-sha2 = "0.10"
+sha2 = "0.11"
 serde_json.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
