@@ -67,7 +67,7 @@ mod tests {
             &self,
             _bytes: &[u8],
             _max_pages: Option<u32>,
-        ) -> Result<Extraction, ExtractError> {
+        ) -> Result<docray_model::Extraction, ExtractError> {
             unreachable!("capability gate tests do not extract")
         }
     }

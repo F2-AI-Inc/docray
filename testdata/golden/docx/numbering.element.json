@@ -4,8 +4,8 @@
   "layout": "flow",
   "source": {
     "format": "docx",
-    "sha256": "5b48785cae141130a807dc385aace5b8c5bc3c9d1c37d08622e8b7251b137a07",
-    "size_bytes": 2529
+    "sha256": "3b09882b227f503d030ae989ff9096cc031e39f70cda41640b0936e3ff20d050",
+    "size_bytes": 2577
   },
   "document": {
     "metadata": {
@@ -14,6 +14,7 @@
     }
   },
   "warnings": [
+    "picture bullet for numId \"12\" level 0 rendered as a bullet",
     "no pagination hints; approx_page omitted"
   ],
   "sections": [
@@ -141,6 +142,34 @@
             "level": 0,
             "kind": "ordered",
             "label": "3."
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b4",
+          "role": "body",
+          "runs": [
+            {
+              "content": "picture bullet",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "picture bullet",
+          "list": {
+            "list_id": "12",
+            "level": 0,
+            "kind": "bullet",
+            "label": "•"
           }
         }
       ]

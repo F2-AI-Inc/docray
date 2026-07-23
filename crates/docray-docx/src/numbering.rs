@@ -133,13 +133,18 @@ impl Numbering {
             .max()
             .unwrap_or(0)
             .min(8) as usize;
-        for deeper in (index + 1)..=deepest {
+        for (deeper, value) in values
+            .iter_mut()
+            .enumerate()
+            .take(deepest + 1)
+            .skip(index + 1)
+        {
             let Some(deeper_level) = resolved_level(levels, num, deeper as u32, warnings) else {
                 continue;
             };
             let trigger = deeper_level.restart.unwrap_or(deeper as u32);
             if trigger != 0 && index <= trigger.saturating_sub(1) as usize {
-                values[deeper] = None;
+                *value = None;
             }
         }
 

@@ -4,8 +4,8 @@
   "layout": "flow",
   "source": {
     "format": "docx",
-    "sha256": "cefcaf8035064974f8ff18416d9eec33fe4a70f0984736613de5bbd9dbe92cf8",
-    "size_bytes": 3466
+    "sha256": "cfb2b3a4d6cdcc45fc5039d16edc459e5002d4271698b57077176db4fb345237",
+    "size_bytes": 3755
   },
   "document": {
     "metadata": {
@@ -118,7 +118,7 @@
           "role": "body",
           "runs": [
             {
-              "content": "Body with note",
+              "content": "Body with notes",
               "font": {
                 "name": "Fixture Sans",
                 "size": 11.0
@@ -132,7 +132,7 @@
               }
             }
           ],
-          "content": "Body with note"
+          "content": "Body with notes"
         },
         {
           "type": "paragraph",
@@ -155,6 +155,28 @@
             }
           ],
           "content": "Footnote body"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b2",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Endnote body",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Endnote body"
         }
       ],
       "hidden": [
@@ -162,6 +184,11 @@
           "kind": "footnote",
           "element": "s0-b0",
           "content": "Footnote body"
+        },
+        {
+          "kind": "footnote",
+          "element": "s0-b0",
+          "content": "Endnote body"
         }
       ]
     }

@@ -31,6 +31,10 @@ fn hostile_fields_are_bounded_and_instructions_are_never_visible() {
         .warnings
         .iter()
         .any(|warning| warning.contains("field nesting depth limit")));
+    assert!(extraction.sections[0]
+        .hidden
+        .iter()
+        .any(|item| item.kind == "field" && item.content == "SECRET"));
 }
 
 #[test]

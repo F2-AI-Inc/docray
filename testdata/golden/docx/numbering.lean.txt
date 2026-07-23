@@ -1,8 +1,10 @@
-#docray element v1.7 sections=1 warnings=1
+#docray element v1.7 sections=1 warnings=2
 #legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
+#warning picture bullet for numId "12" level 0 rendered as a bullet
 #warning no pagination hints; approx_page omitted
 #section 612 792
 LI 0 o 1. one
 LI 1 o 1.a) letter
 LI 2 o 1.a.I. roman
 LI 0 o 3. restart three
+LI 0 b • picture bullet

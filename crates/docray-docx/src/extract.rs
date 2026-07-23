@@ -95,11 +95,13 @@ impl Extractor for DocxExtractor {
         let mut max_approx_page = 1_u32;
         for section in &sections {
             visit_blocks(&section.blocks, &mut |block| {
-                if let Block::Paragraph { approx_page, .. } = block {
-                    if let Some(page) = approx_page {
-                        page_hints = page_hints.max(page.saturating_sub(1));
-                        max_approx_page = max_approx_page.max(*page);
-                    }
+                if let Block::Paragraph {
+                    approx_page: Some(page),
+                    ..
+                } = block
+                {
+                    page_hints = page_hints.max(page.saturating_sub(1));
+                    max_approx_page = max_approx_page.max(*page);
                 }
             });
         }
@@ -438,6 +440,7 @@ impl FieldMachine {
         warnings: &mut Vec<String>,
     ) {
         if self.overflow > 0 {
+            push_field_hidden(target, value, hidden);
             return;
         }
         if let Some(field) = self.stack.last_mut() {
@@ -959,8 +962,7 @@ fn extract_table(
                 .and_then(|node| node.attr("val"))
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(1)
-                .max(1)
-                .min(10_000);
+                .clamp(1, 10_000);
             cols = cols.max(column.saturating_add(span));
             let vertical_merge = properties
                 .and_then(|node| node.child("vMerge"))

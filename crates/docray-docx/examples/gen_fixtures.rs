@@ -13,7 +13,7 @@ const WPS: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingS
 
 const STYLES: &str = r#"<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:asciiTheme="minorHAnsi"/><w:sz w:val="22"/><w:color w:themeColor="accent1"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="BoldBase"><w:name w:val="Bold Base"/><w:rPr><w:b/><w:rFonts w:asciiTheme="majorHAnsi"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Child"><w:name w:val="Child"/><w:basedOn w:val="BoldBase"/><w:rPr><w:i/><w:sz w:val="28"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/></w:style><w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Intense Quote"/></w:style><w:style w:type="paragraph" w:styleId="PageBreak"><w:name w:val="Page Break"/><w:pPr><w:pageBreakBefore/></w:pPr></w:style></w:styles>"#;
 
-const NUMBERING: &str = r#"<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:rPr><w:i/></w:rPr></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%1.%2)"/></w:lvl><w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="upperRoman"/><w:lvlText w:val="%1.%2.%3."/><w:lvlRestart w:val="0"/></w:lvl></w:abstractNum><w:num w:numId="10"><w:abstractNumId w:val="1"/></w:num><w:num w:numId="11"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="3"/></w:lvlOverride></w:num></w:numbering>"#;
+const NUMBERING: &str = r#"<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:rPr><w:i/></w:rPr></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%1.%2)"/></w:lvl><w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="upperRoman"/><w:lvlText w:val="%1.%2.%3."/><w:lvlRestart w:val="0"/></w:lvl></w:abstractNum><w:abstractNum w:abstractNumId="2"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="x"/><w:lvlPicBulletId w:val="7"/></w:lvl></w:abstractNum><w:num w:numId="10"><w:abstractNumId w:val="1"/></w:num><w:num w:numId="11"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="3"/></w:lvlOverride></w:num><w:num w:numId="12"><w:abstractNumId w:val="2"/></w:num></w:numbering>"#;
 
 const THEME: &str = r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:clrScheme name="Fixture"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme><a:fontScheme name="Fixture"><a:majorFont><a:latin typeface="Fixture Serif"/><a:cs typeface="Fixture Arabic"/></a:majorFont><a:minorFont><a:latin typeface="Fixture Sans"/><a:cs typeface="Fixture Arabic Sans"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>"#;
 
@@ -109,7 +109,7 @@ fn main() {
     write_docx(
         "numbering",
         &format!(
-            r#"<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr></w:pPr><w:r><w:t>one</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr></w:pPr><w:r><w:t>letter</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="2"/><w:numId w:val="10"/></w:numPr></w:pPr><w:r><w:t>roman</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr></w:pPr><w:r><w:t>restart three</w:t></w:r></w:p>{}"#,
+            r#"<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr></w:pPr><w:r><w:t>one</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr></w:pPr><w:r><w:t>letter</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="2"/><w:numId w:val="10"/></w:numPr></w:pPr><w:r><w:t>roman</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr></w:pPr><w:r><w:t>restart three</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr><w:r><w:t>picture bullet</w:t></w:r></w:p>{}"#,
             sect("")
         ),
         false,
@@ -212,13 +212,17 @@ fn main() {
         r#"<w:footnotes xmlns:w="{W}"><w:footnote w:id="2">{}</w:footnote></w:footnotes>"#,
         p("Footnote body")
     );
+    let endnotes = format!(
+        r#"<w:endnotes xmlns:w="{W}"><w:endnote w:id="3">{}</w:endnote></w:endnotes>"#,
+        p("Endnote body")
+    );
     let story_rels = format!(
-        r#"<Relationship Id="rHeader" Type="{R}/header" Target="header1.xml"/><Relationship Id="rHeaderFirst" Type="{R}/header" Target="header2.xml"/><Relationship Id="rFooter" Type="{R}/footer" Target="footer1.xml"/><Relationship Id="rFootnotes" Type="{R}/footnotes" Target="footnotes.xml"/>"#
+        r#"<Relationship Id="rHeader" Type="{R}/header" Target="header1.xml"/><Relationship Id="rHeaderFirst" Type="{R}/header" Target="header2.xml"/><Relationship Id="rFooter" Type="{R}/footer" Target="footer1.xml"/><Relationship Id="rFootnotes" Type="{R}/footnotes" Target="footnotes.xml"/><Relationship Id="rEndnotes" Type="{R}/endnotes" Target="endnotes.xml"/>"#
     );
     write_docx(
         "stories",
         &format!(
-            r#"<w:p><w:r><w:t>Body with note</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r></w:p>{}"#,
+            r#"<w:p><w:r><w:t>Body with notes</w:t></w:r><w:r><w:footnoteReference w:id="2"/><w:endnoteReference w:id="3"/></w:r></w:p>{}"#,
             sect(
                 r#"<w:headerReference w:type="default" r:id="rHeader"/><w:headerReference w:type="first" r:id="rHeaderFirst"/><w:footerReference w:type="even" r:id="rFooter"/>"#
             )
@@ -230,6 +234,7 @@ fn main() {
             ("word/header2.xml".into(), header_first.into_bytes()),
             ("word/footer1.xml".into(), footer.into_bytes()),
             ("word/footnotes.xml".into(), footnotes.into_bytes()),
+            ("word/endnotes.xml".into(), endnotes.into_bytes()),
         ],
     );
     write_docx(

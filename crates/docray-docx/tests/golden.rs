@@ -113,9 +113,14 @@ fn numbering_roles_and_restarts_are_resolved() {
             .iter()
             .map(|list| list.label.as_str())
             .collect::<Vec<_>>(),
-        ["1.", "1.a)", "1.a.I.", "3."]
+        ["1.", "1.a)", "1.a.I.", "3.", "•"]
     );
-    assert!(lists.iter().all(|list| list.kind == ListKind::Ordered));
+    assert!(lists[..4].iter().all(|list| list.kind == ListKind::Ordered));
+    assert_eq!(lists[4].kind, ListKind::Bullet);
+    assert!(extraction
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("picture bullet")));
 
     let roles = fixture("roles.docx");
     let roles: Vec<_> = roles.sections[0]
@@ -248,6 +253,9 @@ fn sections_stories_notes_breaks_and_docm_policy_are_explicit() {
         .any(|item| item.kind == "footnote"));
     assert!(stories.sections[0].blocks.iter().any(
         |block| matches!(block, Block::Paragraph { content, .. } if content == "Footnote body")
+    ));
+    assert!(stories.sections[0].blocks.iter().any(
+        |block| matches!(block, Block::Paragraph { content, .. } if content == "Endnote body")
     ));
 
     let sections = fixture("sections.docx");

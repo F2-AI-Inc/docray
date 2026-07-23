@@ -5,9 +5,11 @@
 #section 612 792
 P Header default
 P Header first
-P Body with note
+P Body with notes
 P Footnote body
+P Endnote body
 P Footer even
 <hidden>
 footnote s0-b0 Footnote body
+footnote s0-b0 Endnote body
 </hidden>
