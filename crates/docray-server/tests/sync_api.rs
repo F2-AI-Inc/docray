@@ -102,6 +102,7 @@ fn playground_pptx_source_isolation_contract() {
     assert!(html.contains("event.origin !== \"null\""));
     assert!(html.contains("void parent.location.href"));
     assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(html.contains("typeof data.renderMetafiles !== \"boolean\""));
     assert!(html.contains("state.file.arrayBuffer()"));
     assert!(html.contains("[bytes]"));
     assert!(html.contains("visual render unavailable - showing structure schematic"));
@@ -129,7 +130,9 @@ fn playground_pptx_metafile_conversion_rewrites_before_build_and_is_bounded() {
     let renderer = &html[start..end];
 
     assert!(renderer.contains("const parsed = await _$(data.bytes, fH);"));
+    assert!(renderer.contains("const convertedPngPaths = data.renderMetafiles"));
     assert!(renderer.contains("await convertPresentationMetafiles(parsed)"));
+    assert!(renderer.contains(": new Set();"));
     assert!(renderer.contains("const presentation = Ru(parsed, { lazySlides: true });"));
     assert!(renderer.contains("const viewer = new ay(root"));
     assert!(renderer.contains("viewer.load(presentation);"));
@@ -163,8 +166,8 @@ fn playground_docx_source_isolation_contract() {
     assert!(html.contains("void parent.location.href"));
     assert!(html.contains("keys.length !== 1 || keys[0] !== \"status\""));
     assert!(html.contains("parent.postMessage({ status }, \"*\")"));
-    assert!(html
-        .contains("iframe.contentWindow.postMessage({ cmd: \"render\", bytes }, \"*\", [bytes])"));
+    assert!(html.contains("typeof data.renderMetafiles !== \"boolean\""));
+    assert!(html.contains("renderMetafiles: state.renderMetafiles"));
     assert!(html.contains("visual render unavailable - showing reading-order schematic"));
     assert!(html.contains("flow content has no resolved boxes"));
     assert!(html.contains("READING ORDER - synthetic layout, not positions"));
@@ -207,11 +210,47 @@ fn playground_docx_metafile_conversion_is_honest_and_bounded() {
     assert!(!renderer.contains("maxRecords:"));
     assert!(!renderer.contains("maxCanvasDimension:"));
     assert!(renderer.contains("if (!rendered)"));
+    let opt_in_guard = renderer.find("if (!data.renderMetafiles)").unwrap();
+    let sniff_call = renderer
+        .find("const kind = sniffWindowsMetafile(buffer);")
+        .unwrap();
+    assert!(opt_in_guard < sniff_call);
     assert!(renderer.contains("showPlaceholder(img, size);"));
     assert!(renderer.contains("image not previewable in browser"));
     assert!(renderer.contains("marker.textContent = \"≈\""));
     assert!(renderer.contains("marker.title = \"approximate render — Windows metafile (EMF/WMF)\""));
     assert!(renderer.contains("marker.setAttribute(\"aria-label\", marker.title)"));
+}
+
+#[test]
+fn playground_metafile_preview_is_single_default_off_toggle() {
+    let html = include_str!("../assets/playground.html");
+
+    assert_eq!(html.matches("id=\"metafile-preview\"").count(), 1);
+    assert!(html.contains(
+        "aria-pressed=\"false\" title=\"Approximate client-side EMF/WMF rendering\">off</button>"
+    ));
+    assert!(html.contains("renderMetafiles: false,"));
+    assert!(html.contains("state.renderMetafiles = !state.renderMetafiles;"));
+    assert!(
+        html.contains("toggle.textContent = state.renderMetafiles ? \"approximate\" : \"off\";")
+    );
+    assert!(html.contains("resetPptxLiveThumbs();"));
+    assert!(html.contains("goto(state.pageIdx, state.gen);"));
+    assert!(html.contains("renderPanels(state.gen);"));
+
+    // PPTX source, PPTX live thumbnails, and DOCX source all receive the same
+    // explicit default-off state. The two iframe programs reject non-booleans.
+    assert_eq!(
+        html.matches("renderMetafiles: state.renderMetafiles")
+            .count(),
+        3
+    );
+    assert_eq!(
+        html.matches("typeof data.renderMetafiles !== \"boolean\"")
+            .count(),
+        2
+    );
 }
 
 #[test]
