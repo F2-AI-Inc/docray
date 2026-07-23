@@ -25,6 +25,8 @@ The workbench provides:
   - **source** — the rendered PDF page, or an offline visual PPTX/Word render
     inside a locked-down, null-origin browser sandbox. Word source is one
     scrollable flow; page breaks appear only where the renderer can honor them.
+    Embedded EMF/WMF images are rendered client-side when possible and carry a
+    small `≈` marker because Windows metafile previews are approximate.
   - **boxes** — the page with filled, color-coded bounding boxes
     (<span style="color:#5cc8ff">text</span>,
     <span style="color:#ff7ac2">image</span>,
@@ -58,6 +60,9 @@ for its content and authored placement constraint, when one exists.
   internet access for PDF rendering and web fonts — the extraction API itself
   does not. The PPTX and Word renderers are vendored and make no network
   requests.
+- A failed or unsupported EMF/WMF conversion remains a labeled
+  `image not previewable in browser` placeholder; it is never presented as a
+  successful render.
 - Hostile PPTX and Word visual rendering runs in an iframe with only
   `sandbox="allow-scripts"` and a `default-src 'none'` Content Security Policy.
   The parent transfers document bytes in, never reads the iframe DOM, and

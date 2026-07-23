@@ -140,11 +140,51 @@ fn playground_docx_source_isolation_contract() {
         vendored_script_sha256(html, "docx-renderer-source"),
         "051ef503f2677d53159a388b7384e950eda41ea4e47a103e5e36f124d7faea40"
     );
+    assert_eq!(
+        vendored_script_sha256(html, "emf-converter-source"),
+        "f6d1a598ebf7fb50c4eea22f652c9523ef9921386c36fcfd8f174525e01f9a1e"
+    );
+    assert!(html.contains(
+        "<script type=\"application/x-docray-emf-converter\" id=\"emf-converter-source\">"
+    ));
+    assert!(html.contains(
+        "const DOCX_EMF_CONVERTER_SOURCE = emfConverterSourceEl.textContent.slice(1, -1);"
+    ));
+    assert!(html.contains("\"<scr\" + \"ipt>\" + DOCX_EMF_CONVERTER_SOURCE + \"</scr\" + \"ipt>\""));
+    assert_eq!(html.matches("DOCX_EMF_CONVERTER_SOURCE").count(), 2);
+    assert!(!html.contains("<script src=\"emf-converter"));
+}
+
+#[test]
+fn playground_docx_metafile_conversion_is_honest_and_bounded() {
+    let html = include_str!("../assets/playground.html");
+    let start = html.find("function docxIframeMain() {").unwrap();
+    let end = html[start..].find("const docxJsZipSourceEl").unwrap() + start;
+    let renderer = &html[start..end];
+    assert!(renderer.contains("view.getUint32(40, true) === 0x464d4520"));
+    assert!(renderer.contains("magic === 0x9ac6cdd7"));
+    assert!(renderer.contains("magic === 0x00090001 || magic === 0x00090002"));
+    assert!(renderer.contains("convertEmfToDataUrl(buffer, { dpiScale: 2 })"));
+    assert!(renderer.contains("convertWmfToDataUrl(buffer, { dpiScale: 2 })"));
+    assert!(!renderer.contains("maxRecords:"));
+    assert!(!renderer.contains("maxCanvasDimension:"));
+    assert!(renderer.contains("if (!rendered)"));
+    assert!(renderer.contains("showPlaceholder(img, size);"));
+    assert!(renderer.contains("image not previewable in browser"));
+    assert!(renderer.contains("marker.textContent = \"≈\""));
+    assert!(renderer.contains("marker.title = \"approximate render — Windows metafile (EMF/WMF)\""));
+    assert!(renderer.contains("marker.setAttribute(\"aria-label\", marker.title)"));
 }
 
 #[test]
 fn playground_pptx_thumbnail_isolation_contract() {
     let html = include_str!("../assets/playground.html");
+    let thumbnail_start = html.find("const PPTX_LIVE_THUMB_MAX = 4;").unwrap();
+    let thumbnail_end = html[thumbnail_start..]
+        .find("/* ── hostile DOCX visual source renderer ──")
+        .unwrap()
+        + thumbnail_start;
+    let thumbnail_code = &html[thumbnail_start..thumbnail_end];
     assert!(html.contains("iframe.setAttribute(\"sandbox\", PPTX_IFRAME_SANDBOX);"));
     assert!(!html.contains("allow-same-origin"));
     assert!(html.contains(
@@ -157,7 +197,7 @@ fn playground_pptx_thumbnail_isolation_contract() {
     assert!(html.contains("parent.postMessage({ status }, \"*\")"));
     assert!(!html.contains("PPTX_THUMB_DATA_URL_MAX"));
     assert!(!html.contains("cmd: \"renderThumb\""));
-    assert!(!html.contains("dataUrl"));
+    assert!(!thumbnail_code.contains("dataUrl"));
     assert!(!html.contains("XMLSerializer().serializeToString"));
     assert!(!html.contains("iframe.contentDocument"));
     assert!(html.contains("state.file.arrayBuffer()"));

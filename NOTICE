@@ -20,4 +20,5 @@ including Apache ECharts 6.0.0 (Apache-2.0), JSZip 3.10.1 (MIT option), pako
 1.0.11 (MIT), and portions of d3 (BSD-3-Clause). Required notices and license
 terms are reproduced in THIRD_PARTY_NOTICES.md. The browser playground also
 vendors docx-preview 0.4.0 (Apache-2.0) and a separate JSZip 3.10.1 browser
-build (MIT option) for its isolated Word source renderer.
+build (MIT option) for its isolated Word source renderer, plus emf-converter
+2.0.0 (Apache-2.0) for approximate EMF/WMF previews inside that renderer.

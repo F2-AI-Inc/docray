@@ -13,6 +13,15 @@ See `LICENSE-APACHE`.
 Copyright Volodymyr Baydalka and contributors. Licensed under the Apache
 License, Version 2.0. See `LICENSE-APACHE`.
 
+## emf-converter 2.0.0
+
+Copyright ChristopherVR and contributors. Licensed under the Apache License,
+Version 2.0. See `LICENSE-APACHE`.
+
+Source: https://registry.npmjs.org/emf-converter/-/emf-converter-2.0.0.tgz
+
+The vendored IIFE was built from `package/dist/index.mjs` with esbuild 0.25.8.
+
 ## Apache ECharts 6.0.0
 
 Copyright 2017-2025 The Apache Software Foundation. Licensed under the Apache
