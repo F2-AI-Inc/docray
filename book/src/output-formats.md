@@ -71,6 +71,26 @@ Each page then starts with:
 #page <n> <W>x<H>[ rot=<degrees>][ scanned]
 ```
 
+Schema 1.7 flow output uses a different fixed header and records because it
+has no resolved pages or coordinates:
+
+```text
+#docray element v1.7 sections=<N>[ warnings=<K>]
+#legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
+#section 612 792
+H1 Heading text
+LI 1 o 1.a) Nested item
+TB 2 72 144
+c 0 0 1 2 Merged cell
+I 100 50
+BR section
+```
+
+`~page N` comes only from `lastRenderedPageBreak`. Headers and footers are
+written around their section body in story order. Textbox and nested-cell
+blocks recurse into the same grammar. Flow hidden items use the same bounded
+`<hidden>` block and escaping rules as paged output.
+
 Elements follow in extraction/content-stream z-order:
 
 ```text
@@ -126,6 +146,11 @@ Hidden kinds are stable contract strings:
 | `alt` | element | Shape/picture `descr`, falling back to `title` | not emitted |
 | `hidden-slide` | page | `true` when the slide has `show="0"` | not emitted |
 | `source-layer` | element | `master` or `layout` for inherited visible shapes | not emitted |
+| `field` | block | DOCX field instruction | not emitted |
+| `comment` | block | DOCX comment body | not emitted |
+| `tracked-insert` | block | DOCX accepted insertion | not emitted |
+| `tracked-delete` | block | DOCX rejected deletion | not emitted |
+| `footnote` | block | DOCX note body linked to its reference | not emitted |
 
 New hidden semantics receive new documented kind strings; these five strings
 are never repurposed or renamed.

@@ -5,6 +5,9 @@ known, not hidden.
 
 - **PPTX is element-only.** It has no character/word boxes, faithful rendering,
   or chart/SmartArt geometry. See [PowerPoint extraction](pptx.md).
+- **DOCX/DOCM is flow-only.** It has no resolved y coordinates, line boxes, or
+  trustworthy pages. Optional approximate-page hints come only from Word's
+  cached break markers. See [Word extraction](docx.md).
 - **No OCR.** Raster-only pages are *flagged* (`"scanned": true`) but their
   text is not recovered — recovering it requires OCR downstream.
 - **No semantic layer.** docray reports physical structure — it does not

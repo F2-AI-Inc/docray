@@ -1,6 +1,6 @@
 # HTTP API
 
-Endpoints accept PDF or PPTX multipart uploads and return JSON by default. Successful lean
+Endpoints accept PDF, PPTX, DOCX, or DOCM multipart uploads and return JSON by default. Successful lean
 extractions return UTF-8 text; every error — at any layer — still uses the
 same JSON envelope:
 
@@ -23,8 +23,9 @@ to the jobs API.
 
 ```bash
 curl -sf -F file=@report.pdf 'http://localhost:41619/v1/extract?granularity=element'
-# PPTX requires element granularity (or format=lean)
+# PPTX and DOCX default to element granularity
 curl -sf -F file=@deck.pptx 'http://localhost:41619/v1/extract?granularity=element'
+curl -sf -F file=@report.docx 'http://localhost:41619/v1/extract'
 ```
 
 ## Async jobs
@@ -54,7 +55,7 @@ is instance-local — see
 | 400 | `granularity_unavailable` | the requested granularity is finer than this source provides |
 | 400 | `bad_multipart` / `missing_file` | malformed upload |
 | 413 | `too_large` / `too_many_pages` | over sync caps — use jobs |
-| 415 | `unsupported_format` | not supported PDF/PPTX, or legacy/encrypted Office |
+| 415 | `unsupported_format` | not supported PDF/PPTX/DOCX/DOCM, or legacy/encrypted Office |
 | 422 | `encrypted_pdf` / `parse_failure` | unprocessable document |
 | 500 | `crash` | worker died (hostile/malformed input — contained) |
 | 500 | `output_too_large` | extraction JSON exceeded the output cap |

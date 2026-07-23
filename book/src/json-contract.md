@@ -4,6 +4,30 @@ This page documents the **lossless `char`-level contract** (schema `1.1`,
 the default when no granularity is requested). The compact shapes are
 documented in [choosing a granularity](granularity.md).
 
+DOCX/DOCM uses the separate schema `1.7` flow contract. Its envelope contains
+`layout: "flow"`, optional `approx_pages`, and `sections` instead of `pages`:
+
+```json
+{
+  "granularity": "element", "schema_version": "1.7", "layout": "flow",
+  "source": {"format": "docx", "sha256": "…", "size_bytes": 1234},
+  "document": {"metadata": {"title": "…", "author": "…"}},
+  "warnings": [], "approx_pages": null,
+  "sections": [{
+    "page_width": 612.0, "page_height": 792.0,
+    "margins": {"top": 72.0, "right": 72.0, "bottom": 72.0, "left": 72.0},
+    "headers": [], "footers": [], "blocks": []
+  }]
+}
+```
+
+Flow block types are `paragraph`, `table`, `image`, `textbox`, and `break`.
+Paragraphs contain stable block IDs, semantic roles, resolved runs, optional
+list labels and approximate-page hints, and authored breaks. Tables use
+authored column widths and merge-anchor cells. Positioned tables, images, and
+textboxes carry tagged placement constraints, never resolved bounding boxes.
+See [Word extraction](docx.md) for provenance and limits.
+
 ## Coordinate system
 
 Everything you need to place a box on a rendered page:
@@ -67,6 +91,11 @@ page. The kind namespace is stable:
 | `alt` | element | Shape/picture alternative text | not emitted |
 | `hidden-slide` | page | `true` for a slide with `show="0"` | not emitted |
 | `source-layer` | element | `master` or `layout` for inherited visible shapes | not emitted |
+| `field` | block | DOCX field instruction | not emitted |
+| `comment` | block | DOCX comment body | not emitted |
+| `tracked-insert` | block | DOCX accepted insertion | not emitted |
+| `tracked-delete` | block | DOCX rejected deletion | not emitted |
+| `footnote` | block | DOCX note linked to its reference | not emitted |
 
 ## Elements
 
@@ -203,7 +232,8 @@ links.
 
 - The no-parameter response is frozen at schema `1.1` — new fields are only
   ever additive, and granularity-shaped responses carry their own version
-  (`1.6`) and a `granularity` discriminator. PDF emits no hidden items, runs,
+  (`1.6`) and a `granularity` discriminator. Flow responses use schema `1.7`.
+  PDF emits no hidden items, runs,
   tables, or charts, so its
   no-parameter `1.1` bytes remain unchanged.
 - Element IDs, field names, and the coordinate system are load-bearing
