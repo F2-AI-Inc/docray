@@ -3,18 +3,18 @@ use std::collections::BTreeSet;
 use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
-const MAX_ENTRIES: usize = 4096;
-const MAX_ENTRY_SIZE: u64 = 64 * 1024 * 1024;
-const MAX_TOTAL_SIZE: u64 = 512 * 1024 * 1024;
-const MAX_COMPRESSION_RATIO: u64 = 200;
+pub const MAX_ENTRIES: usize = 4096;
+pub const MAX_ENTRY_SIZE: u64 = 64 * 1024 * 1024;
+pub const MAX_TOTAL_SIZE: u64 = 512 * 1024 * 1024;
+pub const MAX_COMPRESSION_RATIO: u64 = 200;
 
-pub(crate) struct Package<'a> {
+pub struct Package<'a> {
     archive: ZipArchive<Cursor<&'a [u8]>>,
     bytes_read: u64,
 }
 
 impl<'a> Package<'a> {
-    pub(crate) fn open(bytes: &'a [u8]) -> Result<Self, ExtractError> {
+    pub fn open(bytes: &'a [u8]) -> Result<Self, ExtractError> {
         let mut archive = ZipArchive::new(Cursor::new(bytes))
             .map_err(|e| ExtractError::ParseFailure(format!("invalid ZIP container: {e}")))?;
         if archive.len() > MAX_ENTRIES {
@@ -71,13 +71,13 @@ impl<'a> Package<'a> {
         })
     }
 
-    pub(crate) fn contains(&self, name: &str) -> bool {
+    pub fn contains(&self, name: &str) -> bool {
         self.archive.index_for_name(name).is_some()
     }
 
     /// Reads a single exact OPC part. Entries are never extracted to disk and
     /// callers cannot request directory prefixes or wildcard matches.
-    pub(crate) fn read(&mut self, name: &str) -> Result<Option<Vec<u8>>, ExtractError> {
+    pub fn read(&mut self, name: &str) -> Result<Option<Vec<u8>>, ExtractError> {
         let Ok(mut entry) = self.archive.by_name(name) else {
             return Ok(None);
         };
@@ -113,7 +113,7 @@ impl<'a> Package<'a> {
         Ok(Some(bytes))
     }
 
-    pub(crate) fn read_required(&mut self, name: &str) -> Result<Vec<u8>, ExtractError> {
+    pub fn read_required(&mut self, name: &str) -> Result<Vec<u8>, ExtractError> {
         self.read(name)?.ok_or_else(|| {
             ExtractError::ParseFailure(format!("required OPC part is missing: {name}"))
         })

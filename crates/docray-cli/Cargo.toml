@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 docray-model = { path = "../docray-model" }
 docray-core = { path = "../docray-core" }
+docray-ooxml = { path = "../docray-ooxml" }
 docray-pdf = { path = "../docray-pdf" }
 docray-pptx = { path = "../docray-pptx" }
 serde_json.workspace = true

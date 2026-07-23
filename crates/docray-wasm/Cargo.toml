@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 docray-core = { path = "../docray-core" }
 docray-model = { path = "../docray-model" }
+docray-ooxml = { path = "../docray-ooxml" }
 docray-pdf = { path = "../docray-pdf" }
 docray-pptx = { path = "../docray-pptx" }
 serde.workspace = true

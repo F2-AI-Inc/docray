@@ -564,6 +564,7 @@ dependencies = [
  "clap",
  "docray-core",
  "docray-model",
+ "docray-ooxml",
  "docray-pdf",
  "docray-pptx",
  "predicates",
@@ -588,6 +589,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "docray-ooxml"
+version = "0.3.1"
+dependencies = [
+ "docray-core",
+ "quick-xml",
+ "zip",
+]
+
+[[package]]
 name = "docray-pdf"
 version = "0.3.1"
 dependencies = [
@@ -605,7 +615,7 @@ version = "0.3.1"
 dependencies = [
  "docray-core",
  "docray-model",
- "quick-xml",
+ "docray-ooxml",
  "serde_json",
  "sha2",
  "zip",
@@ -635,6 +645,7 @@ version = "0.3.1"
 dependencies = [
  "docray-core",
  "docray-model",
+ "docray-ooxml",
  "docray-pdf",
  "docray-pptx",
  "serde",

@@ -1,15 +1,15 @@
-use crate::package::Package;
-use crate::xml::{parse, Node};
 use docray_core::{Capabilities, ExtractError, Extractor};
 use docray_model::{
     round3, AnnotationElement, BBox, ChartElement, ChartPoint, ChartSeries, DocMetadata,
     DocumentInfo, Element, Extraction, Font, Granularity, HiddenItem, ImageElement, Page,
     PathElement, Source, TableCell, TableElement, TextColor, TextElement, TextRun,
 };
+use docray_ooxml::{
+    parse, relationships, resolve_target, Node, Package, Relationships, EMU_PER_POINT,
+};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-const EMU_PER_POINT: f64 = 12_700.0;
 /// Fallback height for a table row with no authored height in a zero-height
 /// frame (~0.3in). Used only to keep auto-sized table content, with a warning.
 const DEFAULT_AUTO_ROW_EMU: f64 = 274_320.0;
@@ -1882,94 +1882,6 @@ fn has_geometry(shape: &Node) -> bool {
     shape.child("spPr").is_some_and(|properties| {
         properties.child("prstGeom").is_some() || properties.child("custGeom").is_some()
     })
-}
-
-#[derive(Default)]
-struct Relationships {
-    by_id: BTreeMap<String, Relationship>,
-}
-
-struct Relationship {
-    target: String,
-    kind: String,
-    external: bool,
-}
-
-impl Relationships {
-    fn get(&self, id: &str) -> Option<&Relationship> {
-        self.by_id.get(id)
-    }
-
-    fn first_internal_type(&self, suffix: &str) -> Option<&Relationship> {
-        self.by_id
-            .values()
-            .find(|relation| !relation.external && relation.kind.rsplit('/').next() == Some(suffix))
-    }
-}
-
-fn relationships(
-    package: &mut Package<'_>,
-    source_part: &str,
-) -> Result<Relationships, ExtractError> {
-    let path = rels_path(source_part);
-    let Some(bytes) = package.read(&path)? else {
-        return Ok(Relationships::default());
-    };
-    let root = parse(&bytes, &path)?;
-    let mut relationships = Relationships::default();
-    for relation in root.descendants("Relationship") {
-        let Some(id) = relation.attr("Id") else {
-            continue;
-        };
-        let Some(target) = relation.attr("Target") else {
-            continue;
-        };
-        relationships.by_id.insert(
-            id.to_string(),
-            Relationship {
-                target: target.to_string(),
-                kind: relation.attr("Type").unwrap_or_default().to_string(),
-                external: relation.attr("TargetMode") == Some("External"),
-            },
-        );
-    }
-    Ok(relationships)
-}
-
-fn rels_path(source_part: &str) -> String {
-    match source_part.rsplit_once('/') {
-        Some((directory, file)) => format!("{directory}/_rels/{file}.rels"),
-        None => format!("_rels/{source_part}.rels"),
-    }
-}
-
-fn resolve_target(source_part: &str, target: &str) -> Result<String, ExtractError> {
-    let target = target
-        .split('#')
-        .next()
-        .unwrap_or(target)
-        .replace('\\', "/");
-    let mut parts: Vec<&str> = if target.starts_with('/') {
-        Vec::new()
-    } else {
-        source_part
-            .rsplit_once('/')
-            .map_or_else(Vec::new, |(dir, _)| dir.split('/').collect())
-    };
-    for part in target.trim_start_matches('/').split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                if parts.pop().is_none() {
-                    return Err(parse_failure(format!(
-                        "relationship target escapes the package root: {target:?}"
-                    )));
-                }
-            }
-            value => parts.push(value),
-        }
-    }
-    Ok(parts.join("/"))
 }
 
 fn xml_required(package: &mut Package<'_>, path: &str) -> Result<Node, ExtractError> {
