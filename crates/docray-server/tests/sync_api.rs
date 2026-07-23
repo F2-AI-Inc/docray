@@ -1,5 +1,17 @@
 use std::time::Duration;
 
+use sha2::{Digest, Sha256};
+
+fn vendored_script_sha256(html: &str, id: &str) -> String {
+    let marker = format!("id=\"{id}\">\n");
+    let start = html.find(&marker).unwrap() + marker.len();
+    let end = html[start..].find("\n</script>").unwrap() + start;
+    Sha256::digest(&html.as_bytes()[start..end])
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 // Boots the real server binary on an ephemeral port and hits it with reqwest.
 struct TestServer {
     child: std::process::Child,
@@ -94,7 +106,40 @@ fn playground_pptx_source_isolation_contract() {
     assert!(html.contains("[bytes]"));
     assert!(html.contains("visual render unavailable - showing structure schematic"));
     assert!(html.contains("PPTX_CANVAS_BYTE_CAP = 256 * 1024 * 1024"));
-    assert!(html.contains("31cf1e39818c52395b185186229f80ecf8333db0d7bb3a06f6c0bd74b87aaad5"));
+    assert_eq!(
+        vendored_script_sha256(html, "pptx-renderer-source"),
+        "31cf1e39818c52395b185186229f80ecf8333db0d7bb3a06f6c0bd74b87aaad5"
+    );
+}
+
+#[test]
+fn playground_docx_source_isolation_contract() {
+    let html = include_str!("../assets/playground.html");
+    assert!(html.contains("iframe.title = \"Sandboxed Word visual render\";"));
+    assert!(html.contains("iframe.setAttribute(\"sandbox\", PPTX_IFRAME_SANDBOX);"));
+    assert!(!html.contains("allow-same-origin"));
+    assert!(html.contains(
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'"
+    ));
+    assert!(html.contains("event.source !== iframe.contentWindow || event.origin !== \"null\""));
+    assert!(html.contains("void parent.location.href"));
+    assert!(html.contains("keys.length !== 1 || keys[0] !== \"status\""));
+    assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(html
+        .contains("iframe.contentWindow.postMessage({ cmd: \"render\", bytes }, \"*\", [bytes])"));
+    assert!(html.contains("visual render unavailable - showing reading-order schematic"));
+    assert!(html.contains("flow content has no resolved boxes"));
+    assert!(html.contains("READING ORDER - synthetic layout, not positions"));
+    assert!(html.contains("MAX_ZIP_TOTAL_BYTES = 256 * 1024 * 1024"));
+    assert!(html.contains("MAX_CREATED_NODES = 100_000"));
+    assert_eq!(
+        vendored_script_sha256(html, "docx-jszip-source"),
+        "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e"
+    );
+    assert_eq!(
+        vendored_script_sha256(html, "docx-renderer-source"),
+        "051ef503f2677d53159a388b7384e950eda41ea4e47a103e5e36f124d7faea40"
+    );
 }
 
 #[test]

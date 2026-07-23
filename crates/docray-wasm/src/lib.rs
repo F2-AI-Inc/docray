@@ -19,7 +19,7 @@ use wasm_bindgen::prelude::*;
 
 const CFB_MAGIC: &[u8; 8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
 
-/// Extracts a PDF or PPTX entirely in WASM and returns docray JSON.
+/// Extracts PDF, PPTX, or DOCX entirely in WASM and returns docray JSON.
 ///
 /// `granularity` accepts "element", "word", "char", or the empty string for
 /// the frozen schema 1.1 response. `max_input_bytes` is a caller-selected byte
@@ -38,7 +38,7 @@ pub fn extract(
     extract_inner(bytes, granularity, max_input_bytes, max_output_bytes).map_err(WasmError::into_js)
 }
 
-/// Extracts a PDF or PPTX and returns the token-lean line format (see the docs'
+/// Extracts PDF, PPTX, or DOCX and returns the token-lean line format (see the docs'
 /// Output formats page). `granularity` accepts "element", "word", or the
 /// empty string (implies element, matching the CLI/HTTP surfaces). "char" is
 /// rejected with the stable `bad_format` error code, like everywhere else.

@@ -6,6 +6,14 @@ objects, but a layout engine computes line breaks, y positions, and pages.
 DOCX output therefore uses schema `1.7`, `layout: "flow"`, and
 `sections[].blocks[]`; it never invents y coordinates or page assignments.
 
+The playground renders the original Word file with the vendored docx-preview
+library inside a null-origin, network-disabled iframe. That source view is a
+scrollable browser interpretation, not the source of docray geometry. The
+BOXES lens shows only authored page/margin-positioned containers; ordinary
+flow blocks have no resolved boxes. X-RAY is explicitly labeled as a synthetic
+reading-order schematic, and both the schematic and text/JSON lenses cross-link
+by stable block ID. No extraction geometry is overlaid on the visual render.
+
 DOCX is element-only and defaults to that finest level:
 
 ```bash
