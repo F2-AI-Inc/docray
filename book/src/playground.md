@@ -60,9 +60,8 @@ for its content and authored placement constraint, when one exists.
   internet access for PDF rendering and web fonts — the extraction API itself
   does not. The PPTX and Word renderers are vendored and make no network
   requests.
-- A failed or unsupported EMF/WMF conversion remains a labeled
-  `image not previewable in browser` placeholder; it is never presented as a
-  successful render.
+- A failed or unsupported EMF/WMF conversion remains the renderer's labeled
+  unsupported-image placeholder; it is never presented as a successful render.
 - Hostile PPTX and Word visual rendering runs in an iframe with only
   `sandbox="allow-scripts"` and a `default-src 'none'` Content Security Policy.
   The parent transfers document bytes in, never reads the iframe DOM, and
