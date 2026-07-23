@@ -4,8 +4,8 @@
   "layout": "flow",
   "source": {
     "format": "docx",
-    "sha256": "6de66a458c1a821544dde873e4e6f8355ed10f781de566e265b5e3886f1ef98b",
-    "size_bytes": 2885
+    "sha256": "d8e1b2be5c0fea3dbea45469882891337e8b5e524f14009b181bb2bb4c3d8834",
+    "size_bytes": 2971
   },
   "document": {
     "metadata": {
@@ -14,6 +14,8 @@
     }
   },
   "warnings": [
+    "s0-b2: image media relationship is missing or broken",
+    "s0-b3: external image target was not fetched",
     "no pagination hints; approx_page omitted"
   ],
   "sections": [
@@ -51,6 +53,18 @@
             "align_h": null,
             "align_v": "center"
           }
+        },
+        {
+          "type": "image",
+          "id": "s0-b2",
+          "width": 50.0,
+          "height": 50.0
+        },
+        {
+          "type": "image",
+          "id": "s0-b3",
+          "width": 50.0,
+          "height": 50.0
         }
       ],
       "hidden": [
@@ -63,6 +77,11 @@
           "kind": "alt",
           "element": "s0-b1",
           "content": "Anchor alt"
+        },
+        {
+          "kind": "alt",
+          "element": "s0-b2",
+          "content": "Missing alt"
         }
       ]
     }

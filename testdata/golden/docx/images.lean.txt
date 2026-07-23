@@ -1,11 +1,16 @@
-#docray element v1.7 sections=1 warnings=1
+#docray element v1.7 sections=1 warnings=3
 #legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
 #legend <hidden> kind [element-id] content | non-visible document context
+#warning s0-b2: image media relationship is missing or broken
+#warning s0-b3: external image target was not fetched
 #warning no pagination hints; approx_page omitted
 #section 612 792
 I 100 50
 I 200 100
+I 50 50
+I 50 50
 <hidden>
 alt s0-b0 Inline alt
 alt s0-b1 Anchor alt
+alt s0-b2 Missing alt
 </hidden>

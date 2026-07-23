@@ -163,7 +163,9 @@ fn mc_revisions_comments_and_run_merging_never_duplicate_visible_text() {
     let mc = fixture("mc.docx");
     let serialized = serde_json::to_string(&mc).unwrap();
     assert_eq!(serialized.matches("Choice text").count(), 2); // content + run
-    assert!(!serialized.contains("Fallback text"));
+    assert_eq!(serialized.matches("VML fallback selected").count(), 2);
+    assert!(!serialized.contains("Unselected fallback"));
+    assert!(!serialized.contains("Unselected choice"));
 
     let revisions = fixture("revisions-comments.docx");
     let serialized = serde_json::to_string(&revisions.sections[0].blocks).unwrap();
@@ -222,13 +224,35 @@ fn tables_images_hyperlinks_and_authored_placement_are_preserved() {
             ..
         }
     ));
+    assert!(matches!(
+        &images.sections[0].blocks[2],
+        Block::Image {
+            content_hash: None,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &images.sections[0].blocks[3],
+        Block::Image {
+            content_hash: None,
+            ..
+        }
+    ));
+    assert!(images
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("relationship is missing or broken")));
+    assert!(images
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("external image target was not fetched")));
     assert_eq!(
         images.sections[0]
             .hidden
             .iter()
             .filter(|item| item.kind == "alt")
             .count(),
-        2
+        3
     );
 
     let hyperlinks = fixture("hyperlinks.docx");
@@ -269,7 +293,11 @@ fn sections_stories_notes_breaks_and_docm_policy_are_explicit() {
     ));
 
     let breaks = fixture("breaks.docx");
-    assert_eq!(breaks.approx_pages, Some(2));
+    assert_eq!(
+        breaks.approx_pages,
+        Some(3),
+        "a trailing rendered-page marker still advances top-level provenance"
+    );
     assert!(
         matches!(&breaks.sections[0].blocks[1], Block::Paragraph { breaks_before, .. } if breaks_before.contains(&docray_model::BreakKind::Page))
     );
@@ -301,7 +329,7 @@ fn repeated_extraction_and_max_pages_policy_are_deterministic() {
         DocxExtractor.extract(&bytes, Some(1)),
         Err(docray_core::ExtractError::TooManyPages {
             limit: 1,
-            actual: 2
+            actual: 3
         })
     ));
 

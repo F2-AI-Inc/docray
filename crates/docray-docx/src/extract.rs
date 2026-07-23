@@ -83,6 +83,7 @@ impl Extractor for DocxExtractor {
             comments,
             notes,
             warnings,
+            approx_pages: None,
         };
         let body = document
             .first_descendant("body")
@@ -91,21 +92,7 @@ impl Extractor for DocxExtractor {
         attach_section_stories(&mut sections, &document_rels, &mut context)?;
         attach_notes(&mut sections, &document_rels, &mut context)?;
 
-        let mut page_hints = 0_u32;
-        let mut max_approx_page = 1_u32;
-        for section in &sections {
-            visit_blocks(&section.blocks, &mut |block| {
-                if let Block::Paragraph {
-                    approx_page: Some(page),
-                    ..
-                } = block
-                {
-                    page_hints = page_hints.max(page.saturating_sub(1));
-                    max_approx_page = max_approx_page.max(*page);
-                }
-            });
-        }
-        let approx_pages = if page_hints == 0 {
+        let approx_pages = if context.approx_pages.is_none() {
             for section in &mut sections {
                 clear_approx_pages(&mut section.blocks);
             }
@@ -114,7 +101,7 @@ impl Extractor for DocxExtractor {
                 .push("no pagination hints; approx_page omitted".into());
             None
         } else {
-            Some(max_approx_page)
+            context.approx_pages
         };
 
         enforce_max_pages(max_pages, approx_pages, &sections, &mut context.warnings)?;
@@ -143,6 +130,7 @@ struct Context<'a, 'bytes> {
     comments: BTreeMap<String, String>,
     notes: BTreeMap<(NoteKind, String), Node>,
     warnings: Vec<String>,
+    approx_pages: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -165,6 +153,7 @@ struct StoryState {
     pending_breaks: Vec<BreakKind>,
     current_page: u32,
     block_count: usize,
+    cap_warned: bool,
 }
 
 impl StoryState {
@@ -218,23 +207,31 @@ fn extract_body(
         match child.local_name() {
             "p" => {
                 let sect_pr = child.child("pPr").and_then(|node| node.child("sectPr"));
-                let mut produced = extract_paragraph(
-                    child,
-                    rels,
-                    &mut ids,
-                    &mut state,
-                    &mut hidden,
-                    &mut refs,
-                    context,
-                    0,
-                    true,
-                )?;
-                push_blocks(&mut blocks, &mut produced, &mut state, context)?;
+                if !story_cap_reached(&mut state, context) {
+                    let mut produced = extract_paragraph(
+                        child,
+                        rels,
+                        &mut ids,
+                        &mut state,
+                        &mut hidden,
+                        &mut refs,
+                        context,
+                        0,
+                        true,
+                    )?;
+                    push_blocks(&mut blocks, &mut produced, &mut state, context)?;
+                }
                 if let Some(sect_pr) = sect_pr {
                     blocks.push(Block::Break {
                         kind: BreakKind::Section,
                     });
-                    drafts.push(make_section(blocks, hidden, refs, Some(sect_pr.clone())));
+                    drafts.push(make_section(
+                        blocks,
+                        hidden,
+                        refs,
+                        Some(sect_pr.clone()),
+                        &mut context.warnings,
+                    ));
                     section_index += 1;
                     blocks = Vec::new();
                     hidden = Vec::new();
@@ -243,10 +240,12 @@ fn extract_body(
                 }
             }
             "tbl" => {
-                let block =
-                    extract_table(child, rels, &mut ids, &mut hidden, &mut refs, context, 0)?;
-                let mut produced = vec![block];
-                push_blocks(&mut blocks, &mut produced, &mut state, context)?;
+                if !story_cap_reached(&mut state, context) {
+                    let block =
+                        extract_table(child, rels, &mut ids, &mut hidden, &mut refs, context, 0)?;
+                    let mut produced = vec![block];
+                    push_blocks(&mut blocks, &mut produced, &mut state, context)?;
+                }
             }
             "sectPr" => final_sect_pr = Some(child.clone()),
             "altChunk" | "object" | "oleObject" => context.warnings.push(format!(
@@ -257,7 +256,13 @@ fn extract_body(
         }
     }
     finish_story(&mut blocks, &mut state, context);
-    drafts.push(make_section(blocks, hidden, refs, final_sect_pr));
+    drafts.push(make_section(
+        blocks,
+        hidden,
+        refs,
+        final_sect_pr,
+        &mut context.warnings,
+    ));
     Ok(drafts)
 }
 
@@ -266,8 +271,9 @@ fn make_section(
     hidden: Vec<HiddenItem>,
     note_refs: Vec<NoteReference>,
     sect_pr: Option<Node>,
+    warnings: &mut Vec<String>,
 ) -> Section {
-    let (page_width, page_height, margins, columns) = section_geometry(sect_pr.as_ref());
+    let (page_width, page_height, margins, columns) = section_geometry(sect_pr.as_ref(), warnings);
     let mut section = Section {
         page_width,
         page_height,
@@ -324,22 +330,40 @@ fn serialize_refs(sect_pr: &Node) -> String {
         .join("\n")
 }
 
-fn section_geometry(sect_pr: Option<&Node>) -> (f64, f64, Margins, Option<u32>) {
+fn section_geometry(
+    sect_pr: Option<&Node>,
+    warnings: &mut Vec<String>,
+) -> (f64, f64, Margins, Option<u32>) {
     let size = sect_pr.and_then(|node| node.child("pgSz"));
     let margin = sect_pr.and_then(|node| node.child("pgMar"));
-    let width = twips(size.and_then(|node| node.attr("w"))).unwrap_or(612.0);
-    let height = twips(size.and_then(|node| node.attr("h"))).unwrap_or(792.0);
+    let width = twips_or_default(size, "w", 612.0, "section page width", warnings);
+    let height = twips_or_default(size, "h", 792.0, "section page height", warnings);
     let margins = Margins {
-        top: twips(margin.and_then(|node| node.attr("top"))).unwrap_or(72.0),
-        right: twips(margin.and_then(|node| node.attr("right"))).unwrap_or(72.0),
-        bottom: twips(margin.and_then(|node| node.attr("bottom"))).unwrap_or(72.0),
-        left: twips(margin.and_then(|node| node.attr("left"))).unwrap_or(72.0),
+        top: twips_or_default(margin, "top", 72.0, "section top margin", warnings),
+        right: twips_or_default(margin, "right", 72.0, "section right margin", warnings),
+        bottom: twips_or_default(margin, "bottom", 72.0, "section bottom margin", warnings),
+        left: twips_or_default(margin, "left", 72.0, "section left margin", warnings),
     };
-    let columns = sect_pr
+    let columns = match sect_pr
         .and_then(|node| node.child("cols"))
         .and_then(|node| node.attr("num"))
-        .and_then(|value| value.parse::<u32>().ok())
-        .filter(|value| *value > 1);
+    {
+        Some(value) => match value.parse::<u32>() {
+            Ok(0) => {
+                warnings.push("invalid section column count 0; default single column used".into());
+                None
+            }
+            Ok(1) => None,
+            Ok(value) => Some(value),
+            Err(_) => {
+                warnings.push(format!(
+                    "invalid section column count {value:?}; default single column used"
+                ));
+                None
+            }
+        },
+        None => None,
+    };
     (width, height, margins, columns)
 }
 
@@ -349,6 +373,11 @@ fn push_blocks(
     state: &mut StoryState,
     context: &mut Context<'_, '_>,
 ) -> Result<(), ExtractError> {
+    if state.block_count >= MAX_BLOCKS_PER_STORY {
+        story_cap_reached(state, context);
+        source.clear();
+        return Ok(());
+    }
     for mut block in source.drain(..) {
         if !state.pending_breaks.is_empty() {
             if let Block::Paragraph { breaks_before, .. } = &mut block {
@@ -367,11 +396,26 @@ fn push_blocks(
             context.warnings.push(format!(
                 "story block limit {MAX_BLOCKS_PER_STORY} exceeded; remaining content skipped"
             ));
+            state.block_count = MAX_BLOCKS_PER_STORY;
+            state.cap_warned = true;
             return Ok(());
         }
         destination.push(block);
     }
     Ok(())
+}
+
+fn story_cap_reached(state: &mut StoryState, context: &mut Context<'_, '_>) -> bool {
+    if state.block_count < MAX_BLOCKS_PER_STORY {
+        return false;
+    }
+    if !state.cap_warned {
+        context.warnings.push(format!(
+            "story block limit {MAX_BLOCKS_PER_STORY} exceeded; remaining content skipped"
+        ));
+        state.cap_warned = true;
+    }
+    true
 }
 
 fn finish_story(blocks: &mut Vec<Block>, state: &mut StoryState, context: &mut Context<'_, '_>) {
@@ -668,6 +712,7 @@ fn extract_paragraph(
                 );
                 if track_pages {
                     state.current_page = state.current_page.saturating_add(1);
+                    context.approx_pages = Some(state.current_page);
                 }
             }
             InlineEvent::Drawing(drawing) => {
@@ -938,12 +983,17 @@ fn extract_table(
         ));
     }
     let id = ids.next();
-    let col_widths: Vec<f64> = table
-        .child("tblGrid")
-        .into_iter()
-        .flat_map(|grid| grid.children_named("gridCol"))
-        .filter_map(|column| twips(column.attr("w")))
-        .collect();
+    let mut col_widths = Vec::new();
+    if let Some(grid) = table.child("tblGrid") {
+        for (index, column) in grid.children_named("gridCol").enumerate() {
+            match twips(column.attr("w")) {
+                Some(width) => col_widths.push(width),
+                None => context.warnings.push(format!(
+                    "{id}: table grid column {index} has invalid authored width and was skipped"
+                )),
+            }
+        }
+    }
     if table.child("tblGrid").is_some() && col_widths.is_empty() {
         context.warnings.push(format!(
             "{id}: table grid has no valid authored column widths"
@@ -988,6 +1038,9 @@ fn extract_table(
             let mut blocks = Vec::new();
             let mut has_nested = false;
             for child in &cell.children {
+                if story_cap_reached(&mut cell_state, context) {
+                    continue;
+                }
                 match child.local_name() {
                     "p" => {
                         let mut parsed = extract_paragraph(
@@ -1055,7 +1108,7 @@ fn extract_table(
     let placement = table
         .child("tblPr")
         .and_then(|node| node.child("tblpPr"))
-        .map(table_placement);
+        .map(|node| table_placement(node, &id, &mut context.warnings));
     Ok(Block::Table {
         id,
         col_widths,
@@ -1066,11 +1119,21 @@ fn extract_table(
     })
 }
 
-fn table_placement(node: &Node) -> Placement {
+fn table_placement(node: &Node, id: &str, warnings: &mut Vec<String>) -> Placement {
+    let x = twips_with_warning(
+        node.attr("tblpX"),
+        &format!("{id} floating table x"),
+        warnings,
+    );
+    let y = twips_with_warning(
+        node.attr("tblpY"),
+        &format!("{id} floating table y"),
+        warnings,
+    );
     Placement {
         frame: placement_frame(node.attr("horzAnchor").unwrap_or("page")),
-        x: twips(node.attr("tblpX")),
-        y: twips(node.attr("tblpY")),
+        x,
+        y,
         width: None,
         height: None,
         align_h: node.attr("tblpXSpec").map(str::to_owned),
@@ -1093,12 +1156,17 @@ fn extract_drawing(
         .or_else(|| drawing.first_descendant("inline"));
     let placement = container
         .filter(|node| node.local_name() == "anchor")
-        .map(anchor_placement);
+        .map(|node| anchor_placement(node, &mut context.warnings));
     let extent = container
         .and_then(|node| node.child("extent"))
         .or_else(|| drawing.first_descendant("extent"));
     let width = emu(extent.and_then(|node| node.attr("cx")));
     let height = emu(extent.and_then(|node| node.attr("cy")));
+    if width.is_none() || height.is_none() {
+        context
+            .warnings
+            .push("drawing extent is missing or invalid; authored size omitted".into());
+    }
 
     if let Some(textbox) = drawing.first_descendant("txbxContent") {
         let id = ids.next();
@@ -1116,6 +1184,9 @@ fn extract_drawing(
         let mut state = StoryState::default();
         let mut blocks = Vec::new();
         for child in &textbox.children {
+            if story_cap_reached(&mut state, context) {
+                continue;
+            }
             match child.local_name() {
                 "p" => {
                     let mut parsed = extract_paragraph(
@@ -1221,7 +1292,7 @@ fn drawing_part_for_rels(_rels: &Relationships) -> &'static str {
     "word/document.xml"
 }
 
-fn anchor_placement(anchor: &Node) -> Placement {
+fn anchor_placement(anchor: &Node, warnings: &mut Vec<String>) -> Placement {
     let horizontal = anchor.child("positionH");
     let vertical = anchor.child("positionV");
     let frame = horizontal
@@ -1229,14 +1300,22 @@ fn anchor_placement(anchor: &Node) -> Placement {
         .or_else(|| vertical.and_then(|node| node.attr("relativeFrom")))
         .map(placement_frame)
         .unwrap_or(PlacementFrame::Paragraph);
+    let x_node = horizontal.and_then(|node| node.child("posOffset"));
+    let y_node = vertical.and_then(|node| node.child("posOffset"));
+    let x = emu_with_warning(
+        x_node.map(|node| node.text.as_str()),
+        "anchored drawing horizontal offset",
+        warnings,
+    );
+    let y = emu_with_warning(
+        y_node.map(|node| node.text.as_str()),
+        "anchored drawing vertical offset",
+        warnings,
+    );
     Placement {
         frame,
-        x: horizontal
-            .and_then(|node| node.child("posOffset"))
-            .and_then(|node| emu(Some(node.text.as_str()))),
-        y: vertical
-            .and_then(|node| node.child("posOffset"))
-            .and_then(|node| emu(Some(node.text.as_str()))),
+        x,
+        y,
         width: None,
         height: None,
         align_h: horizontal
@@ -1384,6 +1463,9 @@ fn extract_story_part(
     for child in &root.children {
         match child.local_name() {
             "p" => {
+                if story_cap_reached(&mut state, context) {
+                    continue;
+                }
                 let mut parsed = extract_paragraph(
                     child,
                     &rels,
@@ -1398,6 +1480,9 @@ fn extract_story_part(
                 push_blocks(&mut blocks, &mut parsed, &mut state, context)?;
             }
             "tbl" => {
+                if story_cap_reached(&mut state, context) {
+                    continue;
+                }
                 let block = extract_table(
                     child,
                     &rels,
@@ -1469,6 +1554,9 @@ fn attach_notes(
             let mut nested_refs = Vec::new();
             let mut note_blocks = Vec::new();
             for child in &note.children {
+                if story_cap_reached(&mut state, context) {
+                    continue;
+                }
                 match child.local_name() {
                     "p" => {
                         let mut parsed = extract_paragraph(
@@ -1643,7 +1731,19 @@ fn enforce_max_pages(
     warnings.push("max_pages approximated as block cap for flow documents".into());
     let blocks: usize = sections
         .iter()
-        .map(|section| section.blocks.iter().map(count_blocks).sum::<usize>())
+        .map(|section| {
+            section.blocks.iter().map(count_blocks).sum::<usize>()
+                + section
+                    .headers
+                    .iter()
+                    .chain(&section.footers)
+                    .map(|story| match story {
+                        Story::Default { blocks }
+                        | Story::First { blocks }
+                        | Story::Even { blocks } => blocks.iter().map(count_blocks).sum::<usize>(),
+                    })
+                    .sum::<usize>()
+        })
         .sum();
     let cap = (limit as usize).saturating_mul(200);
     if blocks > cap {
@@ -1662,21 +1762,6 @@ fn count_blocks(block: &Block) -> usize {
             .map(count_blocks)
             .sum(),
         _ => 0,
-    }
-}
-
-fn visit_blocks(blocks: &[Block], visitor: &mut impl FnMut(&Block)) {
-    for block in blocks {
-        visitor(block);
-        match block {
-            Block::Textbox { blocks, .. } => visit_blocks(blocks, visitor),
-            Block::Table { cells, .. } => {
-                for nested in cells.iter().flat_map(|cell| cell.blocks.iter().flatten()) {
-                    visit_blocks(std::slice::from_ref(nested), visitor);
-                }
-            }
-            _ => {}
-        }
     }
 }
 
@@ -1702,11 +1787,58 @@ fn twips(value: Option<&str>) -> Option<f64> {
         .map(|value| round3(value / TWIPS_PER_POINT))
 }
 
+fn twips_or_default(
+    node: Option<&Node>,
+    attribute: &str,
+    default: f64,
+    label: &str,
+    warnings: &mut Vec<String>,
+) -> f64 {
+    let Some(value) = node.and_then(|node| node.attr(attribute)) else {
+        return default;
+    };
+    match twips(Some(value)) {
+        Some(value) => value,
+        None => {
+            warnings.push(format!(
+                "invalid {label} {value:?}; default {default}pt used"
+            ));
+            default
+        }
+    }
+}
+
+fn twips_with_warning(value: Option<&str>, label: &str, warnings: &mut Vec<String>) -> Option<f64> {
+    let value = value?;
+    match twips(Some(value)) {
+        Some(value) => Some(value),
+        None => {
+            warnings.push(format!(
+                "invalid {label} {value:?}; authored offset omitted"
+            ));
+            None
+        }
+    }
+}
+
 fn emu(value: Option<&str>) -> Option<f64> {
     value
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite())
         .map(|value| round3(value / EMU_PER_POINT))
+}
+
+fn emu_with_warning(value: Option<&str>, label: &str, warnings: &mut Vec<String>) -> Option<f64> {
+    let value = value?;
+    match emu(Some(value)) {
+        Some(value) => Some(value),
+        None => {
+            warnings.push(format!(
+                "invalid {label} {value:?}; authored offset omitted"
+            ));
+            None
+        }
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {

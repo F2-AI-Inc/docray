@@ -4,8 +4,8 @@
   "layout": "flow",
   "source": {
     "format": "docx",
-    "sha256": "8142cf567173ffaa6eaa21d4928714458fb4a8f2a2a04d509b3b023967ba4ae5",
-    "size_bytes": 2575
+    "sha256": "35f6b8346f81fe6d14b53bf372ae0fc7b033694ba93bb70596508f0e1f2be508",
+    "size_bytes": 2578
   },
   "document": {
     "metadata": {
@@ -13,7 +13,7 @@
       "author": "Fixture Author"
     }
   },
-  "approx_pages": 2,
+  "approx_pages": 3,
   "sections": [
     {
       "page_width": 612.0,

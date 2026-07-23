@@ -139,9 +139,11 @@ fn main() {
     write_docx(
         "mc",
         &format!(
-            r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wps:txbx><w:txbxContent>{}</w:txbxContent></wps:txbx></w:drawing></mc:Choice><mc:Fallback><w:pict><v:shape><v:textbox><w:txbxContent>{}</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>{}"#,
+            r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:positionH relativeFrom="margin"><wp:posOffset>127000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>254000</wp:posOffset></wp:positionV><wp:extent cx="1270000" cy="635000"/><wps:txbx><w:txbxContent>{}</w:txbxContent></wps:txbx></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:shape><v:textbox><w:txbxContent>{}</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p><w:p><w:r><mc:AlternateContent><mc:Choice Requires="unsupported">{}</mc:Choice><mc:Fallback><w:pict><v:shape><v:textbox><w:txbxContent>{}</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>{}"#,
             p("Choice text"),
-            p("Fallback text"),
+            p("Unselected fallback"),
+            p("Unselected choice"),
+            p("VML fallback selected"),
             sect("")
         ),
         false,
@@ -163,12 +165,13 @@ fn main() {
         "",
         vec![],
     );
-    let image_rels =
-        format!(r#"<Relationship Id="rImg" Type="{R}/image" Target="media/image1.png"/>"#);
+    let image_rels = format!(
+        r#"<Relationship Id="rImg" Type="{R}/image" Target="media/image1.png"/><Relationship Id="rExternal" Type="{R}/image" Target="https://example.test/image.png" TargetMode="External"/>"#
+    );
     write_docx(
         "images",
         &format!(
-            r#"<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><wp:docPr id="1" name="Inline" descr="Inline alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:positionH relativeFrom="page"><wp:posOffset>254000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV><wp:extent cx="2540000" cy="1270000"/><wp:docPr id="2" name="Anchor" descr="Anchor alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>{}"#,
+            r#"<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><wp:docPr id="1" name="Inline" descr="Inline alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:positionH relativeFrom="page"><wp:posOffset>254000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV><wp:extent cx="2540000" cy="1270000"/><wp:docPr id="2" name="Anchor" descr="Anchor alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="635000" cy="635000"/><wp:docPr id="3" name="Missing" descr="Missing alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rMissing"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="635000" cy="635000"/><wp:docPr id="4" name="External"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rExternal"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>{}"#,
             sect("")
         ),
         false,
@@ -252,7 +255,7 @@ fn main() {
     write_docx(
         "breaks",
         &format!(
-            r#"<w:p><w:r><w:t>before</w:t><w:br w:type="page"/><w:t>after page</w:t><w:lastRenderedPageBreak/><w:t>after hint</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="PageBreak"/></w:pPr><w:r><w:t>style break</w:t><w:br w:type="column"/></w:r></w:p>{}"#,
+            r#"<w:p><w:r><w:t>before</w:t><w:br w:type="page"/><w:t>after page</w:t><w:lastRenderedPageBreak/><w:t>after hint</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="PageBreak"/></w:pPr><w:r><w:t>style break</w:t><w:br w:type="column"/><w:lastRenderedPageBreak/></w:r></w:p>{}"#,
             sect("")
         ),
         false,

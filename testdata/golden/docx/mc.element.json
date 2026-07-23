@@ -4,8 +4,8 @@
   "layout": "flow",
   "source": {
     "format": "docx",
-    "sha256": "e378ccf7c23ed50019a2d1578112838a41d153003aa031a2465cf78aa1e93d5e",
-    "size_bytes": 2609
+    "sha256": "0801b9af3fd6691b149a039f0c054bc6d6c7da068514fac2c83641471309e026",
+    "size_bytes": 2765
   },
   "document": {
     "metadata": {
@@ -14,6 +14,7 @@
     }
   },
   "warnings": [
+    "drawing extent is missing or invalid; authored size omitted",
     "no pagination hints; approx_page omitted"
   ],
   "sections": [
@@ -32,6 +33,15 @@
         {
           "type": "textbox",
           "id": "s0-b0",
+          "placement": {
+            "frame": "margin",
+            "x": 10.0,
+            "y": 20.0,
+            "width": 100.0,
+            "height": 50.0,
+            "align_h": null,
+            "align_v": null
+          },
           "blocks": [
             {
               "type": "paragraph",
@@ -54,6 +64,34 @@
                 }
               ],
               "content": "Choice text"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "id": "s0-b1",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "id": "s0-b1-b0",
+              "role": "body",
+              "runs": [
+                {
+                  "content": "VML fallback selected",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ],
+              "content": "VML fallback selected"
             }
           ]
         }
