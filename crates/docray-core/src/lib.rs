@@ -5,7 +5,7 @@ mod sniff;
 pub use error::ExtractError;
 pub use sniff::{sniff_format, Format};
 
-use docray_model::{Extraction, Granularity};
+use docray_model::Granularity;
 
 /// Capabilities of an extraction backend. Keeping this extensible as a struct
 /// allows future independent capability axes without changing the trait method.
@@ -23,9 +23,11 @@ pub enum GeometryKind {
 }
 
 pub trait Extractor {
+    type Output;
+
     fn capabilities(&self) -> Capabilities;
 
-    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Extraction, ExtractError>;
+    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Self::Output, ExtractError>;
 }
 
 /// Rejects a request that needs a finer hierarchy than an extractor provides.
@@ -52,6 +54,8 @@ mod tests {
     struct ElementExtractor;
 
     impl Extractor for ElementExtractor {
+        type Output = docray_model::Extraction;
+
         fn capabilities(&self) -> Capabilities {
             Capabilities {
                 finest_granularity: Granularity::Element,

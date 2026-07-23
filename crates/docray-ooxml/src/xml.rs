@@ -22,6 +22,7 @@ pub struct Node {
     pub text: String,
     namespace_uri: Option<String>,
     attr_namespace_uris: BTreeMap<String, String>,
+    in_scope_namespaces: Namespaces,
 }
 
 impl Node {
@@ -51,6 +52,10 @@ impl Node {
                 && self.attr_namespace_uris.get(key).map(String::as_str) == Some(namespace_uri))
             .then_some(value.as_str())
         })
+    }
+
+    pub fn namespace_uri_for_prefix(&self, prefix: &str) -> Option<&str> {
+        self.in_scope_namespaces.get(prefix).map(String::as_str)
     }
 
     pub fn child(&self, local: &str) -> Option<&Node> {
@@ -196,7 +201,89 @@ fn make_node(name: String, attrs: BTreeMap<String, String>, namespaces: &Namespa
         text: String::new(),
         namespace_uri,
         attr_namespace_uris,
+        in_scope_namespaces: namespaces.clone(),
     }
+}
+
+/// Resolves `mc:AlternateContent` before format-specific extraction. A chosen
+/// branch is flattened into the parent exactly once; unsupported constructs
+/// therefore cannot leak both Choice and Fallback text into visible output.
+pub fn preprocess_alternate_content(
+    root: &Node,
+    supported_namespace_uris: &[&str],
+    max_depth: usize,
+    warnings: &mut Vec<String>,
+) -> Node {
+    let supported: std::collections::BTreeSet<&str> =
+        supported_namespace_uris.iter().copied().collect();
+    let mut nodes = preprocess_node(root, &supported, 0, max_depth, warnings);
+    nodes.pop().unwrap_or_else(|| {
+        let mut empty = root.clone();
+        empty.children.clear();
+        empty
+    })
+}
+
+fn preprocess_node(
+    node: &Node,
+    supported: &std::collections::BTreeSet<&str>,
+    mc_depth: usize,
+    max_depth: usize,
+    warnings: &mut Vec<String>,
+) -> Vec<Node> {
+    const MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+    if node.local_name() == "AlternateContent" && node.namespace_uri() == Some(MC) {
+        if mc_depth >= max_depth {
+            warnings.push(format!(
+                "markup-compatibility nesting depth limit {max_depth} exceeded; subtree skipped"
+            ));
+            return Vec::new();
+        }
+        let choice = node.children.iter().find(|candidate| {
+            if candidate.local_name() != "Choice" || candidate.namespace_uri() != Some(MC) {
+                return false;
+            }
+            let Some(requires) = candidate.attr("Requires") else {
+                return false;
+            };
+            let mut any = false;
+            for prefix in requires.split_whitespace() {
+                any = true;
+                let Some(uri) = candidate.namespace_uri_for_prefix(prefix) else {
+                    return false;
+                };
+                if !supported.contains(uri) {
+                    return false;
+                }
+            }
+            any
+        });
+        let selected = choice.or_else(|| {
+            node.children.iter().find(|candidate| {
+                candidate.local_name() == "Fallback" && candidate.namespace_uri() == Some(MC)
+            })
+        });
+        let Some(selected) = selected else {
+            warnings.push(
+                "markup-compatibility AlternateContent has no supported Choice or Fallback; subtree skipped"
+                    .into(),
+            );
+            return Vec::new();
+        };
+        return selected
+            .children
+            .iter()
+            .flat_map(|child| preprocess_node(child, supported, mc_depth + 1, max_depth, warnings))
+            .collect();
+    }
+
+    let mut clone = node.clone();
+    clone.children = node
+        .children
+        .iter()
+        .flat_map(|child| preprocess_node(child, supported, mc_depth, max_depth, warnings))
+        .collect();
+    vec![clone]
 }
 
 fn namespaces_for_element(

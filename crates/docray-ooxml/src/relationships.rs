@@ -2,11 +2,12 @@ use crate::{parse, Package};
 use docray_core::ExtractError;
 use std::collections::BTreeMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Relationships {
     by_id: BTreeMap<String, Relationship>,
 }
 
+#[derive(Clone)]
 pub struct Relationship {
     pub target: String,
     pub kind: String,

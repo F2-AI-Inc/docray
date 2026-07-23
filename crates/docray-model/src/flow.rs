@@ -87,6 +87,7 @@ pub enum Block {
         rows: usize,
         cols: usize,
         cells: Vec<FlowTableCell>,
+        placement: Option<Placement>,
     },
     Image {
         id: String,
@@ -236,6 +237,8 @@ pub enum CompactBlock {
         rows: usize,
         cols: usize,
         cells: Vec<CompactFlowTableCell>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        placement: Option<Placement>,
     },
     Image {
         id: String,
@@ -356,6 +359,7 @@ fn compact_block(block: &Block) -> CompactBlock {
             rows,
             cols,
             cells,
+            placement,
         } => CompactBlock::Table {
             id: id.clone(),
             col_widths: col_widths
@@ -365,6 +369,7 @@ fn compact_block(block: &Block) -> CompactBlock {
             rows: *rows,
             cols: *cols,
             cells: cells.iter().map(compact_cell).collect(),
+            placement: placement.as_ref().map(compact_placement),
         },
         Block::Image {
             id,
