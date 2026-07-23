@@ -384,7 +384,7 @@
       <option value="element">element — compact</option>
     </select>
   </div>
-  <div class="ctl">
+  <div class="ctl" id="metafile-preview-ctl" style="display:none">
     <label for="metafile-preview">metafile preview</label>
     <button class="btn metafile-toggle" id="metafile-preview" type="button"
             aria-pressed="false" title="Approximate client-side EMF/WMF rendering">off</button>
@@ -46493,6 +46493,7 @@ const state = {
   extraction: null, pdf: null, format: null,
   pageIdx: 0, zoom: 1,
   renderMetafiles: false,
+  hasMetafiles: false,
   filters: new Set(TYPES),
   panelModes: ["source", "boxes"],
   renderCache: new Map(), // "pageNo@zoom@fit" -> {canvas, cssW, cssH, k}
@@ -46541,7 +46542,7 @@ $("#drop").onclick = () => $("#file").click();
 $("#file").onchange = e => {
   const f = e.target.files[0];
   e.target.value = ""; // allow re-selecting the same file after a failure
-  if (f) load(f);
+  if (f) load(f, undefined, true);
 };
 ["dragover", "dragenter"].forEach(ev =>
   document.addEventListener(ev, e => { e.preventDefault(); $("#drop").classList.add("armed"); }));
@@ -46549,7 +46550,7 @@ $("#file").onchange = e => {
   document.addEventListener(ev, e => { e.preventDefault(); $("#drop").classList.remove("armed"); }));
 document.addEventListener("drop", e => {
   const f = e.dataTransfer && e.dataTransfer.files[0];
-  if (f) load(f);
+  if (f) load(f, undefined, true);
 });
 $("#gran").onchange = () => { if (state.file) load(state.file, state.pageIdx); };
 $("#metafile-preview").onclick = () => {
@@ -46566,6 +46567,27 @@ $("#metafile-preview").onclick = () => {
     renderPanels(state.gen);
   }
 };
+
+function setMetafilePreviewVisible(visible) {
+  $("#metafile-preview-ctl").style.display = visible ? "" : "none";
+}
+
+function updateMetafileAvailability(gen, available) {
+  if (gen !== state.gen || typeof available !== "boolean") return;
+  state.hasMetafiles = available;
+  setMetafilePreviewVisible(available);
+}
+
+function isBoundedRendererStatus(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const keys = Object.keys(data);
+  if (keys.length < 1 || keys.some(key =>
+    key !== "status" && key !== "message" && key !== "metafiles")) return false;
+  return ["ready", "rendered", "error"].includes(data.status) &&
+    (data.message === undefined ||
+      (typeof data.message === "string" && data.message.length <= 160)) &&
+    (data.metafiles === undefined || typeof data.metafiles === "boolean");
+}
 
 async function sniffFileFormat(file) {
   const bytes = new Uint8Array(await file.slice(0, 1028).arrayBuffer());
@@ -46760,8 +46782,10 @@ const enginesReady = probeEngines();
 
 let inflight = null;
 
-async function load(file, keepPageIdx) {
+async function load(file, keepPageIdx, newUpload = false) {
   const gen = ++state.gen;
+  const replacesDocument = newUpload || file !== state.file;
+  if (newUpload) setMetafilePreviewVisible(false);
   // A generation owns every hostile-deck iframe. Tear live thumbnails down
   // immediately, even if this upload later fails and the retained document is
   // rebuilt, so no old frame can outlive an upload or engine switch.
@@ -46850,6 +46874,10 @@ async function load(file, keepPageIdx) {
   state.leanCache = {}; // canonical lean bytes, keyed by granularity
   state.pdf = pdf;
   state.format = format;
+  if (replacesDocument) {
+    state.hasMetafiles = false;
+    setMetafilePreviewVisible(false);
+  }
   const viewCount = flow ? extraction.sections.length : extraction.pages.length;
   state.pageIdx = Math.min(keepPageIdx || 0, Math.max(viewCount - 1, 0));
   state.zoom = 1;
@@ -46897,6 +46925,7 @@ function fmtBytes(n) {
 function restoreRetainedDocument(gen) {
   if (!state.extraction || (!state.pdf && state.format !== "pptx" && !isFlowExtraction()) ||
       gen !== state.gen) return;
+  setMetafilePreviewVisible(state.hasMetafiles);
   buildRail(gen);
   goto(state.pageIdx, gen);
 }
@@ -47153,10 +47182,7 @@ function ensurePptxLiveThumb(index, gen) {
   entry.onMessage = async event => {
     if (event.source !== iframe.contentWindow || event.origin !== "null" || entry.closed) return;
     const data = event.data;
-    if (!data || typeof data !== "object" || Array.isArray(data)) return;
-    const keys = Object.keys(data);
-    if (keys.length !== 1 || keys[0] !== "status" ||
-        !["ready", "rendered", "error"].includes(data.status)) return;
+    if (!isBoundedRendererStatus(data)) return;
     if (data.status === "ready") {
       if (entry.ready || entry.bytesPosted) return;
       entry.ready = true;
@@ -47176,6 +47202,7 @@ function ensurePptxLiveThumb(index, gen) {
         failPptxLiveThumb(entry, false);
       }
     } else if (data.status === "rendered") {
+      updateMetafileAvailability(gen, data.metafiles);
       entry.rendered = true;
       clearTimeout(entry.timer);
       removeEventListener("message", entry.onMessage);
@@ -47295,10 +47322,10 @@ function pptxIframeMain() {
   let replied = false;
   let renderStarted = false;
 
-  function reply(status) {
+  function reply(status, metafiles) {
     if (replied && status !== "error") return;
     if (status === "rendered" || status === "error") replied = true;
-    parent.postMessage({ status }, "*");
+    parent.postMessage(metafiles === undefined ? { status } : { status, metafiles }, "*");
   }
 
   // A correctly sandboxed srcdoc has an opaque/null origin. If this probe can
@@ -47526,6 +47553,8 @@ function pptxIframeMain() {
     const timer = setTimeout(() => controller.abort(), RENDER_TIMEOUT_MS);
     try {
       const parsed = await _$(data.bytes, fH);
+      const metafiles = [...parsed.media.keys()].some(path =>
+        /^ppt\/media\/.*\.(?:emf|wmf)$/i.test(normalizePackagePath(path)));
       const convertedPngPaths = data.renderMetafiles
         ? await convertPresentationMetafiles(parsed)
         : new Set();
@@ -47543,7 +47572,7 @@ function pptxIframeMain() {
         markApproximateMetafileRender(root);
       }
       clearTimeout(timer);
-      reply("rendered");
+      reply("rendered", metafiles);
     } catch (_) {
       clearTimeout(timer);
       reply("error");
@@ -47686,12 +47715,7 @@ function renderPptxSource(panelIndex, body, pageJson, gen, req, pageIndex, fitWi
     const onMessage = async event => {
       if (event.source !== iframe.contentWindow || event.origin !== "null" || settled) return;
       const data = event.data;
-      if (!data || typeof data !== "object" || Array.isArray(data)) return;
-      const keys = Object.keys(data);
-      if (keys.some(key => key !== "status" && key !== "message") ||
-          typeof data.status !== "string" ||
-          (data.message !== undefined &&
-            (typeof data.message !== "string" || data.message.length > 160))) return;
+      if (!isBoundedRendererStatus(data)) return;
       if (data.status === "ready") {
         if (bytesPosted) return;
         bytesPosted = true;
@@ -47710,6 +47734,7 @@ function renderPptxSource(panelIndex, body, pageJson, gen, req, pageIndex, fitWi
           fallback();
         }
       } else if (data.status === "rendered") {
+        updateMetafileAvailability(gen, data.metafiles);
         if (isCurrent()) loading.remove();
         finish();
       } else if (data.status === "error") {
@@ -47739,10 +47764,10 @@ function docxIframeMain() {
   let replied = false;
   let renderStarted = false;
 
-  function reply(status) {
+  function reply(status, metafiles) {
     if (replied && status !== "error") return;
     if (status === "rendered" || status === "error") replied = true;
-    parent.postMessage({ status }, "*");
+    parent.postMessage(metafiles === undefined ? { status } : { status, metafiles }, "*");
   }
 
   // A correctly sandboxed srcdoc has an opaque/null origin. If this probe can
@@ -47885,17 +47910,19 @@ function docxIframeMain() {
         box.textContent = "image not previewable in browser";
         img.replaceWith(box);
       };
+      let metafiles = false;
       const markBrokenImage = async img => {
         if (img.dataset.docrayPlaceholder || img.dataset.docrayMetafilePending) return;
         const size = imageSize(img);
-        if (!data.renderMetafiles) {
-          showPlaceholder(img, size);
-          return;
-        }
-        img.dataset.docrayMetafilePending = "1";
         try {
           const buffer = decodeBase64DataUrl(img.getAttribute("src") || img.src);
           const kind = sniffWindowsMetafile(buffer);
+          if (kind) metafiles = true;
+          if (!data.renderMetafiles || !kind) {
+            showPlaceholder(img, size);
+            return;
+          }
+          img.dataset.docrayMetafilePending = "1";
           let rendered = null;
           if (kind === "emf") {
             rendered = await globalThis.EMFC.convertEmfToDataUrl(buffer, { dpiScale: 2 });
@@ -47928,6 +47955,8 @@ function docxIframeMain() {
       };
       const immediateConversions = [];
       for (const img of document.querySelectorAll("img")) {
+        const buffer = decodeBase64DataUrl(img.getAttribute("src") || img.src);
+        if (sniffWindowsMetafile(buffer)) metafiles = true;
         if (img.complete && img.naturalWidth === 0) immediateConversions.push(markBrokenImage(img));
         else if (!img.complete) {
           img.addEventListener("error", () => { void markBrokenImage(img); }, { once: true });
@@ -47935,7 +47964,7 @@ function docxIframeMain() {
       }
       await Promise.all(immediateConversions);
       clearTimeout(timer);
-      if (!replied) reply("rendered");
+      if (!replied) reply("rendered", metafiles);
     } catch (_) {
       clearTimeout(timer);
       reply("error");
@@ -48060,10 +48089,7 @@ function renderDocxSource(panelIndex, body, section, gen, req, sectionIndex, fit
     const onMessage = async event => {
       if (event.source !== iframe.contentWindow || event.origin !== "null" || settled) return;
       const data = event.data;
-      if (!data || typeof data !== "object" || Array.isArray(data)) return;
-      const keys = Object.keys(data);
-      if (keys.length !== 1 || keys[0] !== "status" ||
-          !["ready", "rendered", "error"].includes(data.status)) return;
+      if (!isBoundedRendererStatus(data)) return;
       if (data.status === "ready") {
         if (bytesPosted) return;
         bytesPosted = true;
@@ -48079,6 +48105,7 @@ function renderDocxSource(panelIndex, body, section, gen, req, sectionIndex, fit
           fallback();
         }
       } else if (data.status === "rendered") {
+        updateMetafileAvailability(gen, data.metafiles);
         if (isCurrent()) loading.remove();
         finish();
       } else {
