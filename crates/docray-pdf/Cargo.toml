@@ -24,4 +24,4 @@ pdfium-render = "=0.8.37"
 pdfium-render = { version = "=0.8.37", default-features = false, features = ["pdfium_7543"] }
 
 [dev-dependencies]
-lopdf = "0.34"
+lopdf = "0.44"
