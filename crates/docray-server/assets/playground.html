@@ -42616,6 +42616,13 @@ function docxIframeMain() {
         renderAltChunks: false,
         debug: false,
       });
+      // docx-preview emits a live DOM including <a href> from document rels.
+      // CSP does not govern navigations, so a clicked hyperlink would navigate
+      // the frame to an attacker URL (viewer-IP beacon). Neutralize every
+      // anchor post-render: links stay visible/styled but inert.
+      for (const anchor of document.querySelectorAll("a[href]")) {
+        anchor.removeAttribute("href");
+      }
       clearTimeout(timer);
       if (!replied) reply("rendered");
     } catch (_) {
@@ -42979,8 +42986,8 @@ async function renderFlowPanel(i, gen, mode, body, section) {
       const placement = block.placement
         ? `<div class="geo">authored placement constraint · ${escapeHtml(JSON.stringify(block.placement))}</div>`
         : '<div class="geo">flow order only · no resolved box</div>';
-      return `<div class="tv-el${state.filters.has(block.type) ? "" : " hid"}" data-t="${block.type}" data-block-id="${escapeHtml(block.id || "")}">
-        <div class="meta" style="color: var(--c-${block.type})">${block.type}${block.id ? " · " + escapeHtml(block.id) : ""}${block.role ? " · " + escapeHtml(block.role) : ""}</div>
+      return `<div class="tv-el${state.filters.has(block.type) ? "" : " hid"}" data-t="${escapeHtml(block.type)}" data-block-id="${escapeHtml(block.id || "")}">
+        <div class="meta" style="color: var(--c-${escapeHtml(block.type)})">${escapeHtml(block.type)}${block.id ? " · " + escapeHtml(block.id) : ""}${block.role ? " · " + escapeHtml(block.role) : ""}</div>
         ${text ? `<div class="body">${escapeHtml(text)}</div>` : ""}${placement}</div>`;
     }).join("") || '<p style="color:var(--fg-dim)">no blocks in this section</p>'}</div>`;
     body.querySelectorAll(".tv-el[data-block-id]").forEach(entry => {
@@ -43629,7 +43636,7 @@ function flowTip(ev, block) {
     ? "authored placement constraint · " + JSON.stringify(block.placement)
     : "flow order only · no resolved box";
   t.innerHTML = `
-    <div class="t-type" style="color: var(--c-${block.type})">${block.type}${block.id ? " · " + escapeHtml(block.id) : ""}</div>
+    <div class="t-type" style="color: var(--c-${escapeHtml(block.type)})">${escapeHtml(block.type)}${block.id ? " · " + escapeHtml(block.id) : ""}</div>
     ${content ? `<div class="t-body">${escapeHtml(String(content).slice(0, 220))}</div>` : ""}
     <div class="t-geo">${escapeHtml(placement)}</div>`;
   t.style.display = "block";
