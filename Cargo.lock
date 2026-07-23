@@ -563,6 +563,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "docray-core",
+ "docray-docx",
  "docray-model",
  "docray-ooxml",
  "docray-pdf",
@@ -578,6 +579,18 @@ dependencies = [
  "docray-model",
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "docray-docx"
+version = "0.3.1"
+dependencies = [
+ "docray-core",
+ "docray-model",
+ "docray-ooxml",
+ "serde_json",
+ "sha2",
+ "zip",
 ]
 
 [[package]]
@@ -644,6 +657,7 @@ name = "docray-wasm"
 version = "0.3.1"
 dependencies = [
  "docray-core",
+ "docray-docx",
  "docray-model",
  "docray-ooxml",
  "docray-pdf",

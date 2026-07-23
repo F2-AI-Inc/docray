@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 docray-core = { path = "../docray-core" }
+docray-docx = { path = "../docray-docx" }
 docray-model = { path = "../docray-model" }
 docray-ooxml = { path = "../docray-ooxml" }
 docray-pdf = { path = "../docray-pdf" }

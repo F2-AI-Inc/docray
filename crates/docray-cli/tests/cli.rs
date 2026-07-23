@@ -161,6 +161,40 @@ fn pptx_explicit_element_and_lean_work() {
 }
 
 #[test]
+fn docx_defaults_to_element_rejects_finer_and_supports_lean() {
+    dps()
+        .arg("extract")
+        .arg(testdata("docx/fields.docx"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\":\"1.7\""))
+        .stdout(predicate::str::contains("\"layout\":\"flow\""))
+        .stdout(predicate::str::contains("Cached heading"))
+        .stdout(predicate::str::contains("instrText").not());
+
+    for granularity in ["word", "char"] {
+        dps()
+            .arg("extract")
+            .arg(testdata("docx/fields.docx"))
+            .args(["--granularity", granularity])
+            .assert()
+            .code(8)
+            .stderr(predicate::str::contains("\"granularity_unavailable\""));
+    }
+
+    dps()
+        .arg("extract")
+        .arg(testdata("docx/fields.docx"))
+        .args(["--format", "lean"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(
+            "#docray element v1.7 sections=1",
+        ))
+        .stdout(predicate::str::contains("Cached heading"));
+}
+
+#[test]
 fn closed_stdout_pipe_is_quiet_success_not_a_panic() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_docray"))
         .env(

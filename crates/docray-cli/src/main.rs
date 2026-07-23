@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use docray_core::{check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format};
-use docray_model::{Extraction, GranularExtraction, Granularity, OutputFormat};
+use docray_docx::DocxExtractor;
+use docray_model::{Extraction, FlowExtraction, GranularExtraction, Granularity, OutputFormat};
 use docray_ooxml::{sniff_opc, OpcKind};
 use docray_pdf::PdfExtractor;
 use docray_pptx::PptxExtractor;
@@ -15,34 +16,47 @@ const CFB_MAGIC: &[u8; 8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
 enum Backend {
     Pdf,
     Pptx,
-    Zip,
+    Docx,
 }
 
 impl Backend {
     fn capabilities(&self) -> Capabilities {
         match self {
             Backend::Pdf => PdfExtractor.capabilities(),
-            Backend::Pptx | Backend::Zip => PptxExtractor.capabilities(),
+            Backend::Pptx => PptxExtractor.capabilities(),
+            Backend::Docx => DocxExtractor.capabilities(),
         }
     }
 
-    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Extraction, ExtractError> {
+    fn extract(
+        &self,
+        bytes: &[u8],
+        max_pages: Option<u32>,
+    ) -> Result<DocumentExtraction, ExtractError> {
         match self {
-            Backend::Pdf => PdfExtractor.extract(bytes, max_pages),
-            Backend::Pptx => PptxExtractor.extract(bytes, max_pages),
-            Backend::Zip => match sniff_opc(bytes)? {
-                OpcKind::Pptx => PptxExtractor.extract(bytes, max_pages),
-                OpcKind::Docx | OpcKind::OtherZip => Err(unsupported_zip()),
-            },
+            Backend::Pdf => PdfExtractor
+                .extract(bytes, max_pages)
+                .map(DocumentExtraction::Paged),
+            Backend::Pptx => PptxExtractor
+                .extract(bytes, max_pages)
+                .map(DocumentExtraction::Paged),
+            Backend::Docx => DocxExtractor
+                .extract(bytes, max_pages)
+                .map(DocumentExtraction::Flow),
         }
     }
+}
+
+enum DocumentExtraction {
+    Paged(Extraction),
+    Flow(FlowExtraction),
 }
 
 #[derive(Parser)]
 #[command(
     name = "docray",
     version,
-    about = "docray — X-ray for documents: extract PDF & PPTX to JSON"
+    about = "docray — X-ray for documents: extract PDF, PPTX & DOCX to JSON"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -109,7 +123,12 @@ fn run_extract(
     };
     let backend = match sniff_format(&bytes) {
         Some(Format::Pdf) => Backend::Pdf,
-        Some(Format::Zip) => Backend::Zip,
+        Some(Format::Zip) => match sniff_opc(&bytes) {
+            Ok(OpcKind::Pptx) => Backend::Pptx,
+            Ok(OpcKind::Docx) => Backend::Docx,
+            Ok(OpcKind::OtherZip) => return fail(&unsupported_zip()),
+            Err(error) => return fail(&error),
+        },
         None if bytes.starts_with(CFB_MAGIC) => Backend::Pptx,
         None => return fail(&ExtractError::UnsupportedFormat),
     };
@@ -129,8 +148,8 @@ fn run_extract(
     match result {
         Ok(extraction) => {
             let output = match format {
-                OutputFormat::Lean => {
-                    match extraction
+                OutputFormat::Lean => match extraction {
+                    DocumentExtraction::Paged(extraction) => match extraction
                         .with_granularity(granularity.expect("lean granularity is validated above"))
                     {
                         GranularExtraction::Compact(compact) => compact.to_lean(),
@@ -138,19 +157,43 @@ fn run_extract(
                         GranularExtraction::Char(_) => {
                             unreachable!("lean char granularity is rejected above")
                         }
-                    }
-                }
+                    },
+                    DocumentExtraction::Flow(extraction) => extraction
+                        .with_granularity(
+                            granularity.expect("flow output always has element granularity"),
+                        )
+                        .expect("DOCX element granularity is capability-checked")
+                        .into_flow_lean(),
+                },
                 OutputFormat::Json => {
-                    let mut json = if let Some(level) = granularity {
-                        if pretty {
-                            serde_json::to_string_pretty(&extraction.with_granularity(level))
-                        } else {
-                            serde_json::to_string(&extraction.with_granularity(level))
+                    let mut json = match extraction {
+                        DocumentExtraction::Paged(extraction) if granularity.is_some() => {
+                            let projected = extraction.with_granularity(granularity.unwrap());
+                            if pretty {
+                                serde_json::to_string_pretty(&projected)
+                            } else {
+                                serde_json::to_string(&projected)
+                            }
                         }
-                    } else if pretty {
-                        serde_json::to_string_pretty(&extraction)
-                    } else {
-                        serde_json::to_string(&extraction)
+                        DocumentExtraction::Paged(extraction) => {
+                            if pretty {
+                                serde_json::to_string_pretty(&extraction)
+                            } else {
+                                serde_json::to_string(&extraction)
+                            }
+                        }
+                        DocumentExtraction::Flow(extraction) => {
+                            let projected = extraction
+                                .with_granularity(
+                                    granularity.expect("flow output defaults to element"),
+                                )
+                                .expect("DOCX element granularity is capability-checked");
+                            if pretty {
+                                serde_json::to_string_pretty(&projected)
+                            } else {
+                                serde_json::to_string(&projected)
+                            }
+                        }
                     }
                     .expect("model serialization cannot fail");
                     json.push('\n');
@@ -160,6 +203,19 @@ fn run_extract(
             write_stdout(&output)
         }
         Err(e) => fail(&e),
+    }
+}
+
+trait FlowLean {
+    fn into_flow_lean(self) -> String;
+}
+
+impl FlowLean for GranularExtraction<'_> {
+    fn into_flow_lean(self) -> String {
+        match self {
+            GranularExtraction::Flow(flow) => flow.to_lean(),
+            _ => unreachable!("flow extraction projects to flow output"),
+        }
     }
 }
 

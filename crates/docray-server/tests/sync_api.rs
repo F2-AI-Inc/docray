@@ -266,6 +266,43 @@ fn pptx_element_no_parameter_and_lean_end_to_end() {
     assert!(r.text().unwrap().contains("First shape"));
 }
 
+#[test]
+fn docx_element_no_parameter_finer_rejection_and_lean_end_to_end() {
+    let server = TestServer::start();
+
+    for path in ["/v1/extract?granularity=element", "/v1/extract"] {
+        let r = upload(&server.base, path, fixture("docx/fields.docx"));
+        assert_eq!(r.status(), 200);
+        let v: serde_json::Value = r.json().unwrap();
+        assert_eq!(v["schema_version"], "1.7");
+        assert_eq!(v["layout"], "flow");
+        assert_eq!(v["source"]["format"], "docx");
+        assert_eq!(v["granularity"], "element");
+        assert_eq!(v["sections"][0]["blocks"][1]["content"], "Cached heading");
+    }
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?granularity=char",
+        fixture("docx/fields.docx"),
+    );
+    assert_eq!(r.status(), 400);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "granularity_unavailable");
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?format=lean",
+        fixture("docx/fields.docx"),
+    );
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.headers().get("content-type").unwrap(),
+        "text/plain; charset=utf-8"
+    );
+    assert!(r.text().unwrap().contains("Cached heading"));
+}
+
 // An encrypted/password-protected PDF must map to 422 encrypted_pdf.
 #[test]
 fn encrypted_pdf_returns_422() {
