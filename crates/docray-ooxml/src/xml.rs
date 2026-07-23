@@ -2,6 +2,7 @@ use docray_core::ExtractError;
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 pub const MAX_XML_DEPTH: usize = 256;
 
@@ -12,7 +13,27 @@ pub const MAX_XML_DEPTH: usize = 256;
 /// clean `parse_failure` instead of relying on the worker memory rlimit.
 pub const MAX_XML_NODES: usize = 5_000_000;
 
-type Namespaces = BTreeMap<String, String>;
+type NamespaceDeclarations = BTreeMap<String, Option<String>>;
+
+/// Persistent namespace scope. Nodes with no declarations share their
+/// parent's allocation; nodes with declarations store only those bindings
+/// and resolve everything else through the immutable ancestor chain.
+#[derive(Debug)]
+struct NamespaceBindings {
+    parent: Option<NamespaceScope>,
+    declarations: NamespaceDeclarations,
+}
+
+type NamespaceScope = Arc<NamespaceBindings>;
+
+impl NamespaceBindings {
+    fn uri(&self, prefix: &str) -> Option<&str> {
+        match self.declarations.get(prefix) {
+            Some(binding) => binding.as_deref(),
+            None => self.parent.as_deref().and_then(|parent| parent.uri(prefix)),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -22,7 +43,7 @@ pub struct Node {
     pub text: String,
     namespace_uri: Option<String>,
     attr_namespace_uris: BTreeMap<String, String>,
-    in_scope_namespaces: Namespaces,
+    in_scope_namespaces: NamespaceScope,
 }
 
 impl Node {
@@ -55,7 +76,7 @@ impl Node {
     }
 
     pub fn namespace_uri_for_prefix(&self, prefix: &str) -> Option<&str> {
-        self.in_scope_namespaces.get(prefix).map(String::as_str)
+        self.in_scope_namespaces.uri(prefix)
     }
 
     pub fn child(&self, local: &str) -> Option<&Node> {
@@ -114,7 +135,7 @@ fn parse_with_limits(bytes: &[u8], part: &str, max_nodes: usize) -> Result<Node,
     reader.config_mut().check_end_names = true;
     reader.config_mut().trim_text(false);
     let mut stack: Vec<Node> = Vec::new();
-    let mut namespace_stack: Vec<Namespaces> = Vec::new();
+    let mut namespace_stack: Vec<NamespaceScope> = Vec::new();
     let mut root = None;
     let mut node_count = 0_usize;
 
@@ -186,7 +207,7 @@ fn parse_with_limits(bytes: &[u8], part: &str, max_nodes: usize) -> Result<Node,
     root.ok_or_else(|| parse_error(part, "XML document has no root element"))
 }
 
-fn make_node(name: String, attrs: BTreeMap<String, String>, namespaces: &Namespaces) -> Node {
+fn make_node(name: String, attrs: BTreeMap<String, String>, namespaces: &NamespaceScope) -> Node {
     let namespace_uri = namespace_for_name(&name, namespaces, false).map(str::to_owned);
     let attr_namespace_uris = attrs
         .keys()
@@ -201,7 +222,7 @@ fn make_node(name: String, attrs: BTreeMap<String, String>, namespaces: &Namespa
         text: String::new(),
         namespace_uri,
         attr_namespace_uris,
-        in_scope_namespaces: namespaces.clone(),
+        in_scope_namespaces: Arc::clone(namespaces),
     }
 }
 
@@ -209,19 +230,30 @@ fn make_node(name: String, attrs: BTreeMap<String, String>, namespaces: &Namespa
 /// branch is flattened into the parent exactly once; unsupported constructs
 /// therefore cannot leak both Choice and Fallback text into visible output.
 pub fn preprocess_alternate_content(
-    root: &Node,
+    mut root: Node,
     supported_namespace_uris: &[&str],
     max_depth: usize,
     warnings: &mut Vec<String>,
 ) -> Node {
+    if !contains_alternate_content(&root) {
+        return root;
+    }
     let supported: std::collections::BTreeSet<&str> =
         supported_namespace_uris.iter().copied().collect();
-    let mut nodes = preprocess_node(root, &supported, 0, max_depth, warnings);
-    nodes.pop().unwrap_or_else(|| {
-        let mut empty = root.clone();
-        empty.children.clear();
-        empty
-    })
+    let mut nodes = preprocess_node(&root, &supported, 0, max_depth, warnings);
+    match nodes.pop() {
+        Some(node) => node,
+        None => {
+            root.children.clear();
+            root
+        }
+    }
+}
+
+fn contains_alternate_content(root: &Node) -> bool {
+    const MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+    (root.local_name() == "AlternateContent" && root.namespace_uri() == Some(MC))
+        || root.children.iter().any(contains_alternate_content)
 }
 
 fn preprocess_node(
@@ -287,44 +319,58 @@ fn preprocess_node(
 }
 
 fn namespaces_for_element(
-    parent: Option<&Namespaces>,
+    parent: Option<&NamespaceScope>,
     attrs: &BTreeMap<String, String>,
-) -> Namespaces {
-    let mut namespaces = parent.cloned().unwrap_or_else(|| {
+) -> NamespaceScope {
+    let has_declarations = attrs
+        .keys()
+        .any(|key| key == "xmlns" || key.starts_with("xmlns:"));
+    if !has_declarations {
+        return parent.cloned().unwrap_or_else(|| {
+            Arc::new(NamespaceBindings {
+                parent: None,
+                declarations: BTreeMap::from([(
+                    "xml".to_string(),
+                    Some("http://www.w3.org/XML/1998/namespace".to_string()),
+                )]),
+            })
+        });
+    }
+    let mut declarations = if parent.is_none() {
         BTreeMap::from([(
             "xml".to_string(),
-            "http://www.w3.org/XML/1998/namespace".to_string(),
+            Some("http://www.w3.org/XML/1998/namespace".to_string()),
         )])
-    });
+    } else {
+        BTreeMap::new()
+    };
     for (key, value) in attrs {
-        if key == "xmlns" {
-            if value.is_empty() {
-                namespaces.remove("");
-            } else {
-                namespaces.insert(String::new(), value.clone());
-            }
-        } else if let Some(prefix) = key.strip_prefix("xmlns:") {
-            if value.is_empty() {
-                namespaces.remove(prefix);
-            } else {
-                namespaces.insert(prefix.to_string(), value.clone());
-            }
+        let prefix = if key == "xmlns" {
+            Some(String::new())
+        } else {
+            key.strip_prefix("xmlns:").map(str::to_owned)
+        };
+        if let Some(prefix) = prefix {
+            declarations.insert(prefix, (!value.is_empty()).then(|| value.clone()));
         }
     }
-    namespaces
+    Arc::new(NamespaceBindings {
+        parent: parent.cloned(),
+        declarations,
+    })
 }
 
 fn namespace_for_name<'a>(
     name: &str,
-    namespaces: &'a Namespaces,
+    namespaces: &'a NamespaceScope,
     attribute: bool,
 ) -> Option<&'a str> {
     if name == "xmlns" || name.starts_with("xmlns:") {
         return Some("http://www.w3.org/2000/xmlns/");
     }
     match name.rsplit_once(':') {
-        Some((prefix, _)) => namespaces.get(prefix).map(String::as_str),
-        None if !attribute => namespaces.get("").map(String::as_str),
+        Some((prefix, _)) => namespaces.uri(prefix),
+        None if !attribute => namespaces.uri(""),
         None => None,
     }
 }
@@ -450,5 +496,42 @@ mod tests {
         assert_eq!(paragraph.namespace_uri(), Some("urn:word"));
         assert_eq!(paragraph.attr_ns("urn:rels", "id"), Some("rId1"));
         assert!(body.child_ns("urn:missing", "p").is_none());
+    }
+
+    #[test]
+    fn preprocessing_without_alternate_content_reuses_the_parsed_tree() {
+        let root = parse(
+            br#"<w:document xmlns:w="urn:word"><w:body><w:p/></w:body></w:document>"#,
+            "test.xml",
+        )
+        .unwrap();
+        let children = root.children.as_ptr();
+        let processed = preprocess_alternate_content(root, &["urn:word"], 32, &mut Vec::new());
+
+        assert_eq!(
+            processed.children.as_ptr(),
+            children,
+            "a document without mc:AlternateContent must not deep-clone its DOM"
+        );
+    }
+
+    #[test]
+    fn descendants_without_namespace_declarations_share_the_scope_map() {
+        let root = parse(
+            br#"<w:document xmlns:w="urn:word" xmlns:r="urn:rels"><w:body><w:p r:id="r1"/></w:body></w:document>"#,
+            "test.xml",
+        )
+        .unwrap();
+        let body = root.child("body").unwrap();
+        let paragraph = body.child("p").unwrap();
+
+        assert!(Arc::ptr_eq(
+            &root.in_scope_namespaces,
+            &body.in_scope_namespaces
+        ));
+        assert!(Arc::ptr_eq(
+            &body.in_scope_namespaces,
+            &paragraph.in_scope_namespaces
+        ));
     }
 }

@@ -72,24 +72,30 @@ impl Theme {
     /// `minorBidi`. Empty theme faces are treated as unresolved.
     pub fn word_font(&self, value: &str) -> Option<String> {
         let font = match value {
-            "majorAscii" | "majorHAnsi" => self.major_latin.as_ref(),
-            "majorEastAsia" => self.major_east_asia.as_ref().or(self.major_latin.as_ref()),
+            "majorAscii" | "majorHAnsi" => self.major_latin.clone(),
+            "majorEastAsia" => self
+                .major_east_asia
+                .clone()
+                .or_else(|| self.major_latin.clone()),
             "majorBidi" => self
                 .major_complex_script
-                .as_ref()
-                .or(self.major_latin.as_ref()),
-            "minorAscii" | "minorHAnsi" => self.minor_latin.as_ref(),
-            "minorEastAsia" => self.minor_east_asia.as_ref().or(self.minor_latin.as_ref()),
+                .clone()
+                .or_else(|| self.major_latin.clone()),
+            "minorAscii" | "minorHAnsi" => self.minor_latin.clone(),
+            "minorEastAsia" => self
+                .minor_east_asia
+                .clone()
+                .or_else(|| self.minor_latin.clone()),
             "minorBidi" => self
                 .minor_complex_script
-                .as_ref()
-                .or(self.minor_latin.as_ref()),
+                .clone()
+                .or_else(|| self.minor_latin.clone()),
             "+mj-lt" | "+mj-ea" | "+mj-cs" | "+mn-lt" | "+mn-ea" | "+mn-cs" => {
-                return Some(self.font(value));
+                Some(self.font(value))
             }
             _ => return None,
         }?;
-        (!font.is_empty()).then(|| font.clone())
+        (!font.is_empty()).then_some(font)
     }
 
     pub fn color(&self, slot: &str) -> Option<[u8; 3]> {
@@ -116,7 +122,6 @@ fn typeface(parent: Option<&Node>, child: &str) -> Option<String> {
     parent
         .and_then(|node| node.child(child))
         .and_then(|node| node.attr("typeface"))
-        .filter(|value| !value.is_empty())
         .map(str::to_owned)
 }
 

@@ -2069,6 +2069,23 @@ mod tests {
     }
 
     #[test]
+    fn empty_theme_typeface_preserves_the_frozen_pptx_font_name() {
+        let theme_root = parse_test_xml(
+            r#"<a:theme><a:themeElements><a:fontScheme><a:majorFont><a:latin typeface=""/></a:majorFont></a:fontScheme></a:themeElements></a:theme>"#,
+        );
+        let theme = Theme::from_xml(&theme_root);
+        let tx_body = parse_test_xml(
+            r#"<a:txBody><a:lstStyle/><a:p><a:r><a:rPr><a:latin typeface="+mj-lt"/></a:rPr><a:t>empty face</a:t></a:r></a:p></a:txBody>"#,
+        );
+        let slide_rels = Relationships::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+
+        let runs = resolve_cell_runs(&tx_body, &context);
+        assert_eq!(runs[0].font.name, "");
+    }
+
+    #[test]
     fn hard_breaks_and_fields_preserve_paragraph_document_order() {
         let tx_body = parse_test_xml(
             r#"<txBody><lstStyle/><p>
