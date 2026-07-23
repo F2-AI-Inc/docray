@@ -12,6 +12,14 @@ use docray_model::{Extraction, Granularity};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Capabilities {
     pub finest_granularity: Granularity,
+    pub geometry: GeometryKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeometryKind {
+    Exact,
+    Container,
+    Flow,
 }
 
 pub trait Extractor {
@@ -47,6 +55,7 @@ mod tests {
         fn capabilities(&self) -> Capabilities {
             Capabilities {
                 finest_granularity: Granularity::Element,
+                geometry: GeometryKind::Flow,
             }
         }
 
@@ -86,5 +95,6 @@ mod tests {
             check_granularity(&capabilities, Some(Granularity::Element)),
             Ok(())
         );
+        assert_eq!(capabilities.geometry, GeometryKind::Flow);
     }
 }

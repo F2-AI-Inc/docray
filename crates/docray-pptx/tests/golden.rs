@@ -1,4 +1,4 @@
-use docray_core::{check_granularity, Extractor};
+use docray_core::{check_granularity, Extractor, GeometryKind};
 use docray_model::{Element, GranularExtraction, Granularity, HiddenItem};
 use docray_pptx::PptxExtractor;
 use std::fs;
@@ -32,6 +32,7 @@ fn element_and_lean_goldens_are_byte_exact_on_every_platform() {
             .unwrap();
         let lean = match extraction.with_granularity(Granularity::Element) {
             GranularExtraction::Compact(compact) => compact.to_lean(),
+            GranularExtraction::Flow(_) => unreachable!(),
             GranularExtraction::Char(_) => unreachable!(),
         };
         for (suffix, actual) in [("element.json", json), ("lean.txt", lean)] {
@@ -472,6 +473,7 @@ fn styled_text_fixture_preserves_each_run_style_and_external_href() {
 fn pptx_is_element_only_and_text_has_runs_but_no_lines() {
     let capabilities = PptxExtractor.capabilities();
     assert_eq!(capabilities.finest_granularity, Granularity::Element);
+    assert_eq!(capabilities.geometry, GeometryKind::Container);
     assert!(check_granularity(&capabilities, None).is_err());
     assert!(check_granularity(&capabilities, Some(Granularity::Word)).is_err());
     assert_eq!(

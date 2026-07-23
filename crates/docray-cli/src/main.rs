@@ -130,15 +130,15 @@ fn run_extract(
         Ok(extraction) => {
             let output = match format {
                 OutputFormat::Lean => {
-                    let compact = match extraction
+                    match extraction
                         .with_granularity(granularity.expect("lean granularity is validated above"))
                     {
-                        GranularExtraction::Compact(compact) => compact,
+                        GranularExtraction::Compact(compact) => compact.to_lean(),
+                        GranularExtraction::Flow(flow) => flow.to_lean(),
                         GranularExtraction::Char(_) => {
                             unreachable!("lean char granularity is rejected above")
                         }
-                    };
-                    compact.to_lean()
+                    }
                 }
                 OutputFormat::Json => {
                     let mut json = if let Some(level) = granularity {

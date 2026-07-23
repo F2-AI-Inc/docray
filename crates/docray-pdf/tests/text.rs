@@ -1,4 +1,4 @@
-use docray_core::{check_granularity, Extractor};
+use docray_core::{check_granularity, Extractor, GeometryKind};
 use docray_model::{Element, Granularity};
 use docray_pdf::PdfExtractor;
 
@@ -101,6 +101,7 @@ fn extracts_text_hierarchy_from_simple_pdf() {
 #[test]
 fn pdf_capabilities_accept_every_granularity() {
     let capabilities = PdfExtractor.capabilities();
+    assert_eq!(capabilities.geometry, GeometryKind::Exact);
     for requested in [
         None,
         Some(Granularity::Char),

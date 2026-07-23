@@ -169,6 +169,7 @@ fn lean_simple_goldens_match_on_linux() {
     ] {
         let lean = match out.with_granularity(level) {
             docray_model::GranularExtraction::Compact(compact) => compact.to_lean(),
+            docray_model::GranularExtraction::Flow(_) => unreachable!(),
             docray_model::GranularExtraction::Char(_) => unreachable!(),
         };
         let golden_path = testdata()

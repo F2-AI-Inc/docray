@@ -131,6 +131,7 @@ fn extraction() -> Extraction {
 fn lean(extraction: &Extraction, granularity: Granularity) -> String {
     match extraction.with_granularity(granularity) {
         GranularExtraction::Compact(compact) => compact.to_lean(),
+        GranularExtraction::Flow(_) => panic!("paged extraction cannot produce flow output"),
         GranularExtraction::Char(_) => panic!("test only renders compact granularities"),
     }
 }
