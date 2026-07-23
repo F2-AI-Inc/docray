@@ -47256,14 +47256,16 @@ function setZoom(z) {
 
 /* ── hostile PPTX visual source renderer ──
    This function is stringified into the sandboxed srcdoc. It deliberately
-   references the pinned browser bundle's internal export aliases (`ay` is
-   PptxViewer; `fH` is RECOMMENDED_ZIP_LIMITS) so the unmodified vendored ESM
-   can remain byte-identical to the published artifact above. */
+   references the pinned browser bundle's internal export aliases (`_$` is
+   parseZip; `Ru` is buildPresentation; `ay` is PptxViewer; `fH` is
+   RECOMMENDED_ZIP_LIMITS) so the unmodified vendored ESM can remain
+   byte-identical to the published artifact above. */
 function pptxIframeMain() {
   "use strict";
 
   const MAX_CANVAS_BYTES = 256 * 1024 * 1024;
   const MAX_CANVAS_DIMENSION = 16384;
+  const MAX_METAFILE_CANVAS_DIMENSION = 4096;
   const RENDER_TIMEOUT_MS = 14_500;
   let replied = false;
   let renderStarted = false;
@@ -47337,6 +47339,146 @@ function pptxIframeMain() {
     return originalGetContext.apply(this, args);
   };
 
+  function normalizePackagePath(path) {
+    const parts = [];
+    for (const part of path.replace(/\\/g, "/").split("/")) {
+      if (!part || part === ".") continue;
+      if (part === "..") parts.pop();
+      else {
+        try { parts.push(decodeURIComponent(part)); }
+        catch (_) { parts.push(part); }
+      }
+    }
+    return parts.join("/");
+  }
+
+  function resolveRelationshipTarget(relsPath, target) {
+    const targetPath = target.split(/[?#]/, 1)[0];
+    if (targetPath.startsWith("/")) return normalizePackagePath(targetPath);
+    const ownerPath = relsPath.replace(/\/_rels\/([^/]+)\.rels$/i, "/$1");
+    const ownerDir = ownerPath.slice(0, ownerPath.lastIndexOf("/"));
+    return normalizePackagePath(ownerDir + "/" + targetPath);
+  }
+
+  function rewriteImageRelationshipXml(xml, relsPath, convertedPaths) {
+    return xml.replace(/<Relationship\b[^>]*>/gi, tag => {
+      const type = /(\bType\s*=\s*)(["'])(.*?)\2/i.exec(tag);
+      const target = /(\bTarget\s*=\s*)(["'])(.*?)\2/i.exec(tag);
+      if (!type || !target || !type[3].toLowerCase().endsWith("/image") ||
+          !/\.(?:emf|wmf)(?=[?#]|$)/i.test(target[3])) return tag;
+      const mediaPath = resolveRelationshipTarget(relsPath, target[3]).toLowerCase();
+      if (!convertedPaths.has(mediaPath)) return tag;
+      return tag.replace(/(\bTarget\s*=\s*)(["'])(.*?)\2/i,
+        (_, prefix, quote, value) => prefix + quote +
+          value.replace(/\.(?:emf|wmf)(?=[?#]|$)/i, ".png") + quote);
+    });
+  }
+
+  function rewriteConvertedImageRelationships(parsed, convertedPaths) {
+    if (!convertedPaths.size) return;
+    if (typeof parsed.presentationRels === "string") {
+      parsed.presentationRels = rewriteImageRelationshipXml(
+        parsed.presentationRels,
+        "ppt/_rels/presentation.xml.rels",
+        convertedPaths,
+      );
+    }
+    // The current parser exposes slide, layout, master, and chart rels maps.
+    // Walking all rels maps also covers theme rels if the vendored parser adds
+    // that parsed field in a future pinned release.
+    for (const value of Object.values(parsed)) {
+      if (!(value instanceof Map)) continue;
+      for (const [relsPath, xml] of value) {
+        if (typeof xml !== "string" || !/\/_rels\/[^/]+\.rels$/i.test(relsPath)) continue;
+        value.set(relsPath, rewriteImageRelationshipXml(xml, relsPath, convertedPaths));
+      }
+    }
+  }
+
+  function pngDataUrlBytes(dataUrl, maxBytes) {
+    if (typeof dataUrl !== "string" || maxBytes < 1) return null;
+    const prefix = "data:image/png;base64,";
+    if (!dataUrl.startsWith(prefix)) return null;
+    const encoded = dataUrl.slice(prefix.length);
+    if (encoded.length > Math.ceil(maxBytes * 4 / 3) + 4) return null;
+    let decoded;
+    try { decoded = atob(encoded); } catch (_) { return null; }
+    if (decoded.length > maxBytes) return null;
+    const bytes = new Uint8Array(decoded.length);
+    for (let index = 0; index < decoded.length; index++) {
+      bytes[index] = decoded.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  async function convertPresentationMetafiles(parsed) {
+    const convertedPaths = new Set();
+    const convertedPngPaths = new Set();
+    if (!globalThis.EMFC ||
+        typeof globalThis.EMFC.convertEmfToDataUrl !== "function" ||
+        typeof globalThis.EMFC.convertWmfToDataUrl !== "function") {
+      return convertedPngPaths;
+    }
+
+    const countedMedia = new Set();
+    let mediaBytes = 0;
+    for (const bytes of parsed.media.values()) {
+      if (!countedMedia.has(bytes)) {
+        countedMedia.add(bytes);
+        mediaBytes += bytes.byteLength;
+      }
+    }
+    const candidates = [...parsed.media.entries()]
+      .filter(([path]) => /^ppt\/media\/.*\.(?:emf|wmf)$/i.test(path))
+      .sort(([left], [right]) => left.localeCompare(right));
+    const attempted = new Set();
+
+    for (const [mediaPath, sourceBytes] of candidates) {
+      const normalizedSource = normalizePackagePath(mediaPath);
+      const sourceKey = normalizedSource.toLowerCase();
+      if (attempted.has(sourceKey)) continue;
+      attempted.add(sourceKey);
+      const pngPath = normalizedSource.replace(/\.(?:emf|wmf)$/i, ".png");
+      if (parsed.media.has(pngPath)) continue;
+      try {
+        const source = sourceBytes.buffer.slice(
+          sourceBytes.byteOffset,
+          sourceBytes.byteOffset + sourceBytes.byteLength,
+        );
+        const options = {
+          dpiScale: 2,
+          maxWidth: MAX_METAFILE_CANVAS_DIMENSION,
+          maxHeight: MAX_METAFILE_CANVAS_DIMENSION,
+          maxCanvasDimension: MAX_METAFILE_CANVAS_DIMENSION,
+        };
+        const rendered = /\.emf$/i.test(normalizedSource)
+          ? await globalThis.EMFC.convertEmfToDataUrl(source, options)
+          : await globalThis.EMFC.convertWmfToDataUrl(source, options);
+        const remainingMediaBytes = Math.max(0, fH.maxMediaBytes - mediaBytes);
+        const pngBytes = pngDataUrlBytes(rendered, remainingMediaBytes);
+        if (!pngBytes) continue;
+        parsed.media.set(pngPath, pngBytes);
+        mediaBytes += pngBytes.byteLength;
+        convertedPaths.add(sourceKey);
+        convertedPngPaths.add(pngPath);
+      } catch (_) {
+        // Leave this relationship and media part untouched. The renderer's
+        // existing unsupported-format path remains the honest fallback.
+      }
+    }
+    rewriteConvertedImageRelationships(parsed, convertedPaths);
+    return convertedPngPaths;
+  }
+
+  function markApproximateMetafileRender(root) {
+    const marker = document.createElement("div");
+    marker.className = "docray-pptx-metafile-approx";
+    marker.textContent = "≈";
+    marker.title = "approximate render — Windows metafile (EMF/WMF)";
+    marker.setAttribute("aria-label", marker.title);
+    root.appendChild(marker);
+  }
+
   addEventListener("error", () => reply("error"), { once: true });
   addEventListener("unhandledrejection", () => reply("error"), { once: true });
   addEventListener("message", async event => {
@@ -47357,18 +47499,21 @@ function pptxIframeMain() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RENDER_TIMEOUT_MS);
     try {
-      const viewer = await ay.open(data.bytes, root, {
-        renderMode: "slide",
+      const parsed = await _$(data.bytes, fH);
+      const convertedPngPaths = await convertPresentationMetafiles(parsed);
+      const presentation = Ru(parsed, { lazySlides: true });
+      if (data.slideIndex >= presentation.slides.length) throw new Error("slide unavailable");
+      const viewer = new ay(root, {
         width: data.width,
         fitMode: "contain",
-        zipLimits: fH,
-        lazyMedia: true,
-        lazySlides: true,
         pdfjs: false,
         signal: controller.signal,
       });
-      if (data.slideIndex >= viewer.slideCount) throw new Error("slide unavailable");
-      if (data.slideIndex !== 0) await viewer.goToSlide(data.slideIndex);
+      viewer.load(presentation);
+      await viewer.renderSlide(data.slideIndex);
+      if ([...convertedPngPaths].some(path => viewer.mediaUrlCache.has(path))) {
+        markApproximateMetafileRender(root);
+      }
       clearTimeout(timer);
       reply("rendered");
     } catch (_) {
@@ -47384,16 +47529,22 @@ const pptxRendererSourceEl = $("#pptx-renderer-source");
 // The wrapper contributes one newline on each side; remove only those two so
 // the bytes inserted into srcdoc still match the recorded vendor SHA-256.
 const PPTX_RENDERER_SOURCE = pptxRendererSourceEl.textContent.slice(1, -1);
+const PPTX_EMF_CONVERTER_SOURCE = $("#emf-converter-source").textContent.slice(1, -1);
 let pptxRenderSequence = 0;
 const pptxRenderJobs = [null, null];
 
 function pptxRendererSrcdoc() {
   const style = "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f2eee5}" +
-    "#slide{position:relative;overflow:hidden;background:#f2eee5}";
+    "#slide{position:relative;overflow:hidden;background:#f2eee5}" +
+    ".docray-pptx-metafile-approx{position:absolute;top:3px;right:3px;z-index:2147483647;" +
+    "display:flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:3px;" +
+    "background:rgba(22,19,15,.72);color:#d99a2b;font:700 13px/1 monospace;" +
+    "box-shadow:0 0 0 1px rgba(217,154,43,.45);pointer-events:none}";
   const glue = ";(" + pptxIframeMain.toString() + ")();";
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta http-equiv="Content-Security-Policy" content="' + PPTX_IFRAME_CSP + '">' +
     "<style>" + style + "</style></head><body><div id=\"slide\"></div>" +
+    "<scr" + "ipt>" + PPTX_EMF_CONVERTER_SOURCE + "</scr" + "ipt>" +
     '<script type="module">' + PPTX_RENDERER_SOURCE + glue + "</scr" + "ipt></body></html>";
 }
 
