@@ -80,6 +80,10 @@
     padding: 5px 10px; cursor: pointer;
   }
   select:focus, .btn:focus { outline: 1px solid var(--amber); outline-offset: 1px; }
+  .metafile-toggle { min-width: 90px; }
+  .metafile-toggle[aria-pressed="true"] {
+    color: var(--amber); border-color: var(--amber-dim); background: rgba(232,163,61,0.09);
+  }
   .btn-amber { background: var(--amber); color: #241a08; border-color: transparent; font-weight: 600; }
   .btn-amber:hover { filter: brightness(1.08); }
   .btn[disabled] { opacity: 0.4; cursor: default; }
@@ -379,6 +383,11 @@
       <option value="word">word — tuples</option>
       <option value="element">element — compact</option>
     </select>
+  </div>
+  <div class="ctl">
+    <label for="metafile-preview">metafile preview</label>
+    <button class="btn metafile-toggle" id="metafile-preview" type="button"
+            aria-pressed="false" title="Approximate client-side EMF/WMF rendering">off</button>
   </div>
   <button class="btn" id="docjson" disabled>document json</button>
   <button class="btn btn-amber" id="pick">upload pdf, pptx, or docx</button>
@@ -46483,6 +46492,7 @@ const state = {
   gen: 0, file: null, fileName: "",
   extraction: null, pdf: null, format: null,
   pageIdx: 0, zoom: 1,
+  renderMetafiles: false,
   filters: new Set(TYPES),
   panelModes: ["source", "boxes"],
   renderCache: new Map(), // "pageNo@zoom@fit" -> {canvas, cssW, cssH, k}
@@ -46542,6 +46552,20 @@ document.addEventListener("drop", e => {
   if (f) load(f);
 });
 $("#gran").onchange = () => { if (state.file) load(state.file, state.pageIdx); };
+$("#metafile-preview").onclick = () => {
+  state.renderMetafiles = !state.renderMetafiles;
+  const toggle = $("#metafile-preview");
+  toggle.setAttribute("aria-pressed", String(state.renderMetafiles));
+  toggle.textContent = state.renderMetafiles ? "approximate" : "off";
+  if (!state.extraction) return;
+  if (state.format === "pptx") {
+    resetPptxLiveThumbs();
+    buildRail(state.gen);
+    goto(state.pageIdx, state.gen);
+  } else if (isFlowExtraction()) {
+    renderPanels(state.gen);
+  }
+};
 
 async function sniffFileFormat(file) {
   const bytes = new Uint8Array(await file.slice(0, 1028).arrayBuffer());
@@ -47143,6 +47167,7 @@ function ensurePptxLiveThumb(index, gen) {
         iframe.contentWindow.postMessage({
           cmd: "render",
           bytes,
+          renderMetafiles: state.renderMetafiles,
           slideIndex: index,
           width: dimensions.width,
           height: dimensions.height,
@@ -47485,6 +47510,7 @@ function pptxIframeMain() {
     if (event.source !== parent || replied || renderStarted) return;
     const data = event.data;
     if (!data || data.cmd !== "render" || !(data.bytes instanceof ArrayBuffer) ||
+        typeof data.renderMetafiles !== "boolean" ||
         !Number.isInteger(data.slideIndex) || data.slideIndex < 0 ||
         !Number.isInteger(data.width) || data.width < 1 ||
         !Number.isInteger(data.height) || data.height < 1) {
@@ -47500,7 +47526,9 @@ function pptxIframeMain() {
     const timer = setTimeout(() => controller.abort(), RENDER_TIMEOUT_MS);
     try {
       const parsed = await _$(data.bytes, fH);
-      const convertedPngPaths = await convertPresentationMetafiles(parsed);
+      const convertedPngPaths = data.renderMetafiles
+        ? await convertPresentationMetafiles(parsed)
+        : new Set();
       const presentation = Ru(parsed, { lazySlides: true });
       if (data.slideIndex >= presentation.slides.length) throw new Error("slide unavailable");
       const viewer = new ay(root, {
@@ -47673,6 +47701,7 @@ function renderPptxSource(panelIndex, body, pageJson, gen, req, pageIndex, fitWi
           iframe.contentWindow.postMessage({
             cmd: "render",
             bytes,
+            renderMetafiles: state.renderMetafiles,
             slideIndex: pageIndex,
             width: dimensions.width,
             height: dimensions.height,
@@ -47787,7 +47816,8 @@ function docxIframeMain() {
   addEventListener("message", async event => {
     if (event.source !== parent || replied || renderStarted) return;
     const data = event.data;
-    if (!data || data.cmd !== "render" || !(data.bytes instanceof ArrayBuffer)) {
+    if (!data || data.cmd !== "render" || !(data.bytes instanceof ArrayBuffer) ||
+        typeof data.renderMetafiles !== "boolean") {
       reply("error");
       return;
     }
@@ -47857,8 +47887,12 @@ function docxIframeMain() {
       };
       const markBrokenImage = async img => {
         if (img.dataset.docrayPlaceholder || img.dataset.docrayMetafilePending) return;
-        img.dataset.docrayMetafilePending = "1";
         const size = imageSize(img);
+        if (!data.renderMetafiles) {
+          showPlaceholder(img, size);
+          return;
+        }
+        img.dataset.docrayMetafilePending = "1";
         try {
           const buffer = decodeBase64DataUrl(img.getAttribute("src") || img.src);
           const kind = sniffWindowsMetafile(buffer);
@@ -48036,7 +48070,11 @@ function renderDocxSource(panelIndex, body, section, gen, req, sectionIndex, fit
         try {
           const bytes = await state.file.arrayBuffer();
           if (!isCurrent() || settled) { cancel(); return; }
-          iframe.contentWindow.postMessage({ cmd: "render", bytes }, "*", [bytes]);
+          iframe.contentWindow.postMessage({
+            cmd: "render",
+            bytes,
+            renderMetafiles: state.renderMetafiles,
+          }, "*", [bytes]);
         } catch (_) {
           fallback();
         }
