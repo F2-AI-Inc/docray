@@ -1,0 +1,132 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "444ebad8232afdda148f8416b6144c855cd35b97dec6d4c83fed8709bf70f903",
+    "size_bytes": 2543
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "approx_pages": 2,
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "before",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "before",
+          "approx_page": 1
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "body",
+          "runs": [
+            {
+              "content": "after page",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "after page",
+          "approx_page": 1,
+          "breaks_before": [
+            "page"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b2",
+          "role": "body",
+          "runs": [
+            {
+              "content": "after hint",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "after hint",
+          "approx_page": 2
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b3",
+          "role": "body",
+          "runs": [
+            {
+              "content": "style break",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "style break",
+          "approx_page": 2,
+          "breaks_before": [
+            "page",
+            "column"
+          ]
+        }
+      ]
+    }
+  ]
+}

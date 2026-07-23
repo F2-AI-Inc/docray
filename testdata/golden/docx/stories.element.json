@@ -1,0 +1,169 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "cefcaf8035064974f8ff18416d9eec33fe4a70f0984736613de5bbd9dbe92cf8",
+    "size_bytes": 3466
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [
+        {
+          "variant": "default",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "id": "s0-h0-b0",
+              "role": "body",
+              "runs": [
+                {
+                  "content": "Header default",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ],
+              "content": "Header default"
+            }
+          ]
+        },
+        {
+          "variant": "first",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "id": "s0-h1-b0",
+              "role": "body",
+              "runs": [
+                {
+                  "content": "Header first",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ],
+              "content": "Header first"
+            }
+          ]
+        }
+      ],
+      "footers": [
+        {
+          "variant": "even",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "id": "s0-f2-b0",
+              "role": "body",
+              "runs": [
+                {
+                  "content": "Footer even",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ],
+              "content": "Footer even"
+            }
+          ]
+        }
+      ],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Body with note",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Body with note"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Footnote body",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Footnote body"
+        }
+      ],
+      "hidden": [
+        {
+          "kind": "footnote",
+          "element": "s0-b0",
+          "content": "Footnote body"
+        }
+      ]
+    }
+  ]
+}

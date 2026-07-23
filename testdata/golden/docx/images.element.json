@@ -1,0 +1,70 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "7ffc6d7d978e7eaf94d271b8d4ce97ecaed7f78385ac4d4cf7189174ba714514",
+    "size_bytes": 2853
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "image",
+          "id": "s0-b0",
+          "width": 100.0,
+          "height": 50.0,
+          "content_hash": "ce063d35ab9c9ab485652d910375a7aeb4551c378884f6d09e341958dd7c68d5"
+        },
+        {
+          "type": "image",
+          "id": "s0-b1",
+          "width": 200.0,
+          "height": 100.0,
+          "content_hash": "ce063d35ab9c9ab485652d910375a7aeb4551c378884f6d09e341958dd7c68d5",
+          "placement": {
+            "frame": "page",
+            "x": 20.0,
+            "y": null,
+            "width": 200.0,
+            "height": 100.0,
+            "align_h": null,
+            "align_v": "center"
+          }
+        }
+      ],
+      "hidden": [
+        {
+          "kind": "alt",
+          "element": "s0-b0",
+          "content": "Inline alt"
+        },
+        {
+          "kind": "alt",
+          "element": "s0-b1",
+          "content": "Anchor alt"
+        }
+      ]
+    }
+  ]
+}

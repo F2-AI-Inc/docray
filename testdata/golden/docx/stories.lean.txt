@@ -1,0 +1,13 @@
+#docray element v1.7 sections=1 warnings=1
+#legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
+#legend <hidden> kind [element-id] content | non-visible document context
+#warning no pagination hints; approx_page omitted
+#section 612 792
+P Header default
+P Header first
+P Body with note
+P Footnote body
+P Footer even
+<hidden>
+footnote s0-b0 Footnote body
+</hidden>

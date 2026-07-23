@@ -1,0 +1,183 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "40f11ed3d394a3478251cc1171c95bf840b895dd022e32fe69bb9b8e7a430686",
+    "size_bytes": 2619
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "table",
+          "id": "s0-b0",
+          "col_widths": [
+            72.0,
+            144.0
+          ],
+          "rows": 3,
+          "cols": 2,
+          "cells": [
+            {
+              "row": 0,
+              "col": 0,
+              "row_span": 2,
+              "col_span": 2,
+              "content": "merged",
+              "runs": [
+                {
+                  "content": "merged",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "row": 2,
+              "col": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "outer\nnested",
+              "runs": [
+                {
+                  "content": "outer",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ],
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "s0-b0-c2-0-b0",
+                  "role": "body",
+                  "runs": [
+                    {
+                      "content": "outer",
+                      "font": {
+                        "name": "Fixture Sans",
+                        "size": 11.0
+                      },
+                      "color": {
+                        "fill": [
+                          51,
+                          102,
+                          153
+                        ]
+                      }
+                    }
+                  ],
+                  "content": "outer"
+                },
+                {
+                  "type": "table",
+                  "id": "s0-b0-c2-0-b1",
+                  "col_widths": [
+                    36.0
+                  ],
+                  "rows": 1,
+                  "cols": 1,
+                  "cells": [
+                    {
+                      "row": 0,
+                      "col": 0,
+                      "row_span": 1,
+                      "col_span": 1,
+                      "content": "nested",
+                      "runs": [
+                        {
+                          "content": "nested",
+                          "font": {
+                            "name": "Fixture Sans",
+                            "size": 11.0
+                          },
+                          "color": {
+                            "fill": [
+                              51,
+                              102,
+                              153
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "row": 2,
+              "col": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "right",
+              "runs": [
+                {
+                  "content": "right",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "placement": {
+            "frame": "margin",
+            "x": 36.0,
+            "y": 18.0,
+            "width": null,
+            "height": null,
+            "align_h": null,
+            "align_v": null
+          }
+        }
+      ]
+    }
+  ]
+}

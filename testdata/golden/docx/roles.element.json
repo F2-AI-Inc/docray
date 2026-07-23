@@ -1,0 +1,123 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "0584b7e85bd66598ee9b8f45453a3fcde043ba9d56a403ed5ba47cbe6112577a",
+    "size_bytes": 2513
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "h1",
+          "runs": [
+            {
+              "content": "H1",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "H1"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "h2",
+          "runs": [
+            {
+              "content": "H2",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "H2"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b2",
+          "role": "title",
+          "runs": [
+            {
+              "content": "Title",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Title"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b3",
+          "role": "quote",
+          "runs": [
+            {
+              "content": "Quote",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Quote"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "5b48785cae141130a807dc385aace5b8c5bc3c9d1c37d08622e8b7251b137a07",
+    "size_bytes": 2529
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "one",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0,
+                "italic": true
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "one",
+          "list": {
+            "list_id": "10",
+            "level": 0,
+            "kind": "ordered",
+            "label": "1."
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "body",
+          "runs": [
+            {
+              "content": "letter",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "letter",
+          "list": {
+            "list_id": "10",
+            "level": 1,
+            "kind": "ordered",
+            "label": "1.a)"
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b2",
+          "role": "body",
+          "runs": [
+            {
+              "content": "roman",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "roman",
+          "list": {
+            "list_id": "10",
+            "level": 2,
+            "kind": "ordered",
+            "label": "1.a.I."
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b3",
+          "role": "body",
+          "runs": [
+            {
+              "content": "restart three",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0,
+                "italic": true
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "restart three",
+          "list": {
+            "list_id": "11",
+            "level": 0,
+            "kind": "ordered",
+            "label": "3."
+          }
+        }
+      ]
+    }
+  ]
+}
