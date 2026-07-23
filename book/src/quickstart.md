@@ -46,10 +46,12 @@ docray-server listening on http://localhost:41619
 playground UI:        http://localhost:41619/playground
 ```
 
-Open the playground and drop a PDF or PPTX on it. PDFs appear as rendered
+Open the playground and drop a PDF, PPTX, or DOCX on it. PDFs appear as rendered
 pages; PPTX slides appear as offline visual renders inside a locked-down browser
-sandbox, with an extraction-derived structure schematic as the fallback. Both
-sit beside extracted bounding boxes and live JSON — see
+sandbox, with an extraction-derived structure schematic as the fallback. Word
+documents appear as a scrollable isolated render beside honest flow lenses:
+positioned containers only in BOXES and a labeled reading-order schematic in
+X-RAY. All formats sit beside extracted content and live JSON — see
 [the playground](playground.md).
 
 Extract over HTTP:

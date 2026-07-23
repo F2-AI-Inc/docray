@@ -11,14 +11,20 @@ There are two ways to use the playground:
 `docray-server` embeds a browser workbench at **`/playground`** — the fastest
 way to understand what docray extracts and to debug a specific document.
 
-Drop a PDF or PPTX on it and every page or slide appears with:
+Drop a PDF, PPTX, DOCX, or DOCM on it. PDF pages and PPTX slides use paged
+navigation. Word documents use their authored sections; a one-section document
+hides the rail rather than inventing pages.
+
+The workbench provides:
 
 - **A thumbnail rail** for navigation (arrow keys work; scanned pages carry a
-  badge). PPTX thumbnails render progressively as they scroll into view and
-  fall back individually to the extraction schematic if visual rendering fails.
+  badge). PPTX slides start with clean extraction schematics and the current
+  slide upgrades to an isolated visual render. Word sections use clean
+  reading-order schematic thumbnails.
 - **Two independent panels**, each switchable between six lenses:
-  - **source** — the rendered PDF page, or an offline visual PPTX render inside
-    a locked-down, null-origin browser sandbox
+  - **source** — the rendered PDF page, or an offline visual PPTX/Word render
+    inside a locked-down, null-origin browser sandbox. Word source is one
+    scrollable flow; page breaks appear only where the renderer can honor them.
   - **boxes** — the page with filled, color-coded bounding boxes
     (<span style="color:#5cc8ff">text</span>,
     <span style="color:#ff7ac2">image</span>,
@@ -36,19 +42,27 @@ Drop a PDF or PPTX on it and every page or slide appears with:
 - **Filter chips** to isolate element types, zoom controls, a granularity
   selector that re-extracts live, and per-page/document JSON views.
 
-Hover any box for its content, font, and coordinates.
+For Word flow output, **boxes** shows the authored page frame and margins plus
+only containers with numeric page/margin-relative placement and extents. It
+states that ordinary flow content has no resolved boxes. **x-ray** becomes a
+prominently labeled reading-order schematic whose vertical stack and lanes are
+synthetic, not positions. It cross-links blocks to text and JSON by stable ID.
+Extraction geometry is never overlaid on the separate docx-preview render.
+
+Hover a PDF/PPTX box for its content, font, and coordinates. Hover a Word block
+for its content and authored placement constraint, when one exists.
 
 ## Notes
 
 - The page loads pdf.js and fonts from CDNs, so the **browser** needs
   internet access for PDF rendering and web fonts — the extraction API itself
-  does not. The PPTX renderer is vendored and makes no network requests.
-- Hostile PPTX visual rendering runs in an iframe with only
+  does not. The PPTX and Word renderers are vendored and make no network
+  requests.
+- Hostile PPTX and Word visual rendering runs in an iframe with only
   `sandbox="allow-scripts"` and a `default-src 'none'` Content Security Policy.
   The parent transfers document bytes in, never reads the iframe DOM, and
-  accepts only small status messages plus a size-bounded PNG/WebP data URL for
-  each thumbnail; that inert URL is used only as an image source. Errors and
-  timeouts fall back to the structure schematic built from docray's extraction.
+  accepts only exact, bounded status messages. Errors and timeouts fall back to
+  extraction-derived structure or reading-order schematics.
 - Uploads go to the server's own `/v1/extract`; nothing leaves your
   deployment.
 - The UI is a single self-contained HTML file compiled into the server
