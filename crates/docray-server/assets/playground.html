@@ -262,6 +262,14 @@
     box-shadow: 0 0 0 1px var(--hair), 0 18px 50px -18px rgba(0,0,0,0.85);
   }
   .flow-margin { position: absolute; border: 1px dashed rgba(22,19,15,0.25); }
+  .flow-empty {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; padding: 12%; text-align: center;
+    color: rgba(22,19,15,0.55); font-size: 12px; line-height: 1.6;
+  }
+  .flow-empty b { color: rgba(22,19,15,0.75); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
+  .flow-empty span { max-width: 40em; }
   .flow-positioned {
     position: absolute; border: 2px solid var(--amber); background: rgba(232,163,61,0.08);
     min-width: 4px; min-height: 4px; cursor: pointer;
@@ -42623,6 +42631,30 @@ function docxIframeMain() {
       for (const anchor of document.querySelectorAll("a[href]")) {
         anchor.removeAttribute("href");
       }
+      // Browsers cannot decode EMF/WMF (Windows vector metafiles), so those
+      // embedded images render as an invisible broken <img> and the page looks
+      // like content is missing. Swap any image that failed to decode for a
+      // labeled placeholder at the same size, so a viewer sees the image is
+      // present but not previewable rather than a mystery blank. The extractor
+      // still captures every image's geometry and content hash regardless.
+      const markBrokenImage = img => {
+        if (img.dataset.docrayPlaceholder) return;
+        const w = img.width || img.naturalWidth || 0;
+        const h = img.height || img.naturalHeight || 0;
+        const box = document.createElement("span");
+        box.dataset.docrayPlaceholder = "1";
+        box.className = "docray-img-missing";
+        if (w) box.style.width = w + "px";
+        if (h) box.style.height = h + "px";
+        box.textContent = "image not previewable in browser";
+        img.replaceWith(box);
+      };
+      for (const img of document.querySelectorAll("img")) {
+        if (img.complete && img.naturalWidth === 0) markBrokenImage(img);
+        else if (!img.complete) {
+          img.addEventListener("error", () => markBrokenImage(img), { once: true });
+        }
+      }
       clearTimeout(timer);
       if (!replied) reply("rendered");
     } catch (_) {
@@ -42646,7 +42678,11 @@ function docxRendererSrcdoc() {
     "body{overflow:auto}" +
     "#document{min-height:100%;padding:18px 0}" +
     ".docx-wrapper{background:#e7e3da!important;padding:12px!important}" +
-    ".docx-wrapper>section.docx{box-shadow:0 2px 12px rgba(0,0,0,.18)!important}";
+    ".docx-wrapper>section.docx{box-shadow:0 2px 12px rgba(0,0,0,.18)!important}" +
+    ".docray-img-missing{display:inline-flex;align-items:center;justify-content:center;" +
+    "box-sizing:border-box;min-width:64px;min-height:32px;padding:6px;" +
+    "border:1px dashed rgba(22,19,15,.35);background:rgba(22,19,15,.04);" +
+    "color:rgba(22,19,15,.5);font:11px/1.4 monospace;text-align:center;vertical-align:bottom}";
   const glue = ";(" + docxIframeMain.toString() + ")();";
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta http-equiv="Content-Security-Policy" content="' + PPTX_IFRAME_CSP + '">' +
@@ -42848,7 +42884,8 @@ function renderFlowBoxes(body, section, fitWidth, zoom) {
   margin.style.right = Number(margins.right || 0) * metrics.k + "px";
   margin.style.bottom = Number(margins.bottom || 0) * metrics.k + "px";
   frame.appendChild(margin);
-  positionedFlowBlocks(section).forEach(block => {
+  const positioned = positionedFlowBlocks(section);
+  positioned.forEach(block => {
     const placement = block.placement;
     const originX = placement.frame === "margin" ? Number(margins.left || 0) : 0;
     const originY = placement.frame === "margin" ? Number(margins.top || 0) : 0;
@@ -42865,6 +42902,23 @@ function renderFlowBoxes(body, section, fitWidth, zoom) {
     if (block.id) box.addEventListener("click", () => crossFlowJson(block.id, panelIndexOf(box)));
     frame.appendChild(box);
   });
+  // With zero positioned containers the page frame reads as blank/broken.
+  // Say WHY it is empty, in the frame itself, and point at the lenses that do
+  // carry this document's content.
+  if (!positioned.length) {
+    const empty = document.createElement("div");
+    empty.className = "flow-empty";
+    const count = flowBlocks(section).length;
+    const title = document.createElement("b");
+    title.textContent = "nothing is positioned on this page";
+    const detail = document.createElement("span");
+    detail.textContent =
+      `all ${count} block${count === 1 ? "" : "s"} in this section are flow content — ` +
+      "Word stores their order, not their coordinates. " +
+      "Use X-RAY for reading order, or TEXT / JSON / LLM FORMAT for the content.";
+    empty.append(title, detail);
+    frame.appendChild(empty);
+  }
   body.appendChild(frame);
 }
 
