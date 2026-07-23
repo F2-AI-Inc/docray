@@ -186,7 +186,7 @@
           "content": "Footnote body"
         },
         {
-          "kind": "footnote",
+          "kind": "endnote",
           "element": "s0-b0",
           "content": "Endnote body"
         }

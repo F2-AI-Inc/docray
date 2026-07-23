@@ -137,6 +137,16 @@ fn main() {
         vec![],
     );
     write_docx(
+        "field-code-break",
+        &format!(
+            r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText><w:lastRenderedPageBreak/></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>7</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>{}"#,
+            sect("")
+        ),
+        false,
+        "",
+        vec![],
+    );
+    write_docx(
         "mc",
         &format!(
             r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:positionH relativeFrom="margin"><wp:posOffset>127000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>254000</wp:posOffset></wp:positionV><wp:extent cx="1270000" cy="635000"/><wps:txbx><w:txbxContent>{}</w:txbxContent></wps:txbx></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:shape><v:textbox><w:txbxContent>{}</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p><w:p><w:r><mc:AlternateContent><mc:Choice Requires="unsupported">{}</mc:Choice><mc:Fallback><w:pict><v:shape><v:textbox><w:txbxContent>{}</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>{}"#,
@@ -321,6 +331,53 @@ fn main() {
         false,
         "",
         vec![],
+    );
+
+    let mut hinted_blocks = String::from(r#"<w:p><w:r><w:lastRenderedPageBreak/></w:r></w:p>"#);
+    for _ in 0..400 {
+        hinted_blocks.push_str("<w:p/>");
+    }
+    hinted_blocks.push_str(&sect(""));
+    write_docx(
+        "../malformed/docx-hinted-block-cap",
+        &hinted_blocks,
+        false,
+        "",
+        vec![],
+    );
+
+    let bad_image_rels = format!(
+        r#"<Relationship Id="rBadImage" Type="{R}/image" Target="../../../../escape.png"/>"#
+    );
+    write_docx(
+        "../malformed/docx-bad-image-target",
+        &format!(
+            r#"<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rBadImage"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>{}"#,
+            sect("")
+        ),
+        false,
+        &bad_image_rels,
+        vec![],
+    );
+
+    let bad_header_rels = format!(
+        r#"<Relationship Id="rBadHeader" Type="{R}/header" Target="../../../../escape.xml"/>"#
+    );
+    let mut corrupt_optional = base_entries(
+        &format!(
+            "{}{}",
+            p("defaults survive"),
+            sect(r#"<w:headerReference w:type="default" r:id="rBadHeader"/>"#)
+        ),
+        false,
+        &bad_header_rels,
+    );
+    corrupt_optional.retain(|(name, _)| name != "word/styles.xml" && name != "docProps/core.xml");
+    corrupt_optional.push(("word/styles.xml".into(), b"<w:styles>".to_vec()));
+    corrupt_optional.push(("docProps/core.xml".into(), b"<cp:coreProperties>".to_vec()));
+    write_zip(
+        "testdata/malformed/docx-corrupt-optional-parts.docx",
+        &corrupt_optional,
     );
 
     let nested_begin = "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>".repeat(20);

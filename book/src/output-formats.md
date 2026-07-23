@@ -151,8 +151,9 @@ Hidden kinds are stable contract strings:
 | `tracked-insert` | block | DOCX accepted insertion | not emitted |
 | `tracked-delete` | block | DOCX rejected deletion | not emitted |
 | `footnote` | block | DOCX note body linked to its reference | not emitted |
+| `endnote` | block | DOCX endnote body linked to its reference | not emitted |
 
-New hidden semantics receive new documented kind strings; these five strings
+New hidden semantics receive new documented kind strings; these six strings
 are never repurposed or renamed.
 
 All coordinates use PDF points with a top-left origin after page rotation.

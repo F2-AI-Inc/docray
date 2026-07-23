@@ -50,9 +50,9 @@ pass. Cached `PAGE` field results never count as pagination. When no cache
 markers exist, `approx_page` is omitted and the response contains exactly one
 `no pagination hints; approx_page omitted` warning.
 
-For flow documents, `max_pages` caps `approx_pages` when hints exist. Without
-hints it is approximated as `max_pages * 200` total blocks and the response
-warns `max_pages approximated as block cap for flow documents`.
+For flow documents, `max_pages` caps `approx_pages` when hints exist and always
+enforces an additional `max_pages * 200` total-block cap. Without hints the
+response warns `max_pages approximated as block cap for flow documents`.
 
 ## Non-visible context
 
@@ -66,6 +66,7 @@ Each section can carry stable hidden items targeted by block ID:
 | `tracked-delete` | Deleted text, excluded from visible content |
 | `alt` | Drawing alternative text |
 | `footnote` | Note body linked to its reference block |
+| `endnote` | Endnote body linked to its reference block |
 
 Tracked moves follow the same accepted projection: `moveTo` is insertion and
 `moveFrom` is deletion. External hyperlinks remain literal strings and are

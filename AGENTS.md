@@ -46,7 +46,7 @@ Docker build/smoke test.
    behind a parameter, or a minor version bump with explicit review.
    Hidden-channel kind strings (`role`, `notes`, `alt`, `hidden-slide`,
    `source-layer`, `field`, `comment`, `tracked-insert`, `tracked-delete`,
-   `footnote`) are also stable contract and must
+   `footnote`, `endnote`) are also stable contract and must
    never be renamed.
 2. **Determinism.** Identical input bytes → byte-identical JSON on a given
    platform + PDFium build. No timestamps, randomness, or HashMap iteration

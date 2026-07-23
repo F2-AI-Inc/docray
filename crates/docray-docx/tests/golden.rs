@@ -156,6 +156,25 @@ fn fields_emit_cached_results_and_hide_instructions() {
         .map(|item| item.content.as_str())
         .collect();
     assert_eq!(fields, ["PAGE", "TOC \\o \"1-3\""]);
+
+    let field_break = fixture("field-code-break.docx");
+    let paragraphs: Vec<_> = field_break.sections[0]
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Paragraph { id, content, .. } => Some((id.as_str(), content.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(paragraphs, [("s0-b0", "7")]);
+    let fields: Vec<_> = field_break.sections[0]
+        .hidden
+        .iter()
+        .filter(|item| item.kind == "field")
+        .collect();
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].element.as_deref(), Some("s0-b0"));
+    assert_eq!(fields[0].content, "PAGE");
 }
 
 #[test]
@@ -381,6 +400,10 @@ fn sections_stories_notes_breaks_and_docm_policy_are_explicit() {
         .hidden
         .iter()
         .any(|item| item.kind == "footnote"));
+    assert!(stories.sections[0]
+        .hidden
+        .iter()
+        .any(|item| item.kind == "endnote"));
     assert!(stories.sections[0].blocks.iter().any(
         |block| matches!(block, Block::Paragraph { content, .. } if content == "Footnote body")
     ));

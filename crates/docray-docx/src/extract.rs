@@ -63,14 +63,22 @@ impl Extractor for DocxExtractor {
         if format == "docm" {
             warnings.push("macro project ignored".into());
         }
-        let metadata = metadata(&mut package)?;
+        let metadata = metadata(&mut package, &mut warnings);
         let document = xml_required_mc(&mut package, "word/document.xml", &mut warnings)?;
         let styles_root = xml_optional_mc(&mut package, "word/styles.xml", &mut warnings)?;
         let numbering_root = xml_optional_mc(&mut package, "word/numbering.xml", &mut warnings)?;
         let theme_root = xml_optional_mc(&mut package, "word/theme/theme1.xml", &mut warnings)?;
         let comments = load_comments(&mut package, &mut warnings)?;
         let notes = load_notes(&mut package, &mut warnings)?;
-        let document_rels = relationships(&mut package, "word/document.xml")?;
+        let document_rels = match relationships(&mut package, "word/document.xml") {
+            Ok(rels) => rels,
+            Err(error) => {
+                warnings.push(format!(
+                    "word/document.xml relationships failed to parse; optional references skipped: {error}"
+                ));
+                Relationships::default()
+            }
+        };
 
         let styles = Styles::from_xml(styles_root.as_ref());
         let numbering = Numbering::from_xml(numbering_root.as_ref());
@@ -719,33 +727,37 @@ fn extract_paragraph(
                 block_id: target,
             }),
             InlineEvent::Break(kind) => {
-                flush_paragraph_segment(
-                    &mut blocks,
-                    &mut runs,
-                    &style,
-                    &list,
-                    &mut first_segment,
-                    ids,
-                    state,
-                    track_pages,
-                    &mut emitted_any,
-                    context,
-                );
+                if !runs.is_empty() || state.fields.visible() {
+                    flush_paragraph_segment(
+                        &mut blocks,
+                        &mut runs,
+                        &style,
+                        &list,
+                        &mut first_segment,
+                        ids,
+                        state,
+                        track_pages,
+                        &mut emitted_any,
+                        context,
+                    );
+                }
                 state.pending_breaks.push(kind);
             }
             InlineEvent::PageHint => {
-                flush_paragraph_segment(
-                    &mut blocks,
-                    &mut runs,
-                    &style,
-                    &list,
-                    &mut first_segment,
-                    ids,
-                    state,
-                    track_pages,
-                    &mut emitted_any,
-                    context,
-                );
+                if !runs.is_empty() || state.fields.visible() {
+                    flush_paragraph_segment(
+                        &mut blocks,
+                        &mut runs,
+                        &style,
+                        &list,
+                        &mut first_segment,
+                        ids,
+                        state,
+                        track_pages,
+                        &mut emitted_any,
+                        context,
+                    );
+                }
                 if track_pages {
                     advance_body_page(context);
                 }
@@ -1331,11 +1343,19 @@ fn extract_drawing(
             .push(format!("{id}: external image target was not fetched")),
         Some(relation) => {
             let source_part = drawing_part_for_rels(rels);
-            let media_path = resolve_target(source_part, &relation.target)?;
-            match context.package.read(&media_path)? {
-                Some(bytes) => content_hash = Some(hex(&Sha256::digest(bytes))),
-                None => context.warnings.push(format!(
-                    "{id}: referenced image media part is missing: {media_path}"
+            match resolve_target(source_part, &relation.target) {
+                Ok(media_path) => match context.package.read(&media_path) {
+                    Ok(Some(bytes)) => content_hash = Some(hex(&Sha256::digest(bytes))),
+                    Ok(None) => context.warnings.push(format!(
+                        "{id}: referenced image media part is missing: {media_path}"
+                    )),
+                    Err(error) => context.warnings.push(format!(
+                        "{id}: referenced image media part {media_path:?} could not be read: {error}"
+                    )),
+                },
+                Err(error) => context.warnings.push(format!(
+                    "{id}: image relationship target {:?} is invalid: {error}",
+                    relation.target
                 )),
             }
         }
@@ -1491,7 +1511,16 @@ fn attach_section_stories(
                 ));
                 continue;
             }
-            let path = resolve_target("word/document.xml", &relation.target)?;
+            let path = match resolve_target("word/document.xml", &relation.target) {
+                Ok(path) => path,
+                Err(error) => {
+                    context.warnings.push(format!(
+                        "section {section_index}: {kind} target {:?} is invalid: {error}",
+                        relation.target
+                    ));
+                    continue;
+                }
+            };
             match extract_story_part(
                 &path,
                 format!(
@@ -1627,7 +1656,15 @@ fn attach_notes(
                 NoteKind::Footnote => "word/footnotes.xml",
                 NoteKind::Endnote => "word/endnotes.xml",
             };
-            let rels = relationships(context.package, path)?;
+            let rels = match relationships(context.package, path) {
+                Ok(rels) => rels,
+                Err(error) => {
+                    context.warnings.push(format!(
+                        "{path} relationships failed to parse; optional note relationships ignored: {error}"
+                    ));
+                    Relationships::default()
+                }
+            };
             let mut ids = IdAllocator::new(format!("s{section_index}-b"));
             ids.next = section.blocks.len();
             let mut state = StoryState::default();
@@ -1672,7 +1709,11 @@ fn attach_notes(
             finish_story(&mut note_blocks, &mut state, context);
             let content = block_text(&note_blocks);
             section.hidden.push(HiddenItem {
-                kind: "footnote".into(),
+                kind: match kind {
+                    NoteKind::Footnote => "footnote",
+                    NoteKind::Endnote => "endnote",
+                }
+                .into(),
                 element: Some(reference_block),
                 content,
             });
@@ -1729,15 +1770,38 @@ fn load_notes(
     Ok(notes)
 }
 
-fn metadata(package: &mut Package<'_>) -> Result<DocMetadata, ExtractError> {
-    let Some(bytes) = package.read("docProps/core.xml")? else {
-        return Ok(DocMetadata {
-            title: None,
-            author: None,
-        });
+fn metadata(package: &mut Package<'_>, warnings: &mut Vec<String>) -> DocMetadata {
+    let bytes = match package.read("docProps/core.xml") {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => {
+            return DocMetadata {
+                title: None,
+                author: None,
+            };
+        }
+        Err(error) => {
+            warnings.push(format!(
+                "docProps/core.xml: optional metadata failed to read: {error}"
+            ));
+            return DocMetadata {
+                title: None,
+                author: None,
+            };
+        }
     };
-    let root = parse(&bytes, "docProps/core.xml")?;
-    Ok(DocMetadata {
+    let root = match parse(&bytes, "docProps/core.xml") {
+        Ok(root) => root,
+        Err(error) => {
+            warnings.push(format!(
+                "docProps/core.xml: optional metadata failed to parse: {error}"
+            ));
+            return DocMetadata {
+                title: None,
+                author: None,
+            };
+        }
+    };
+    DocMetadata {
         title: root
             .first_descendant("title")
             .map(|node| node.text.clone())
@@ -1746,7 +1810,7 @@ fn metadata(package: &mut Package<'_>) -> Result<DocMetadata, ExtractError> {
             .first_descendant("creator")
             .map(|node| node.text.clone())
             .filter(|value| !value.is_empty()),
-    })
+    }
 }
 
 fn source_format(package: &mut Package<'_>) -> Result<&'static str, ExtractError> {
@@ -1770,7 +1834,7 @@ fn xml_required_mc(
     let bytes = package.read_required(path)?;
     let root = parse(&bytes, path)?;
     Ok(preprocess_alternate_content(
-        &root,
+        root,
         SUPPORTED_MC_NAMESPACES,
         MAX_MC_DEPTH,
         warnings,
@@ -1782,12 +1846,23 @@ fn xml_optional_mc(
     path: &str,
     warnings: &mut Vec<String>,
 ) -> Result<Option<Node>, ExtractError> {
-    let Some(bytes) = package.read(path)? else {
-        return Ok(None);
+    let bytes = match package.read(path) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return Ok(None),
+        Err(error) => {
+            warnings.push(format!("{path}: optional part failed to read: {error}"));
+            return Ok(None);
+        }
     };
-    let root = parse(&bytes, path)?;
+    let root = match parse(&bytes, path) {
+        Ok(root) => root,
+        Err(error) => {
+            warnings.push(format!("{path}: optional part failed to parse: {error}"));
+            return Ok(None);
+        }
+    };
     Ok(Some(preprocess_alternate_content(
-        &root,
+        root,
         SUPPORTED_MC_NAMESPACES,
         MAX_MC_DEPTH,
         warnings,
@@ -1807,9 +1882,9 @@ fn enforce_max_pages(
         if actual > limit {
             return Err(ExtractError::TooManyPages { limit, actual });
         }
-        return Ok(());
+    } else {
+        warnings.push("max_pages approximated as block cap for flow documents".into());
     }
-    warnings.push("max_pages approximated as block cap for flow documents".into());
     let blocks: usize = sections
         .iter()
         .map(|section| {
