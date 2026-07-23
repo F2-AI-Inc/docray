@@ -1,4 +1,4 @@
-use docray_core::{Capabilities, ExtractError, Extractor};
+use docray_core::{Capabilities, ExtractError, Extractor, GeometryKind};
 use docray_model::{
     round3, AnnotationElement, BBox, ChartElement, ChartPoint, ChartSeries, DocMetadata,
     DocumentInfo, Element, Extraction, Font, Granularity, HiddenItem, ImageElement, Page,
@@ -22,6 +22,7 @@ impl Extractor for PptxExtractor {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             finest_granularity: Granularity::Element,
+            geometry: GeometryKind::Container,
         }
     }
 

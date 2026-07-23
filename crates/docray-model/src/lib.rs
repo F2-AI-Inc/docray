@@ -3,6 +3,10 @@ use std::fmt;
 use std::fmt::Write as _;
 use std::str::FromStr;
 
+mod flow;
+
+pub use flow::*;
+
 pub fn round3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
 }
@@ -316,6 +320,7 @@ impl FromStr for OutputFormat {
 pub enum GranularExtraction<'a> {
     Char(ExplicitCharExtraction<'a>),
     Compact(CompactExtraction),
+    Flow(CompactFlowExtraction),
 }
 
 #[derive(Serialize)]

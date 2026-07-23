@@ -91,6 +91,16 @@ fn extract_lean_inner(
             })?;
             Ok(w.buf)
         }
+        GranularExtraction::Flow(flow) => {
+            let mut w = CappedString {
+                buf: String::new(),
+                remaining: cap,
+            };
+            flow.write_lean(&mut w).map_err(|_| {
+                WasmError::new(OUTPUT_TOO_LARGE, format!("output exceeded {cap} bytes"))
+            })?;
+            Ok(w.buf)
+        }
         GranularExtraction::Char(_) => unreachable!("char is rejected above"),
     }
 }
