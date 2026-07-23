@@ -504,6 +504,54 @@ fn main() {
         vec![],
     );
 
+    // Markup-compatibility (ECMA-376 Part 3): PowerPoint wraps shapes that use
+    // extension namespaces (ink, newer chart types, equations) in
+    // mc:AlternateContent. A consumer that supports none of the mc:Choice
+    // requirements must extract the mc:Fallback subtree; a wrapper without a
+    // Fallback has nothing extractable and must warn instead of vanishing.
+    let alternate_content = slide(&format!(
+        "{}{}{}",
+        shape(
+            2,
+            "Before",
+            914400,
+            914400,
+            2743200,
+            914400,
+            "Before wrapper"
+        ),
+        concat!(
+            r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">"#,
+            r#"<mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14">"#,
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="3" name="Choice shape"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="2286000"/><a:ext cx="2743200" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Choice-only content</a:t></a:r></a:p></p:txBody></p:sp>"#,
+            r#"</mc:Choice>"#,
+            r#"<mc:Fallback>"#,
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="4" name="Fallback shape"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="2286000"/><a:ext cx="2743200" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>Fallback shape</a:t></a:r></a:p></p:txBody></p:sp>"#,
+            r#"</mc:Fallback>"#,
+            r#"</mc:AlternateContent>"#,
+            r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">"#,
+            r#"<mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14">"#,
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="5" name="Unfallen"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="3657600"/><a:ext cx="2743200" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz="1800"/><a:t>No fallback here</a:t></a:r></a:p></p:txBody></p:sp>"#,
+            r#"</mc:Choice>"#,
+            r#"</mc:AlternateContent>"#,
+        ),
+        shape(
+            6,
+            "After",
+            4572000,
+            914400,
+            2743200,
+            914400,
+            "After wrapper"
+        )
+    ));
+    write_pptx(
+        "alternate-content",
+        alternate_content,
+        default_slide_rels(""),
+        vec![],
+    );
+
     let paths = slide(
         r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Rectangle"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1270000" y="1270000"/><a:ext cx="2540000" cy="1270000"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="AA5500"/></a:solidFill><a:ln w="25400"><a:solidFill><a:srgbClr val="001122"/></a:solidFill></a:ln></p:spPr></p:sp><p:cxnSp><p:nvCxnSpPr><p:cNvPr id="3" name="Connector"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="3810000" y="1905000"/><a:ext cx="1905000" cy="635000"/></a:xfrm><a:prstGeom prst="line"/><a:ln w="12700"><a:solidFill><a:srgbClr val="CC0000"/></a:solidFill></a:ln></p:spPr></p:cxnSp>"#,
     );
