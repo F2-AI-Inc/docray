@@ -1,12 +1,17 @@
 # Third-party notices
 
-The vendored browser artifact in `crates/docray-server/assets/playground.html`
-contains the following software.
+The vendored browser artifacts in `crates/docray-server/assets/playground.html`
+contain the following software.
 
 ## @aiden0z/pptx-renderer 1.2.4
 
 Copyright its contributors. Licensed under the Apache License, Version 2.0.
 See `LICENSE-APACHE`.
+
+## docx-preview 0.4.0
+
+Copyright Volodymyr Baydalka and contributors. Licensed under the Apache
+License, Version 2.0. See `LICENSE-APACHE`.
 
 ## Apache ECharts 6.0.0
 
