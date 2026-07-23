@@ -90,6 +90,14 @@ Granularity controls which information is retained; output format controls
 how that information is encoded. See [output formats](output-formats.md) for
 the measured JSON-versus-lean tradeoff and complete lean specification.
 
+## Flow documents
+
+DOCX and DOCM support only `element` and default to it when the parameter is
+omitted. Their schema 1.7 flow blocks have no page bboxes, so `word` and `char`
+are unavailable. For token-conscious consumers, `element` plus `lean` keeps
+headings, lists, tables, runs, and hidden context without a JSON envelope. See
+[Word extraction](docx.md).
+
 ## Deliberate non-optimizations
 
 Two further size levers were measured and rejected — documented here so you

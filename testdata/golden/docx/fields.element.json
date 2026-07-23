@@ -1,0 +1,91 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "34b4a86f50d5c36d7f6b505600901ccbc7244f333f7592a8d9972a4a27071254",
+    "size_bytes": 2607
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "3",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "3"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Cached heading",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Cached heading"
+        }
+      ],
+      "hidden": [
+        {
+          "kind": "field",
+          "element": "s0-b0",
+          "content": "PAGE"
+        },
+        {
+          "kind": "field",
+          "element": "s0-b1",
+          "content": "TOC \\o \"1-3\""
+        }
+      ]
+    }
+  ]
+}

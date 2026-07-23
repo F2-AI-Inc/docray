@@ -10,7 +10,8 @@
 //! docray-server's native subprocess isolation.
 
 use docray_core::{check_granularity, sniff_format, ExtractError, Extractor, Format};
-use docray_model::{Extraction, GranularExtraction, Granularity};
+use docray_docx::DocxExtractor;
+use docray_model::{Extraction, FlowExtraction, GranularExtraction, Granularity};
 use docray_ooxml::{sniff_opc, OpcKind};
 use docray_pdf::PdfExtractor;
 use docray_pptx::PptxExtractor;
@@ -80,7 +81,13 @@ fn extract_lean_inner(
         }
     };
     let extraction = extract_document(bytes, Some(granularity))?;
-    match extraction.with_granularity(granularity) {
+    let projected = match &extraction {
+        DocumentExtraction::Paged(extraction) => extraction.with_granularity(granularity),
+        DocumentExtraction::Flow(extraction) => extraction
+            .with_granularity(granularity)
+            .expect("flow granularity is checked before extraction"),
+    };
+    match projected {
         GranularExtraction::Compact(compact) => {
             let mut w = CappedString {
                 buf: String::new(),
@@ -122,7 +129,7 @@ fn extract_inner(
         ));
     }
 
-    let requested = if granularity.is_empty() {
+    let mut requested = if granularity.is_empty() {
         None
     } else {
         Some(
@@ -131,36 +138,70 @@ fn extract_inner(
                 .map_err(WasmError::parse_failure)?,
         )
     };
+    if requested.is_none()
+        && matches!(sniff_format(bytes), Some(Format::Zip))
+        && matches!(sniff_opc(bytes), Ok(OpcKind::Pptx | OpcKind::Docx))
+    {
+        requested = Some(Granularity::Element);
+    }
     let extraction = extract_document(bytes, requested)?;
 
-    if let Some(granularity) = requested {
-        json_capped(&extraction.with_granularity(granularity), cap)
-    } else {
-        json_capped(&extraction, cap)
+    match (extraction, requested) {
+        (DocumentExtraction::Paged(extraction), Some(granularity)) => {
+            json_capped(&extraction.with_granularity(granularity), cap)
+        }
+        (DocumentExtraction::Paged(extraction), None) => json_capped(&extraction, cap),
+        (DocumentExtraction::Flow(extraction), Some(granularity)) => json_capped(
+            &extraction
+                .with_granularity(granularity)
+                .expect("flow granularity is checked before extraction"),
+            cap,
+        ),
+        (DocumentExtraction::Flow(_), None) => {
+            unreachable!("flow formats default to element before extraction")
+        }
     }
 }
 
 /// Mirrors the CLI's format dispatch and, critically, performs the capability
 /// check before extraction. The PPTX arm never touches Pdfium.
-fn extract_document(bytes: &[u8], requested: Option<Granularity>) -> Result<Extraction, WasmError> {
+enum DocumentExtraction {
+    Paged(Extraction),
+    Flow(FlowExtraction),
+}
+
+fn extract_document(
+    bytes: &[u8],
+    requested: Option<Granularity>,
+) -> Result<DocumentExtraction, WasmError> {
     let result = match sniff_format(bytes) {
         Some(Format::Pdf) => {
             let extractor = PdfExtractor;
             check_granularity(&extractor.capabilities(), requested)
                 .and_then(|()| extractor.extract(bytes, None))
+                .map(DocumentExtraction::Paged)
         }
-        Some(Format::Zip) => {
-            let extractor = PptxExtractor;
-            check_granularity(&extractor.capabilities(), requested).and_then(|()| match sniff_opc(
-                bytes,
-            )? {
-                OpcKind::Pptx => extractor.extract(bytes, None),
-                OpcKind::Docx | OpcKind::OtherZip => Err(ExtractError::UnsupportedFormatMessage(
-                    "zip archive is not a PowerPoint file".into(),
-                )),
-            })
-        }
-        None if bytes.starts_with(CFB_MAGIC) => PptxExtractor.extract(bytes, None),
+        Some(Format::Zip) => match sniff_opc(bytes) {
+            Ok(OpcKind::Pptx) => {
+                let extractor = PptxExtractor;
+                check_granularity(&extractor.capabilities(), requested)
+                    .and_then(|()| extractor.extract(bytes, None))
+                    .map(DocumentExtraction::Paged)
+            }
+            Ok(OpcKind::Docx) => {
+                let extractor = DocxExtractor;
+                check_granularity(&extractor.capabilities(), requested)
+                    .and_then(|()| extractor.extract(bytes, None))
+                    .map(DocumentExtraction::Flow)
+            }
+            Ok(OpcKind::OtherZip) => Err(ExtractError::UnsupportedFormatMessage(
+                "zip archive is not a supported Office document".into(),
+            )),
+            Err(error) => Err(error),
+        },
+        None if bytes.starts_with(CFB_MAGIC) => PptxExtractor
+            .extract(bytes, None)
+            .map(DocumentExtraction::Paged),
         None => Err(ExtractError::UnsupportedFormat),
     };
     result.map_err(WasmError::from_extract)
@@ -322,12 +363,27 @@ mod tests {
     }
 
     #[test]
-    fn pptx_rejects_implicit_and_word_granularity() {
+    fn pptx_defaults_implicit_to_element_and_rejects_finer_granularity() {
         let bytes = include_bytes!("../../../testdata/pptx/table.pptx");
-        for granularity in ["", "char", "word"] {
+        assert!(extract_inner(bytes, "", 0, 0).is_ok());
+        for granularity in ["char", "word"] {
             let error = extract_inner(bytes, granularity, 0, 0).unwrap_err();
             assert_eq!(error.code, "granularity_unavailable");
         }
+    }
+
+    #[test]
+    fn docx_json_and_lean_extract_without_pdfium() {
+        let bytes = include_bytes!("../../../testdata/docx/fields.docx");
+        let json = extract_inner(bytes, "", 0, 0).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["schema_version"], "1.7");
+        assert_eq!(value["layout"], "flow");
+        assert_eq!(value["source"]["format"], "docx");
+        assert_eq!(value["sections"][0]["blocks"][0]["content"], "3");
+        let lean = extract_lean_inner(bytes, "", 0, 0).unwrap();
+        assert!(lean.starts_with("#docray element v1.7 sections=1"));
+        assert!(lean.contains("Cached heading"));
     }
 
     #[test]

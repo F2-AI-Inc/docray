@@ -1,0 +1,178 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "3b09882b227f503d030ae989ff9096cc031e39f70cda41640b0936e3ff20d050",
+    "size_bytes": 2577
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "picture bullet for numId \"12\" level 0 rendered as a bullet",
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "one",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0,
+                "italic": true
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "one",
+          "list": {
+            "list_id": "10",
+            "level": 0,
+            "kind": "ordered",
+            "label": "1."
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "body",
+          "runs": [
+            {
+              "content": "letter",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "letter",
+          "list": {
+            "list_id": "10",
+            "level": 1,
+            "kind": "ordered",
+            "label": "1.a)"
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b2",
+          "role": "body",
+          "runs": [
+            {
+              "content": "roman",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "roman",
+          "list": {
+            "list_id": "10",
+            "level": 2,
+            "kind": "ordered",
+            "label": "1.a.I."
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b3",
+          "role": "body",
+          "runs": [
+            {
+              "content": "restart three",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0,
+                "italic": true
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "restart three",
+          "list": {
+            "list_id": "11",
+            "level": 0,
+            "kind": "ordered",
+            "label": "3."
+          }
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b4",
+          "role": "body",
+          "runs": [
+            {
+              "content": "picture bullet",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "picture bullet",
+          "list": {
+            "list_id": "12",
+            "level": 0,
+            "kind": "bullet",
+            "label": "•"
+          }
+        }
+      ]
+    }
+  ]
+}

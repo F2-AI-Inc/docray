@@ -1,0 +1,14 @@
+#docray element v1.7 sections=1
+#legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
+#section 612 792
+~page 1
+P before
+BR page
+~page 1
+P after page
+~page 2
+P after hint
+BR page
+BR column
+~page 2
+P style break

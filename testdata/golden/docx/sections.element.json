@@ -1,0 +1,98 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "5187f9766bde1ce40a67bf0c37cc22ebf1c0865068b99bf081bfffd6321d97c6",
+    "size_bytes": 2541
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 595.3,
+      "page_height": 841.9,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "columns": 2,
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Section one",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Section one"
+        },
+        {
+          "type": "break",
+          "kind": "section"
+        }
+      ]
+    },
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s1-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Section two",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Section two"
+        }
+      ]
+    }
+  ]
+}

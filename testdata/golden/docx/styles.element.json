@@ -1,0 +1,74 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "bdbd1dc3274dc016f6088862934b03c6a477bbed36e83774351c1a97c0cd769e",
+    "size_bytes": 2538
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Toggle off",
+              "font": {
+                "name": "Fixture Serif",
+                "size": 14.0,
+                "italic": true
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            },
+            {
+              "content": " inherited",
+              "font": {
+                "name": "Fixture Serif",
+                "size": 14.0,
+                "bold": true,
+                "italic": true
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Toggle off inherited"
+        }
+      ]
+    }
+  ]
+}

@@ -8,7 +8,7 @@ Options:
                                      lossless (schema 1.1) output.
   --format <json|lean>               Output encoding. Default: json. Lean
                                      implies element granularity.
-  --max-pages <N>                    Refuse documents with more pages.
+  --max-pages <N>                    Refuse documents over the page/flow cap.
   --pretty                           Pretty-print the JSON.
 ```
 
@@ -29,7 +29,7 @@ with a stable exit code:
 | Exit | Code | Meaning |
 |---:|---|---|
 | 0 | — | success (warnings, if any, are inside the JSON / `#warning` lines in lean) |
-| 2 | `unsupported_format` | input is not supported PDF/PPTX, or is legacy/encrypted Office |
+| 2 | `unsupported_format` | input is not supported PDF/PPTX/DOCX/DOCM, or is legacy/encrypted Office |
 | 3 | `encrypted_pdf` | password-protected |
 | 4 | `parse_failure` | document could not be opened |
 | 5 | `io_error` | file unreadable / missing |
@@ -74,3 +74,8 @@ PPTX supports element granularity. An omitted `--granularity` defaults to
 `element` for PPTX (so `docray extract deck.pptx` just works), and lean also
 defaults to element; asking for finer detail (`word` or `char`) returns exit 8
 with `granularity_unavailable`. See [PowerPoint extraction](pptx.md).
+
+DOCX and DOCM also default to element and support lean. They emit schema 1.7
+flow sections/blocks; `word` and `char` return exit 8. With pagination hints,
+`--max-pages` caps the approximate page count. Without hints it caps blocks at
+`N * 200` and records the approximation warning. See [Word extraction](docx.md).

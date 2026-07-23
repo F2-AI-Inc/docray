@@ -2,8 +2,10 @@
 
 docray extracts structured, deterministic JSON (text with font/color/hierarchy,
 images, vector paths, and annotations, all with page-space coordinates) from
-PDF documents and PPTX presentations. PDF supports char, word, and element
-granularity; PPTX supports element granularity. It ships as a CLI (`docray`) for
+PDF documents, PPTX presentations, and DOCX/DOCM word-processing files. PDF
+supports char, word, and element granularity; PPTX supports positioned element
+output; DOCX/DOCM supports semantic flow elements without fabricated pages. It
+ships as a CLI (`docray`) for
 one-shot extraction and a server (`docray-server`) exposing a sync endpoint for
 small/fast documents and an async job queue for everything else. The full
 JSON contract is documented in the API and granularity sections below.
@@ -100,6 +102,7 @@ cargo run -p docray-cli -- extract file.pdf --pretty
 # or, once built:
 docray extract file.pdf [--max-pages N] [--pretty] [--granularity element|word|char] [--format json|lean]
 docray extract deck.pptx --granularity element
+docray extract report.docx
 ```
 
 ### Granularity
@@ -111,10 +114,12 @@ selects an explicit v1.6 response with a top-level `granularity` field. Jobs
 persist the requested level and use it when their worker runs. Invalid query
 values return `400 {"error":{"code":"bad_granularity",...}}`.
 
-PPTX is element-only: use explicit `granularity=element` or lean. Omitted,
-`word`, and `char` requests return `granularity_unavailable`. PPTX output does
+PPTX and DOCX are element-only and omitted granularity defaults to element.
+`word` and `char` requests return `granularity_unavailable`. PPTX output does
 not use the PDF token-reduction measurements below; see the
-[PPTX documentation](book/src/pptx.md).
+[PPTX documentation](book/src/pptx.md). DOCX/DOCM emits schema 1.7 flow
+sections and blocks without invented coordinates or pages; see the
+[Word documentation](book/src/docx.md).
 
 ```bash
 docray extract file.pdf --granularity word
@@ -199,6 +204,7 @@ Exit codes:
 | 5    | io_error           |
 | 6    | too_many_pages     |
 | 7    | bad_format         |
+| 8    | granularity_unavailable |
 
 On failure, `docray` prints `{"error": {"code": ..., "message": ...}}` to
 stderr and exits with the corresponding code above.

@@ -1,0 +1,25 @@
+#docray element v1.7 sections=1
+#legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
+#section 612 792
+~page 1
+P outside page one
+~page 1
+TB 1 144
+c 0 0 1 1 table page one\ntable page two\nnested page two\nnested page three\ntextbox page three\ntextbox page four
+r Fixture_Sans 11 -#336699 table page one
+r Fixture_Sans 11 -#336699 table page two
+~page 1
+P table page one
+~page 2
+P table page two
+~page 2
+TB 1 72
+c 0 0 1 1 nested page two\nnested page three
+r Fixture_Sans 11 -#336699 nested page two
+r Fixture_Sans 11 -#336699 nested page three
+~page 3
+P textbox page three
+~page 4
+P textbox page four
+~page 4
+P outside page four

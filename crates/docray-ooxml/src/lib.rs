@@ -1,10 +1,15 @@
 mod package;
 mod relationships;
+mod theme;
 mod xml;
 
 pub use package::{Package, MAX_COMPRESSION_RATIO, MAX_ENTRIES, MAX_ENTRY_SIZE, MAX_TOTAL_SIZE};
 pub use relationships::{relationships, resolve_target, Relationship, Relationships};
-pub use xml::{local_name, parse, Descendants, Node, MAX_XML_DEPTH, MAX_XML_NODES};
+pub use theme::{parse_hex_color, resolve_drawing_fill, Theme};
+pub use xml::{
+    local_name, parse, preprocess_alternate_content, Descendants, Node, MAX_XML_DEPTH,
+    MAX_XML_NODES,
+};
 
 use docray_core::ExtractError;
 

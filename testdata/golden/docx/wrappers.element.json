@@ -1,0 +1,157 @@
+{
+  "granularity": "element",
+  "schema_version": "1.7",
+  "layout": "flow",
+  "source": {
+    "format": "docx",
+    "sha256": "5ce76408ed2d96000efc4db9eadd2b0449ec040d37839881e66674d9cc97ab01",
+    "size_bytes": 2678
+  },
+  "document": {
+    "metadata": {
+      "title": "DOCX fixture",
+      "author": "Fixture Author"
+    }
+  },
+  "warnings": [
+    "no pagination hints; approx_page omitted"
+  ],
+  "sections": [
+    {
+      "page_width": 612.0,
+      "page_height": 792.0,
+      "margins": {
+        "top": 72.0,
+        "right": 72.0,
+        "bottom": 72.0,
+        "left": 72.0
+      },
+      "headers": [],
+      "footers": [],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "s0-b0",
+          "role": "body",
+          "runs": [
+            {
+              "content": "block sdt",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "block sdt"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b1",
+          "role": "body",
+          "runs": [
+            {
+              "content": "block smart tag",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "block smart tag"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b2",
+          "role": "body",
+          "runs": [
+            {
+              "content": "block custom XML",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "block custom XML"
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b3",
+          "role": "body",
+          "runs": [
+            {
+              "content": "inline sdt + smart tag + custom XML",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "inline sdt + smart tag + custom XML"
+        },
+        {
+          "type": "table",
+          "id": "s0-b4",
+          "col_widths": [
+            72.0
+          ],
+          "rows": 1,
+          "cols": 1,
+          "cells": [
+            {
+              "row": 0,
+              "col": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "content": "cell sdt",
+              "runs": [
+                {
+                  "content": "cell sdt",
+                  "font": {
+                    "name": "Fixture Sans",
+                    "size": 11.0
+                  },
+                  "color": {
+                    "fill": [
+                      51,
+                      102,
+                      153
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,7 @@ agents (CLAUDE.md and .cursorrules are symlinks to it).
 | `crates/docray-core` | `Extractor` trait, format sniffing, geometric char→word→line grouping |
 | `crates/docray-pdf` | PDFium-backed extractor (`pdfium-render`, pinned exact version) |
 | `crates/docray-pptx` | Pure-Rust OOXML (PPTX) extractor — a deliberate hostile-input boundary |
+| `crates/docray-docx` | Pure-Rust OOXML (DOCX/DOCM) flow extractor |
 | `crates/docray-cli` | `docray` binary — also the server's isolation worker subprocess |
 | `crates/docray-server` | axum HTTP: sync + async jobs; embedded playground at `/playground` |
 | `crates/docray-wasm` | Browser-facing `wasm32` build (PDF + PPTX); CI enforces WASM↔native parity |
@@ -43,8 +44,9 @@ Docker build/smoke test.
    or reorder fields on that path. Granularity-shaped responses are schema
    `1.6`; flow-shaped responses are schema `1.7`. New capability = new field
    behind a parameter, or a minor version bump with explicit review.
-   Hidden-channel kind strings (`role`, `notes`,
-   `alt`, `hidden-slide`, `source-layer`) are also stable contract and must
+   Hidden-channel kind strings (`role`, `notes`, `alt`, `hidden-slide`,
+   `source-layer`, `field`, `comment`, `tracked-insert`, `tracked-delete`,
+   `footnote`, `endnote`) are also stable contract and must
    never be renamed.
 2. **Determinism.** Identical input bytes → byte-identical JSON on a given
    platform + PDFium build. No timestamps, randomness, or HashMap iteration

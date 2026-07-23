@@ -18,6 +18,8 @@ const SCANNED_IMAGE_COVERAGE_THRESHOLD: f64 = 0.85;
 pub struct PdfExtractor;
 
 impl Extractor for PdfExtractor {
+    type Output = Extraction;
+
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             finest_granularity: Granularity::Char,

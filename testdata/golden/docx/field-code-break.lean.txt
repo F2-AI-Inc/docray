@@ -1,0 +1,9 @@
+#docray element v1.7 sections=1
+#legend #section width height | H1..H9/TI/Q/P text | LI level o|b label text | r font size style [href#<uri>] text | TB cols col-width... | c row col rowspan colspan text | I [width height] | BR page|column|section | ~page N | pt, authored flow; no resolved coordinates
+#legend <hidden> kind [element-id] content | non-visible document context
+#section 612 792
+~page 2
+P 7
+<hidden>
+field s0-b0 PAGE
+</hidden>

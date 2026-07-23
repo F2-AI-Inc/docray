@@ -5,7 +5,8 @@ use docray_model::{
     PathElement, Source, TableCell, TableElement, TextColor, TextElement, TextRun,
 };
 use docray_ooxml::{
-    parse, relationships, resolve_target, Node, Package, Relationships, EMU_PER_POINT,
+    parse, relationships, resolve_drawing_fill as resolve_fill, resolve_target, Node, Package,
+    Relationships, Theme, EMU_PER_POINT,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -19,6 +20,8 @@ const MAX_GROUP_DEPTH: usize = 64;
 pub struct PptxExtractor;
 
 impl Extractor for PptxExtractor {
+    type Output = Extraction;
+
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             finest_granularity: Granularity::Element,
@@ -1486,111 +1489,12 @@ fn point_to_points(point: Point) -> [f64; 2] {
     ]
 }
 
-#[derive(Default)]
-struct Theme {
-    colors: BTreeMap<String, [u8; 3]>,
-    major_latin: Option<String>,
-    minor_latin: Option<String>,
-}
-
-impl Theme {
-    fn from_xml(root: &Node) -> Self {
-        let mut theme = Self::default();
-        if let Some(scheme) = root.first_descendant("clrScheme") {
-            for slot in &scheme.children {
-                if let Some(color) = direct_color(slot) {
-                    theme.colors.insert(slot.local_name().to_string(), color);
-                }
-            }
-        }
-        if let Some(font_scheme) = root.first_descendant("fontScheme") {
-            theme.major_latin = font_scheme
-                .child("majorFont")
-                .and_then(|node| node.child("latin"))
-                .and_then(|node| node.attr("typeface"))
-                .map(str::to_owned);
-            theme.minor_latin = font_scheme
-                .child("minorFont")
-                .and_then(|node| node.child("latin"))
-                .and_then(|node| node.attr("typeface"))
-                .map(str::to_owned);
-        }
-        theme
-    }
-
-    fn font(&self, value: &str) -> String {
-        match value {
-            "+mj-lt" => self.major_latin.clone().unwrap_or_else(|| "Arial".into()),
-            "+mn-lt" => self.minor_latin.clone().unwrap_or_else(|| "Arial".into()),
-            other => other.to_string(),
-        }
-    }
-}
-
 fn color_map(node: &Node) -> BTreeMap<String, String> {
     node.attrs
         .iter()
         .filter(|(key, _)| !key.starts_with("xmlns"))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect()
-}
-
-fn resolve_fill(
-    fill: &Node,
-    theme: &Theme,
-    color_map: &BTreeMap<String, String>,
-) -> Option<[u8; 3]> {
-    let color_node = fill.children.first()?;
-    let mut color = match color_node.local_name() {
-        "srgbClr" => parse_hex_color(color_node.attr("val")?)?,
-        "schemeClr" => {
-            let value = color_node.attr("val")?;
-            let mapped = color_map.get(value).map(String::as_str).unwrap_or(value);
-            *theme.colors.get(mapped)?
-        }
-        "sysClr" => parse_hex_color(color_node.attr("lastClr")?)?,
-        _ => return None,
-    };
-    for modifier in &color_node.children {
-        let Some(value) = modifier
-            .attr("val")
-            .and_then(|value| value.parse::<f64>().ok())
-        else {
-            continue;
-        };
-        let factor = value / 100_000.0;
-        for channel in &mut color {
-            let current = f64::from(*channel);
-            let adjusted = match modifier.local_name() {
-                "tint" => current + (255.0 - current) * factor,
-                "shade" | "lumMod" => current * factor,
-                "lumOff" => current + 255.0 * factor,
-                _ => current,
-            };
-            *channel = adjusted.round().clamp(0.0, 255.0) as u8;
-        }
-    }
-    Some(color)
-}
-
-fn direct_color(slot: &Node) -> Option<[u8; 3]> {
-    let node = slot.children.first()?;
-    match node.local_name() {
-        "srgbClr" => parse_hex_color(node.attr("val")?),
-        "sysClr" => parse_hex_color(node.attr("lastClr")?),
-        _ => None,
-    }
-}
-
-fn parse_hex_color(value: &str) -> Option<[u8; 3]> {
-    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    Some([
-        u8::from_str_radix(&value[0..2], 16).ok()?,
-        u8::from_str_radix(&value[2..4], 16).ok()?,
-        u8::from_str_radix(&value[4..6], 16).ok()?,
-    ])
 }
 
 #[derive(Default, Clone)]
@@ -1950,6 +1854,7 @@ fn parse_failure(message: impl Into<String>) -> ExtractError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use docray_ooxml::parse_hex_color;
 
     #[test]
     fn chart_numbers_honor_the_series_format() {
@@ -2161,6 +2066,23 @@ mod tests {
         let lean = compact.to_lean();
         assert!(!lean.contains("NaN"));
         assert!(!lean.to_ascii_lowercase().contains("inf"));
+    }
+
+    #[test]
+    fn empty_theme_typeface_preserves_the_frozen_pptx_font_name() {
+        let theme_root = parse_test_xml(
+            r#"<a:theme><a:themeElements><a:fontScheme><a:majorFont><a:latin typeface=""/></a:majorFont></a:fontScheme></a:themeElements></a:theme>"#,
+        );
+        let theme = Theme::from_xml(&theme_root);
+        let tx_body = parse_test_xml(
+            r#"<a:txBody><a:lstStyle/><a:p><a:r><a:rPr><a:latin typeface="+mj-lt"/></a:rPr><a:t>empty face</a:t></a:r></a:p></a:txBody>"#,
+        );
+        let slide_rels = Relationships::default();
+        let color_map = BTreeMap::new();
+        let context = test_context(&slide_rels, &theme, &color_map);
+
+        let runs = resolve_cell_runs(&tx_body, &context);
+        assert_eq!(runs[0].font.name, "");
     }
 
     #[test]
