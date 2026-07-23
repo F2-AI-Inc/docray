@@ -101,7 +101,9 @@ fn playground_pptx_source_isolation_contract() {
     ));
     assert!(html.contains("event.origin !== \"null\""));
     assert!(html.contains("void parent.location.href"));
-    assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(html.contains(
+        "parent.postMessage(metafiles === undefined ? { status } : { status, metafiles }, \"*\")"
+    ));
     assert!(html.contains("typeof data.renderMetafiles !== \"boolean\""));
     assert!(html.contains("state.file.arrayBuffer()"));
     assert!(html.contains("[bytes]"));
@@ -130,6 +132,10 @@ fn playground_pptx_metafile_conversion_rewrites_before_build_and_is_bounded() {
     let renderer = &html[start..end];
 
     assert!(renderer.contains("const parsed = await _$(data.bytes, fH);"));
+    assert!(renderer.contains("const metafiles = [...parsed.media.keys()].some(path =>"));
+    assert!(
+        renderer.contains("/^ppt\\/media\\/.*\\.(?:emf|wmf)$/i.test(normalizePackagePath(path))")
+    );
     assert!(renderer.contains("const convertedPngPaths = data.renderMetafiles"));
     assert!(renderer.contains("await convertPresentationMetafiles(parsed)"));
     assert!(renderer.contains(": new Set();"));
@@ -151,6 +157,7 @@ fn playground_pptx_metafile_conversion_rewrites_before_build_and_is_bounded() {
     assert!(renderer.contains("marker.textContent = \"≈\""));
     assert!(renderer.contains("marker.title = \"approximate render — Windows metafile (EMF/WMF)\""));
     assert!(renderer.contains("viewer.mediaUrlCache.has(path)"));
+    assert!(renderer.contains("reply(\"rendered\", metafiles);"));
 }
 
 #[test]
@@ -164,8 +171,9 @@ fn playground_docx_source_isolation_contract() {
     ));
     assert!(html.contains("event.source !== iframe.contentWindow || event.origin !== \"null\""));
     assert!(html.contains("void parent.location.href"));
-    assert!(html.contains("keys.length !== 1 || keys[0] !== \"status\""));
-    assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(html.contains(
+        "parent.postMessage(metafiles === undefined ? { status } : { status, metafiles }, \"*\")"
+    ));
     assert!(html.contains("typeof data.renderMetafiles !== \"boolean\""));
     assert!(html.contains("renderMetafiles: state.renderMetafiles"));
     assert!(html.contains("visual render unavailable - showing reading-order schematic"));
@@ -210,11 +218,16 @@ fn playground_docx_metafile_conversion_is_honest_and_bounded() {
     assert!(!renderer.contains("maxRecords:"));
     assert!(!renderer.contains("maxCanvasDimension:"));
     assert!(renderer.contains("if (!rendered)"));
-    let opt_in_guard = renderer.find("if (!data.renderMetafiles)").unwrap();
     let sniff_call = renderer
         .find("const kind = sniffWindowsMetafile(buffer);")
         .unwrap();
-    assert!(opt_in_guard < sniff_call);
+    let opt_in_guard = renderer
+        .find("if (!data.renderMetafiles || !kind)")
+        .unwrap();
+    assert!(sniff_call < opt_in_guard);
+    assert!(renderer.contains("if (kind) metafiles = true;"));
+    assert!(renderer.contains("if (sniffWindowsMetafile(buffer)) metafiles = true;"));
+    assert!(renderer.contains("reply(\"rendered\", metafiles);"));
     assert!(renderer.contains("showPlaceholder(img, size);"));
     assert!(renderer.contains("image not previewable in browser"));
     assert!(renderer.contains("marker.textContent = \"≈\""));
@@ -227,6 +240,8 @@ fn playground_metafile_preview_is_single_default_off_toggle() {
     let html = include_str!("../assets/playground.html");
 
     assert_eq!(html.matches("id=\"metafile-preview\"").count(), 1);
+    assert_eq!(html.matches("id=\"metafile-preview-ctl\"").count(), 1);
+    assert!(html.contains("<div class=\"ctl\" id=\"metafile-preview-ctl\" style=\"display:none\">"));
     assert!(html.contains(
         "aria-pressed=\"false\" title=\"Approximate client-side EMF/WMF rendering\">off</button>"
     ));
@@ -238,6 +253,14 @@ fn playground_metafile_preview_is_single_default_off_toggle() {
     assert!(html.contains("resetPptxLiveThumbs();"));
     assert!(html.contains("goto(state.pageIdx, state.gen);"));
     assert!(html.contains("renderPanels(state.gen);"));
+    assert!(html.contains("if (newUpload) setMetafilePreviewVisible(false);"));
+    assert!(html.contains("setMetafilePreviewVisible(state.hasMetafiles);"));
+    assert!(html.contains("state.hasMetafiles = available;"));
+    assert_eq!(
+        html.matches("updateMetafileAvailability(gen, data.metafiles);")
+            .count(),
+        3
+    );
 
     // PPTX source, PPTX live thumbnails, and DOCX source all receive the same
     // explicit default-off state. The two iframe programs reject non-booleans.
@@ -251,6 +274,38 @@ fn playground_metafile_preview_is_single_default_off_toggle() {
             .count(),
         2
     );
+}
+
+#[test]
+fn playground_renderer_status_reply_is_bounded_and_typed() {
+    let html = include_str!("../assets/playground.html");
+
+    // The shared validator accepts {status}, {status,message}, and
+    // {status,metafiles:boolean}; every other key and non-boolean metafiles
+    // are rejected. All three parent receivers use this one contract.
+    assert!(html.contains("function isBoundedRendererStatus(data) {"));
+    assert!(html.contains("if (keys.length < 1 || keys.some(key =>"));
+    assert!(html.contains("key !== \"status\" && key !== \"message\" && key !== \"metafiles\""));
+    assert!(html.contains("[\"ready\", \"rendered\", \"error\"].includes(data.status)"));
+    assert!(html.contains("typeof data.message === \"string\" && data.message.length <= 160"));
+    assert!(html.contains("data.metafiles === undefined || typeof data.metafiles === \"boolean\""));
+    assert_eq!(
+        html.matches("if (!isBoundedRendererStatus(data)) return;")
+            .count(),
+        3
+    );
+
+    // ready/error stay one-key replies; only rendered supplies the optional
+    // bounded boolean, and both iframe programs use the same reply shape.
+    assert_eq!(
+        html.matches(
+            "parent.postMessage(metafiles === undefined ? { status } : { status, metafiles }, \"*\")"
+        )
+        .count(),
+        2
+    );
+    assert_eq!(html.matches("reply(\"ready\");").count(), 2);
+    assert_eq!(html.matches("reply(\"rendered\", metafiles);").count(), 2);
 }
 
 #[test]
@@ -269,9 +324,10 @@ fn playground_pptx_thumbnail_isolation_contract() {
     ));
     assert!(html.contains("iframe.srcdoc = pptxRendererSrcdoc();"));
     assert!(html.contains("event.source !== iframe.contentWindow || event.origin !== \"null\""));
-    assert!(html.contains("keys.length !== 1 || keys[0] !== \"status\""));
-    assert!(html.contains("![\"ready\", \"rendered\", \"error\"].includes(data.status)"));
-    assert!(html.contains("parent.postMessage({ status }, \"*\")"));
+    assert!(html.contains("if (!isBoundedRendererStatus(data)) return;"));
+    assert!(html.contains(
+        "parent.postMessage(metafiles === undefined ? { status } : { status, metafiles }, \"*\")"
+    ));
     assert!(!html.contains("PPTX_THUMB_DATA_URL_MAX"));
     assert!(!html.contains("cmd: \"renderThumb\""));
     assert!(!thumbnail_code.contains("dataUrl"));
