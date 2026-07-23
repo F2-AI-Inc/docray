@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use docray_core::{check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format};
 use docray_model::{Extraction, GranularExtraction, Granularity, OutputFormat};
+use docray_ooxml::{sniff_opc, OpcKind};
 use docray_pdf::PdfExtractor;
 use docray_pptx::PptxExtractor;
 use std::io::Write;
@@ -14,13 +15,14 @@ const CFB_MAGIC: &[u8; 8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
 enum Backend {
     Pdf,
     Pptx,
+    Zip,
 }
 
 impl Backend {
     fn capabilities(&self) -> Capabilities {
         match self {
             Backend::Pdf => PdfExtractor.capabilities(),
-            Backend::Pptx => PptxExtractor.capabilities(),
+            Backend::Pptx | Backend::Zip => PptxExtractor.capabilities(),
         }
     }
 
@@ -28,6 +30,10 @@ impl Backend {
         match self {
             Backend::Pdf => PdfExtractor.extract(bytes, max_pages),
             Backend::Pptx => PptxExtractor.extract(bytes, max_pages),
+            Backend::Zip => match sniff_opc(bytes)? {
+                OpcKind::Pptx => PptxExtractor.extract(bytes, max_pages),
+                OpcKind::Docx | OpcKind::OtherZip => Err(unsupported_zip()),
+            },
         }
     }
 }
@@ -103,7 +109,7 @@ fn run_extract(
     };
     let backend = match sniff_format(&bytes) {
         Some(Format::Pdf) => Backend::Pdf,
-        Some(Format::Zip) => Backend::Pptx,
+        Some(Format::Zip) => Backend::Zip,
         None if bytes.starts_with(CFB_MAGIC) => Backend::Pptx,
         None => return fail(&ExtractError::UnsupportedFormat),
     };
@@ -155,6 +161,10 @@ fn run_extract(
         }
         Err(e) => fail(&e),
     }
+}
+
+fn unsupported_zip() -> ExtractError {
+    ExtractError::UnsupportedFormatMessage("zip archive is not a PowerPoint file".into())
 }
 
 /// Write extraction output to stdout without panicking on a closed pipe.

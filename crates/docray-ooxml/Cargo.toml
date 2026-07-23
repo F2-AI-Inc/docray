@@ -1,15 +1,10 @@
 [package]
-name = "docray-pptx"
+name = "docray-ooxml"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 
 [dependencies]
-docray-model = { path = "../docray-model" }
 docray-core = { path = "../docray-core" }
-docray-ooxml = { path = "../docray-ooxml" }
-sha2 = "0.11"
-
-[dev-dependencies]
-serde_json.workspace = true
+quick-xml = "=0.41.0"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }

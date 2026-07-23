@@ -3,29 +3,37 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use std::collections::BTreeMap;
 
-const MAX_XML_DEPTH: usize = 256;
+pub const MAX_XML_DEPTH: usize = 256;
 
 /// Bounds the parsed DOM independently of inflated byte size. A part's inflated
 /// bytes are already capped, but the `Node` tree is ~10-25x larger than its
 /// source, and the OPC compression-ratio guard is computed from spoofable
 /// central-directory sizes. This cap turns a DOM-amplification attempt into a
 /// clean `parse_failure` instead of relying on the worker memory rlimit.
-const MAX_XML_NODES: usize = 5_000_000;
+pub const MAX_XML_NODES: usize = 5_000_000;
+
+type Namespaces = BTreeMap<String, String>;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Node {
-    pub(crate) name: String,
-    pub(crate) attrs: BTreeMap<String, String>,
-    pub(crate) children: Vec<Node>,
-    pub(crate) text: String,
+pub struct Node {
+    pub name: String,
+    pub attrs: BTreeMap<String, String>,
+    pub children: Vec<Node>,
+    pub text: String,
+    namespace_uri: Option<String>,
+    attr_namespace_uris: BTreeMap<String, String>,
 }
 
 impl Node {
-    pub(crate) fn local_name(&self) -> &str {
+    pub fn local_name(&self) -> &str {
         local_name(&self.name)
     }
 
-    pub(crate) fn attr(&self, name: &str) -> Option<&str> {
+    pub fn namespace_uri(&self) -> Option<&str> {
+        self.namespace_uri.as_deref()
+    }
+
+    pub fn attr(&self, name: &str) -> Option<&str> {
         self.attrs
             .get(name)
             .or_else(|| {
@@ -37,29 +45,43 @@ impl Node {
             .map(String::as_str)
     }
 
-    pub(crate) fn child(&self, local: &str) -> Option<&Node> {
+    pub fn attr_ns(&self, namespace_uri: &str, local: &str) -> Option<&str> {
+        self.attrs.iter().find_map(|(key, value)| {
+            (local_name(key) == local
+                && self.attr_namespace_uris.get(key).map(String::as_str) == Some(namespace_uri))
+            .then_some(value.as_str())
+        })
+    }
+
+    pub fn child(&self, local: &str) -> Option<&Node> {
         self.children.iter().find(|node| node.local_name() == local)
     }
 
-    pub(crate) fn children_named<'a>(&'a self, local: &'a str) -> impl Iterator<Item = &'a Node> {
+    pub fn child_ns(&self, namespace_uri: &str, local: &str) -> Option<&Node> {
+        self.children
+            .iter()
+            .find(|node| node.local_name() == local && node.namespace_uri() == Some(namespace_uri))
+    }
+
+    pub fn children_named<'a>(&'a self, local: &'a str) -> impl Iterator<Item = &'a Node> {
         self.children
             .iter()
             .filter(move |node| node.local_name() == local)
     }
 
-    pub(crate) fn descendants<'a, 'b>(&'a self, local: &'b str) -> Descendants<'a, 'b> {
+    pub fn descendants<'a, 'b>(&'a self, local: &'b str) -> Descendants<'a, 'b> {
         Descendants {
             stack: self.children.iter().rev().collect(),
             local,
         }
     }
 
-    pub(crate) fn first_descendant(&self, local: &str) -> Option<&Node> {
+    pub fn first_descendant(&self, local: &str) -> Option<&Node> {
         self.descendants(local).next()
     }
 }
 
-pub(crate) struct Descendants<'a, 'b> {
+pub struct Descendants<'a, 'b> {
     stack: Vec<&'a Node>,
     local: &'b str,
 }
@@ -78,7 +100,7 @@ impl<'a, 'b> Iterator for Descendants<'a, 'b> {
     }
 }
 
-pub(crate) fn parse(bytes: &[u8], part: &str) -> Result<Node, ExtractError> {
+pub fn parse(bytes: &[u8], part: &str) -> Result<Node, ExtractError> {
     parse_with_limits(bytes, part, MAX_XML_NODES)
 }
 
@@ -87,6 +109,7 @@ fn parse_with_limits(bytes: &[u8], part: &str, max_nodes: usize) -> Result<Node,
     reader.config_mut().check_end_names = true;
     reader.config_mut().trim_text(false);
     let mut stack: Vec<Node> = Vec::new();
+    let mut namespace_stack: Vec<Namespaces> = Vec::new();
     let mut root = None;
     let mut node_count = 0_usize;
 
@@ -100,30 +123,30 @@ fn parse_with_limits(bytes: &[u8], part: &str, max_nodes: usize) -> Result<Node,
                 if node_count > max_nodes {
                     return Err(parse_error(part, "XML element count limit exceeded"));
                 }
-                stack.push(Node {
-                    name: decode(start.name().as_ref(), part)?,
-                    attrs: attributes(&start, reader.decoder(), part)?,
-                    children: Vec::new(),
-                    text: String::new(),
-                });
+                let attrs = attributes(&start, reader.decoder(), part)?;
+                let namespaces = namespaces_for_element(namespace_stack.last(), &attrs);
+                stack.push(make_node(
+                    decode(start.name().as_ref(), part)?,
+                    attrs,
+                    &namespaces,
+                ));
+                namespace_stack.push(namespaces);
             }
             Ok(Event::Empty(empty)) => {
                 node_count += 1;
                 if node_count > max_nodes {
                     return Err(parse_error(part, "XML element count limit exceeded"));
                 }
-                let node = Node {
-                    name: decode(empty.name().as_ref(), part)?,
-                    attrs: attributes(&empty, reader.decoder(), part)?,
-                    children: Vec::new(),
-                    text: String::new(),
-                };
+                let attrs = attributes(&empty, reader.decoder(), part)?;
+                let namespaces = namespaces_for_element(namespace_stack.last(), &attrs);
+                let node = make_node(decode(empty.name().as_ref(), part)?, attrs, &namespaces);
                 attach(node, &mut stack, &mut root, part)?;
             }
             Ok(Event::End(_)) => {
                 let node = stack
                     .pop()
                     .ok_or_else(|| parse_error(part, "unexpected XML end tag"))?;
+                namespace_stack.pop();
                 attach(node, &mut stack, &mut root, part)?;
             }
             Ok(Event::Text(text)) => {
@@ -156,6 +179,67 @@ fn parse_with_limits(bytes: &[u8], part: &str, max_nodes: usize) -> Result<Node,
         return Err(parse_error(part, "unclosed XML element"));
     }
     root.ok_or_else(|| parse_error(part, "XML document has no root element"))
+}
+
+fn make_node(name: String, attrs: BTreeMap<String, String>, namespaces: &Namespaces) -> Node {
+    let namespace_uri = namespace_for_name(&name, namespaces, false).map(str::to_owned);
+    let attr_namespace_uris = attrs
+        .keys()
+        .filter_map(|key| {
+            namespace_for_name(key, namespaces, true).map(|uri| (key.clone(), uri.to_owned()))
+        })
+        .collect();
+    Node {
+        name,
+        attrs,
+        children: Vec::new(),
+        text: String::new(),
+        namespace_uri,
+        attr_namespace_uris,
+    }
+}
+
+fn namespaces_for_element(
+    parent: Option<&Namespaces>,
+    attrs: &BTreeMap<String, String>,
+) -> Namespaces {
+    let mut namespaces = parent.cloned().unwrap_or_else(|| {
+        BTreeMap::from([(
+            "xml".to_string(),
+            "http://www.w3.org/XML/1998/namespace".to_string(),
+        )])
+    });
+    for (key, value) in attrs {
+        if key == "xmlns" {
+            if value.is_empty() {
+                namespaces.remove("");
+            } else {
+                namespaces.insert(String::new(), value.clone());
+            }
+        } else if let Some(prefix) = key.strip_prefix("xmlns:") {
+            if value.is_empty() {
+                namespaces.remove(prefix);
+            } else {
+                namespaces.insert(prefix.to_string(), value.clone());
+            }
+        }
+    }
+    namespaces
+}
+
+fn namespace_for_name<'a>(
+    name: &str,
+    namespaces: &'a Namespaces,
+    attribute: bool,
+) -> Option<&'a str> {
+    if name == "xmlns" || name.starts_with("xmlns:") {
+        return Some("http://www.w3.org/2000/xmlns/");
+    }
+    match name.rsplit_once(':') {
+        Some((prefix, _)) => namespaces.get(prefix).map(String::as_str),
+        None if !attribute => namespaces.get("").map(String::as_str),
+        None => None,
+    }
 }
 
 fn attributes(
@@ -232,7 +316,7 @@ fn parse_error(part: &str, message: &str) -> ExtractError {
     ExtractError::ParseFailure(format!("{part}: {message}"))
 }
 
-pub(crate) fn local_name(name: &str) -> &str {
+pub fn local_name(name: &str) -> &str {
     name.rsplit_once(':').map_or(name, |(_, local)| local)
 }
 
@@ -265,5 +349,19 @@ mod tests {
         let node = parse_with_limits(b"<root><a/><a/><a/><a/></root>", "test.xml", 5).unwrap();
         assert_eq!(node.local_name(), "root");
         assert_eq!(node.children.len(), 4);
+    }
+
+    #[test]
+    fn namespace_lookups_resolve_in_scope_prefixes() {
+        let root = parse(
+            br#"<w:document xmlns:w="urn:word" xmlns:r="urn:rels"><w:body><w:p r:id="rId1"/><other:p r:id="wrong" xmlns:other="urn:other"/></w:body></w:document>"#,
+            "test.xml",
+        )
+        .unwrap();
+        let body = root.child_ns("urn:word", "body").unwrap();
+        let paragraph = body.child_ns("urn:word", "p").unwrap();
+        assert_eq!(paragraph.namespace_uri(), Some("urn:word"));
+        assert_eq!(paragraph.attr_ns("urn:rels", "id"), Some("rId1"));
+        assert!(body.child_ns("urn:missing", "p").is_none());
     }
 }

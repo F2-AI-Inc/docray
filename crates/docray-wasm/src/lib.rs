@@ -11,6 +11,7 @@
 
 use docray_core::{check_granularity, sniff_format, ExtractError, Extractor, Format};
 use docray_model::{Extraction, GranularExtraction, Granularity};
+use docray_ooxml::{sniff_opc, OpcKind};
 use docray_pdf::PdfExtractor;
 use docray_pptx::PptxExtractor;
 use wasm_bindgen::prelude::*;
@@ -140,8 +141,14 @@ fn extract_document(bytes: &[u8], requested: Option<Granularity>) -> Result<Extr
         }
         Some(Format::Zip) => {
             let extractor = PptxExtractor;
-            check_granularity(&extractor.capabilities(), requested)
-                .and_then(|()| extractor.extract(bytes, None))
+            check_granularity(&extractor.capabilities(), requested).and_then(|()| match sniff_opc(
+                bytes,
+            )? {
+                OpcKind::Pptx => extractor.extract(bytes, None),
+                OpcKind::Docx | OpcKind::OtherZip => Err(ExtractError::UnsupportedFormatMessage(
+                    "zip archive is not a PowerPoint file".into(),
+                )),
+            })
         }
         None if bytes.starts_with(CFB_MAGIC) => PptxExtractor.extract(bytes, None),
         None => Err(ExtractError::UnsupportedFormat),
