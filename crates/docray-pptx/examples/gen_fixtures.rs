@@ -71,6 +71,47 @@ fn shape(id: u32, name: &str, x: i64, y: i64, cx: i64, cy: i64, text: &str) -> S
     )
 }
 
+fn picture(id: u32, name: &str, relation_id: &str, x: i64, y: i64) -> String {
+    format!(
+        r#"<p:pic><p:nvPicPr><p:cNvPr id="{id}" name="{name}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="{relation_id}"/></p:blipFill><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="3048000" cy="1524000"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr></p:pic>"#
+    )
+}
+
+fn minimal_emf() -> Vec<u8> {
+    fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    // ENHMETAHEADER (88 bytes), EMR_RECTANGLE (24), EMR_EOF (20).
+    let mut bytes = vec![0_u8; 132];
+    put_u32(&mut bytes, 0, 1);
+    put_u32(&mut bytes, 4, 88);
+    put_u32(&mut bytes, 16, 120);
+    put_u32(&mut bytes, 20, 60);
+    put_u32(&mut bytes, 32, 3_175);
+    put_u32(&mut bytes, 36, 1_588);
+    put_u32(&mut bytes, 40, 0x464d_4520);
+    put_u32(&mut bytes, 44, 0x0001_0000);
+    put_u32(&mut bytes, 48, 132);
+    put_u32(&mut bytes, 52, 3);
+    bytes[56..58].copy_from_slice(&1_u16.to_le_bytes());
+    put_u32(&mut bytes, 72, 120);
+    put_u32(&mut bytes, 76, 60);
+    put_u32(&mut bytes, 80, 32);
+    put_u32(&mut bytes, 84, 16);
+    put_u32(&mut bytes, 88, 43);
+    put_u32(&mut bytes, 92, 24);
+    put_u32(&mut bytes, 96, 10);
+    put_u32(&mut bytes, 100, 10);
+    put_u32(&mut bytes, 104, 110);
+    put_u32(&mut bytes, 108, 50);
+    put_u32(&mut bytes, 112, 14);
+    put_u32(&mut bytes, 116, 20);
+    put_u32(&mut bytes, 124, 16);
+    put_u32(&mut bytes, 128, 20);
+    bytes
+}
+
 fn default_slide_rels(extra: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -191,6 +232,35 @@ fn write_pptx_with_template(
 fn main() {
     fs::create_dir_all("testdata/pptx").unwrap();
     fs::create_dir_all("testdata/malformed").unwrap();
+    fs::create_dir_all("testdata/playground").unwrap();
+
+    let metafile_slide = slide(&format!(
+        "{}{}",
+        picture(2, "Renderable EMF", "rIdEmf", 762000, 762000),
+        picture(3, "Unrenderable WMF", "rIdWmf", 4572000, 762000),
+    ));
+    let metafile_rels = default_slide_rels(concat!(
+        r#"<Relationship Id="rIdEmf" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.emf"/>"#,
+        r#"<Relationship Id="rIdWmf" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.wmf"/>"#,
+    ));
+    let mut metafile_entries =
+        package_entries(metafile_slide, metafile_rels, false, DEFAULT_TEMPLATE);
+    metafile_entries[0].1 = String::from_utf8(metafile_entries[0].1.clone())
+        .unwrap()
+        .replace(
+            "</Types>",
+            r#"<Default Extension="emf" ContentType="image/x-emf"/><Default Extension="wmf" ContentType="image/x-wmf"/></Types>"#,
+        )
+        .into_bytes();
+    metafile_entries.push(("ppt/media/image1.emf".into(), minimal_emf()));
+    // Deliberately invalid: conversion returns null and the unchanged .wmf
+    // relationship exercises the renderer's labeled unsupported fallback.
+    metafile_entries.push(("ppt/media/image2.wmf".into(), vec![0_u8; 22]));
+    write_zip(
+        "testdata/playground/emf.pptx",
+        &metafile_entries,
+        CompressionMethod::Stored,
+    );
 
     let basic = slide(&format!(
         "{}{}",

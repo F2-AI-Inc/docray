@@ -110,6 +110,44 @@ fn playground_pptx_source_isolation_contract() {
         vendored_script_sha256(html, "pptx-renderer-source"),
         "31cf1e39818c52395b185186229f80ecf8333db0d7bb3a06f6c0bd74b87aaad5"
     );
+    assert_eq!(
+        vendored_script_sha256(html, "emf-converter-source"),
+        "f6d1a598ebf7fb50c4eea22f652c9523ef9921386c36fcfd8f174525e01f9a1e"
+    );
+    assert!(html.contains(
+        "const PPTX_EMF_CONVERTER_SOURCE = $(\"#emf-converter-source\").textContent.slice(1, -1);"
+    ));
+    assert!(html.contains("\"<scr\" + \"ipt>\" + PPTX_EMF_CONVERTER_SOURCE + \"</scr\" + \"ipt>\""));
+    assert!(!html.contains("<script src=\"emf-converter"));
+}
+
+#[test]
+fn playground_pptx_metafile_conversion_rewrites_before_build_and_is_bounded() {
+    let html = include_str!("../assets/playground.html");
+    let start = html.find("function pptxIframeMain() {").unwrap();
+    let end = html[start..].find("const pptxRendererSourceEl").unwrap() + start;
+    let renderer = &html[start..end];
+
+    assert!(renderer.contains("const parsed = await _$(data.bytes, fH);"));
+    assert!(renderer.contains("await convertPresentationMetafiles(parsed)"));
+    assert!(renderer.contains("const presentation = Ru(parsed, { lazySlides: true });"));
+    assert!(renderer.contains("const viewer = new ay(root"));
+    assert!(renderer.contains("viewer.load(presentation);"));
+    assert!(renderer.contains("await viewer.renderSlide(data.slideIndex);"));
+    assert!(!renderer.contains("ay.open(data.bytes"));
+
+    assert!(renderer.contains("/^ppt\\/media\\/.*\\.(?:emf|wmf)$/i"));
+    assert!(renderer.contains("globalThis.EMFC.convertEmfToDataUrl(source, options)"));
+    assert!(renderer.contains("globalThis.EMFC.convertWmfToDataUrl(source, options)"));
+    assert!(renderer.contains("value.replace(/\\.(?:emf|wmf)(?=[?#]|$)/i, \".png\")"));
+    assert!(renderer.contains("type[3].toLowerCase().endsWith(\"/image\")"));
+    assert!(renderer.contains("const MAX_METAFILE_CANVAS_DIMENSION = 4096;"));
+    assert!(renderer.contains("fH.maxMediaBytes - mediaBytes"));
+    assert!(renderer.contains("if (!pngBytes) continue;"));
+
+    assert!(renderer.contains("marker.textContent = \"≈\""));
+    assert!(renderer.contains("marker.title = \"approximate render — Windows metafile (EMF/WMF)\""));
+    assert!(renderer.contains("viewer.mediaUrlCache.has(path)"));
 }
 
 #[test]
@@ -181,7 +219,7 @@ fn playground_pptx_thumbnail_isolation_contract() {
     let html = include_str!("../assets/playground.html");
     let thumbnail_start = html.find("const PPTX_LIVE_THUMB_MAX = 4;").unwrap();
     let thumbnail_end = html[thumbnail_start..]
-        .find("/* ── hostile DOCX visual source renderer ──")
+        .find("/* ── hostile PPTX visual source renderer ──")
         .unwrap()
         + thumbnail_start;
     let thumbnail_code = &html[thumbnail_start..thumbnail_end];
