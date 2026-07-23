@@ -92,9 +92,65 @@ fn write_docx(name: &str, body: &str, docm: bool, rels: &str, extras: Vec<(Strin
     write_zip(format!("testdata/docx/{name}.{extension}"), &entries);
 }
 
+fn minimal_emf() -> Vec<u8> {
+    fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    // ENHMETAHEADER (88 bytes), EMR_RECTANGLE (24), EMR_EOF (20).
+    // Bounds are 120x60 logical units. Every field is fixed so the containing
+    // DOCX remains byte-identical across generator runs.
+    let mut bytes = vec![0_u8; 132];
+    put_u32(&mut bytes, 0, 1); // EMR_HEADER
+    put_u32(&mut bytes, 4, 88);
+    put_u32(&mut bytes, 16, 120); // bounds.right
+    put_u32(&mut bytes, 20, 60); // bounds.bottom
+    put_u32(&mut bytes, 32, 3_175); // frame.right, 0.01 mm
+    put_u32(&mut bytes, 36, 1_588); // frame.bottom, 0.01 mm
+    put_u32(&mut bytes, 40, 0x464d_4520); // " EMF"
+    put_u32(&mut bytes, 44, 0x0001_0000);
+    put_u32(&mut bytes, 48, 132);
+    put_u32(&mut bytes, 52, 3); // record count
+    bytes[56..58].copy_from_slice(&1_u16.to_le_bytes()); // handle count
+    put_u32(&mut bytes, 72, 120); // reference device px
+    put_u32(&mut bytes, 76, 60);
+    put_u32(&mut bytes, 80, 32); // reference device mm
+    put_u32(&mut bytes, 84, 16);
+
+    put_u32(&mut bytes, 88, 43); // EMR_RECTANGLE
+    put_u32(&mut bytes, 92, 24);
+    put_u32(&mut bytes, 96, 10);
+    put_u32(&mut bytes, 100, 10);
+    put_u32(&mut bytes, 104, 110);
+    put_u32(&mut bytes, 108, 50);
+
+    put_u32(&mut bytes, 112, 14); // EMR_EOF
+    put_u32(&mut bytes, 116, 20);
+    put_u32(&mut bytes, 124, 16);
+    put_u32(&mut bytes, 128, 20);
+    bytes
+}
+
+fn unrenderable_emf() -> Vec<u8> {
+    // Sniff-valid EMF header with no usable bounds. emf-converter must return
+    // null, exercising the playground's honest placeholder fallback.
+    let mut bytes = vec![0_u8; 88];
+    bytes[0..4].copy_from_slice(&1_u32.to_le_bytes());
+    bytes[4..8].copy_from_slice(&88_u32.to_le_bytes());
+    bytes[40..44].copy_from_slice(&0x464d_4520_u32.to_le_bytes());
+    bytes
+}
+
+fn picture(relation_id: &str, name: &str, id: u32) -> String {
+    format!(
+        r#"<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><wp:docPr id="{id}" name="{name}"/><wp:cNvGraphicFramePr/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="{id}" name="{name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{relation_id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1270000" cy="635000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>"#
+    )
+}
+
 fn main() {
     fs::create_dir_all("testdata/docx").unwrap();
     fs::create_dir_all("testdata/malformed").unwrap();
+    fs::create_dir_all("testdata/playground").unwrap();
 
     write_docx(
         "styles",
@@ -191,6 +247,26 @@ fn main() {
             b"deterministic-image".to_vec(),
         )],
     );
+
+    let emf_rels = format!(
+        r#"<Relationship Id="rEmf" Type="{R}/image" Target="media/image1.emf"/><Relationship Id="rNullEmf" Type="{R}/image" Target="media/image2.emf"/>"#
+    );
+    let emf_body = format!(
+        "{}{}{}",
+        picture("rEmf", "image1.emf", 1),
+        picture("rNullEmf", "image2.emf", 2),
+        sect("")
+    );
+    let mut emf_entries = base_entries(&emf_body, false, &emf_rels);
+    emf_entries[0].1 = content_types(
+        false,
+        r#"<Default Extension="emf" ContentType="image/x-emf"/>"#,
+    )
+    .into_bytes();
+    emf_entries.push(("word/media/image1.emf".into(), minimal_emf()));
+    emf_entries.push(("word/media/image2.emf".into(), unrenderable_emf()));
+    write_zip("testdata/playground/emf.docx", &emf_entries);
+
     let hyperlink_rels = format!(
         r#"<Relationship Id="rLink" Type="{R}/hyperlink" Target="https://example.test/literal?x=1&amp;y=2" TargetMode="External"/>"#
     );
