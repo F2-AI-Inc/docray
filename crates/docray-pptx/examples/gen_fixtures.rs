@@ -521,6 +521,33 @@ fn main() {
         vec![],
     );
 
+    // A slide where both picture paths (plain p:pic and a picture-carrying
+    // graphicFrame) reference media through relationship targets that escape
+    // the package root. Hostile relationships must degrade to per-picture
+    // warnings; the rest of the slide (the survivor shape) must still extract.
+    let escaping_picture = slide(&format!(
+        "{}{}{}",
+        r#"<p:pic><p:nvPicPr><p:cNvPr id="2" name="Escaping picture"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rIdEscape"/></p:blipFill><p:spPr><a:xfrm><a:off x="1270000" y="1270000"/><a:ext cx="1016000" cy="508000"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr></p:pic>"#,
+        r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Escaping framed picture"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="2540000" y="1270000"/><a:ext cx="2032000" cy="1016000"/></p:xfrm><a:graphic><a:graphicData xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="4" name="Framed"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdFrameEscape"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></p:graphicFrame>"#,
+        shape(
+            5,
+            "Survivor",
+            914400,
+            3657600,
+            3657600,
+            914400,
+            "Slide still extracts"
+        )
+    ));
+    write_pptx(
+        "../malformed/escaping-picture",
+        escaping_picture,
+        default_slide_rels(
+            r#"<Relationship Id="rIdEscape" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../../../../escape.bin"/><Relationship Id="rIdFrameEscape" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../../../../frame-escape.bin"/>"#,
+        ),
+        vec![],
+    );
+
     // Security corpus. Every member is deterministic and intentionally tiny.
     write_zip(
         "testdata/malformed/not-pptx.zip",
