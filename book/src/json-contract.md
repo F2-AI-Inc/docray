@@ -24,8 +24,9 @@ DOCX/DOCM uses the separate schema `1.7` flow contract. Its envelope contains
 Flow block types are `paragraph`, `table`, `image`, `textbox`, and `break`.
 Paragraphs contain stable block IDs, semantic roles, resolved runs, optional
 list labels and approximate-page hints, and authored breaks. Tables use
-authored column widths and merge-anchor cells. Positioned tables, images, and
-textboxes carry tagged placement constraints, never resolved bounding boxes.
+authored column widths and merge-anchor cells, and can carry the approximate
+page where the table starts. Positioned tables, images, and textboxes carry
+tagged placement constraints, never resolved bounding boxes.
 See [Word extraction](docx.md) for provenance and limits.
 
 ## Coordinate system

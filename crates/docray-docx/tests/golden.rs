@@ -193,6 +193,99 @@ fn mc_revisions_comments_and_run_merging_never_duplicate_visible_text() {
 }
 
 #[test]
+fn transparent_word_wrappers_preserve_block_inline_and_table_content() {
+    let extraction = fixture("wrappers.docx");
+    let body_text = extraction.sections[0]
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Paragraph { content, .. } => Some(content.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        body_text,
+        [
+            "block sdt",
+            "block smart tag",
+            "block custom XML",
+            "inline sdt + smart tag + custom XML",
+        ]
+    );
+    let tables: Vec<_> = extraction.sections[0]
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Table { cells, .. } => Some(cells),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        tables.len(),
+        1,
+        "the table wrapped by w:sdt must not be dropped"
+    );
+    assert_eq!(tables[0][0].content, "cell sdt");
+}
+
+#[test]
+fn body_pagination_hints_descend_into_cells_nested_tables_and_textboxes() {
+    fn block_pages(
+        blocks: &[Block],
+        paragraphs: &mut Vec<(String, Option<u32>)>,
+        tables: &mut Vec<Option<u32>>,
+    ) {
+        for block in blocks {
+            match block {
+                Block::Paragraph {
+                    content,
+                    approx_page,
+                    ..
+                } => paragraphs.push((content.clone(), *approx_page)),
+                Block::Table {
+                    cells, approx_page, ..
+                } => {
+                    tables.push(*approx_page);
+                    for cell in cells {
+                        if let Some(blocks) = &cell.blocks {
+                            block_pages(blocks, paragraphs, tables);
+                        }
+                    }
+                }
+                Block::Textbox { blocks, .. } => block_pages(blocks, paragraphs, tables),
+                _ => {}
+            }
+        }
+    }
+
+    let extraction = fixture("body-pagination.docx");
+    assert_eq!(extraction.approx_pages, Some(4));
+    assert_eq!(
+        extraction.sections[0]
+            .blocks
+            .iter()
+            .filter(|block| matches!(block, Block::Table { .. }))
+            .count(),
+        1
+    );
+    let mut pages = Vec::new();
+    let mut table_pages = Vec::new();
+    block_pages(&extraction.sections[0].blocks, &mut pages, &mut table_pages);
+    assert_eq!(table_pages, [Some(1), Some(2)]);
+    assert_eq!(
+        pages,
+        [
+            ("outside page one".into(), Some(1)),
+            ("table page one".into(), Some(1)),
+            ("table page two".into(), Some(2)),
+            ("textbox page three".into(), Some(3)),
+            ("textbox page four".into(), Some(4)),
+            ("outside page four".into(), Some(4)),
+        ]
+    );
+}
+
+#[test]
 fn tables_images_hyperlinks_and_authored_placement_are_preserved() {
     let tables = fixture("tables.docx");
     let Block::Table {
@@ -246,6 +339,19 @@ fn tables_images_hyperlinks_and_authored_placement_are_preserved() {
         .warnings
         .iter()
         .any(|warning| warning.contains("external image target was not fetched")));
+    assert_eq!(
+        images
+            .warnings
+            .iter()
+            .filter(|warning| warning.as_str() == "unsupported visible Office art; subtree skipped")
+            .count(),
+        1,
+        "visible vector art warns, while a truly empty drawing is silent"
+    );
+    assert!(!images
+        .warnings
+        .iter()
+        .any(|warning| warning == "drawing extent is missing or invalid; authored size omitted"));
     assert_eq!(
         images.sections[0]
             .hidden

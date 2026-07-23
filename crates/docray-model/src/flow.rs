@@ -88,6 +88,8 @@ pub enum Block {
         cols: usize,
         cells: Vec<FlowTableCell>,
         placement: Option<Placement>,
+        #[serde(default)]
+        approx_page: Option<u32>,
     },
     Image {
         id: String,
@@ -239,6 +241,8 @@ pub enum CompactBlock {
         cells: Vec<CompactFlowTableCell>,
         #[serde(skip_serializing_if = "Option::is_none")]
         placement: Option<Placement>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        approx_page: Option<u32>,
     },
     Image {
         id: String,
@@ -360,6 +364,7 @@ fn compact_block(block: &Block) -> CompactBlock {
             cols,
             cells,
             placement,
+            approx_page,
         } => CompactBlock::Table {
             id: id.clone(),
             col_widths: col_widths
@@ -370,6 +375,7 @@ fn compact_block(block: &Block) -> CompactBlock {
             cols: *cols,
             cells: cells.iter().map(compact_cell).collect(),
             placement: placement.as_ref().map(compact_placement),
+            approx_page: *approx_page,
         },
         Block::Image {
             id,
@@ -532,8 +538,12 @@ fn write_lean_blocks<W: fmt::Write>(output: &mut W, blocks: &[CompactBlock]) -> 
                 col_widths,
                 cols,
                 cells,
+                approx_page,
                 ..
             } => {
+                if let Some(page) = approx_page {
+                    writeln!(output, "~page {page}")?;
+                }
                 write!(output, "TB {cols}")?;
                 for width in col_widths {
                     write!(output, " {}", lean_number(*width))?;

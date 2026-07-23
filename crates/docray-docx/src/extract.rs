@@ -84,6 +84,7 @@ impl Extractor for DocxExtractor {
             notes,
             warnings,
             approx_pages: None,
+            body_page: 1,
         };
         let body = document
             .first_descendant("body")
@@ -131,6 +132,12 @@ struct Context<'a, 'bytes> {
     notes: BTreeMap<(NoteKind, String), Node>,
     warnings: Vec<String>,
     approx_pages: Option<u32>,
+    body_page: u32,
+}
+
+fn advance_body_page(context: &mut Context<'_, '_>) {
+    context.body_page = context.body_page.saturating_add(1);
+    context.approx_pages = Some(context.body_page);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -151,18 +158,8 @@ struct StoryState {
     fields: FieldMachine,
     counters: Counters,
     pending_breaks: Vec<BreakKind>,
-    current_page: u32,
     block_count: usize,
     cap_warned: bool,
-}
-
-impl StoryState {
-    fn body() -> Self {
-        Self {
-            current_page: 1,
-            ..Self::default()
-        }
-    }
 }
 
 struct IdAllocator {
@@ -199,11 +196,11 @@ fn extract_body(
     let mut blocks = Vec::new();
     let mut hidden = Vec::new();
     let mut refs = Vec::new();
-    let mut state = StoryState::body();
+    let mut state = StoryState::default();
     let mut ids = IdAllocator::new("s0-b");
     let mut final_sect_pr = None;
 
-    for child in &body.children {
+    for child in flow_children(body) {
         match child.local_name() {
             "p" => {
                 let sect_pr = child.child("pPr").and_then(|node| node.child("sectPr"));
@@ -241,8 +238,16 @@ fn extract_body(
             }
             "tbl" => {
                 if !story_cap_reached(&mut state, context) {
-                    let block =
-                        extract_table(child, rels, &mut ids, &mut hidden, &mut refs, context, 0)?;
+                    let block = extract_table(
+                        child,
+                        rels,
+                        &mut ids,
+                        &mut hidden,
+                        &mut refs,
+                        context,
+                        0,
+                        true,
+                    )?;
                     let mut produced = vec![block];
                     push_blocks(&mut blocks, &mut produced, &mut state, context)?;
                 }
@@ -264,6 +269,37 @@ fn extract_body(
         &mut context.warnings,
     ));
     Ok(drafts)
+}
+
+fn flow_children(container: &Node) -> Vec<&Node> {
+    let mut output = Vec::new();
+    for child in &container.children {
+        collect_flow_child(child, &mut output);
+    }
+    output
+}
+
+fn collect_flow_child<'a>(node: &'a Node, output: &mut Vec<&'a Node>) {
+    match node.local_name() {
+        "p" | "tbl" | "sectPr" | "altChunk" | "object" | "oleObject" => output.push(node),
+        // Structured document tags are transparent containers. Only their
+        // content participates in document flow; sdtPr/sdtEndPr are metadata.
+        "sdt" => {
+            if let Some(content) = node.child("sdtContent") {
+                for child in &content.children {
+                    collect_flow_child(child, output);
+                }
+            }
+        }
+        // Word uses these extensibility wrappers at both inline and block
+        // scope. They do not create a flow boundary of their own.
+        "smartTag" | "customXml" => {
+            for child in &node.children {
+                collect_flow_child(child, output);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn make_section(
@@ -711,8 +747,7 @@ fn extract_paragraph(
                     context,
                 );
                 if track_pages {
-                    state.current_page = state.current_page.saturating_add(1);
-                    context.approx_pages = Some(state.current_page);
+                    advance_body_page(context);
                 }
             }
             InlineEvent::Drawing(drawing) => {
@@ -738,6 +773,7 @@ fn extract_paragraph(
                     note_refs,
                     context,
                     textbox_depth,
+                    track_pages,
                 )? {
                     blocks.push(block);
                     emitted_any = true;
@@ -792,7 +828,7 @@ fn flush_paragraph_segment(
             .then(|| list.as_ref().map(|list| list.info.clone()))
             .flatten(),
         placement: None,
-        approx_page: track_pages.then_some(state.current_page.max(1)),
+        approx_page: track_pages.then_some(context.body_page),
         breaks_before,
     });
     *first_segment = false;
@@ -807,6 +843,18 @@ fn collect_inline_events(
     warnings: &mut Vec<String>,
 ) {
     match node.local_name() {
+        "sdt" => {
+            if let Some(content) = node.child("sdtContent") {
+                for child in &content.children {
+                    collect_inline_events(child, rels, href.clone(), events, warnings);
+                }
+            }
+        }
+        "smartTag" | "customXml" => {
+            for child in &node.children {
+                collect_inline_events(child, rels, href.clone(), events, warnings);
+            }
+        }
         "ins" | "moveTo" => {
             let content = visible_descendant_text(node);
             if !content.is_empty() {
@@ -976,12 +1024,14 @@ fn extract_table(
     note_refs: &mut Vec<NoteReference>,
     context: &mut Context<'_, '_>,
     depth: usize,
+    track_pages: bool,
 ) -> Result<Block, ExtractError> {
     if depth > MAX_TEXTBOX_DEPTH {
         context.warnings.push(format!(
             "nested table depth limit {MAX_TEXTBOX_DEPTH} exceeded; table content skipped"
         ));
     }
+    let approx_page = track_pages.then_some(context.body_page);
     let id = ids.next();
     let mut col_widths = Vec::new();
     if let Some(grid) = table.child("tblGrid") {
@@ -1018,6 +1068,11 @@ fn extract_table(
                 .and_then(|node| node.child("vMerge"))
                 .map(|node| node.attr("val").unwrap_or("continue"));
             if vertical_merge == Some("continue") {
+                if track_pages {
+                    for _ in cell.descendants("lastRenderedPageBreak") {
+                        advance_body_page(context);
+                    }
+                }
                 if let Some(anchor) = cells
                     .iter_mut()
                     .rev()
@@ -1037,7 +1092,7 @@ fn extract_table(
             let mut cell_ids = IdAllocator::new(format!("{id}-c{row_index}-{column}-b"));
             let mut blocks = Vec::new();
             let mut has_nested = false;
-            for child in &cell.children {
+            for child in flow_children(cell) {
                 if story_cap_reached(&mut cell_state, context) {
                     continue;
                 }
@@ -1052,7 +1107,7 @@ fn extract_table(
                             note_refs,
                             context,
                             depth,
-                            false,
+                            track_pages,
                         )?;
                         push_blocks(&mut blocks, &mut parsed, &mut cell_state, context)?;
                     }
@@ -1065,6 +1120,7 @@ fn extract_table(
                             note_refs,
                             context,
                             depth + 1,
+                            track_pages,
                         )?;
                         let mut parsed = vec![nested];
                         push_blocks(&mut blocks, &mut parsed, &mut cell_state, context)?;
@@ -1116,6 +1172,7 @@ fn extract_table(
         cols,
         cells,
         placement,
+        approx_page,
     })
 }
 
@@ -1150,6 +1207,7 @@ fn extract_drawing(
     note_refs: &mut Vec<NoteReference>,
     context: &mut Context<'_, '_>,
     textbox_depth: usize,
+    track_pages: bool,
 ) -> Result<Option<Block>, ExtractError> {
     let container = drawing
         .first_descendant("anchor")
@@ -1157,6 +1215,40 @@ fn extract_drawing(
     let placement = container
         .filter(|node| node.local_name() == "anchor")
         .map(|node| anchor_placement(node, &mut context.warnings));
+    let textbox = drawing.first_descendant("txbxContent");
+    let relation_id = drawing
+        .first_descendant("blip")
+        .and_then(|node| node.attr("embed").or_else(|| node.attr("link")))
+        .or_else(|| {
+            drawing
+                .first_descendant("imagedata")
+                .and_then(|node| node.attr("id"))
+        });
+    let has_image = relation_id.is_some() || drawing.first_descendant("imagedata").is_some();
+    if textbox.is_none() && !has_image {
+        let visible_office_art = [
+            "shape",
+            "rect",
+            "roundrect",
+            "oval",
+            "line",
+            "polyline",
+            "curve",
+            "arc",
+            "group",
+            "graphicData",
+            "oleObject",
+        ]
+        .iter()
+        .any(|name| drawing.first_descendant(name).is_some());
+        if visible_office_art {
+            context
+                .warnings
+                .push("unsupported visible Office art; subtree skipped".into());
+        }
+        return Ok(None);
+    }
+
     let extent = container
         .and_then(|node| node.child("extent"))
         .or_else(|| drawing.first_descendant("extent"));
@@ -1168,7 +1260,7 @@ fn extract_drawing(
             .push("drawing extent is missing or invalid; authored size omitted".into());
     }
 
-    if let Some(textbox) = drawing.first_descendant("txbxContent") {
+    if let Some(textbox) = textbox {
         let id = ids.next();
         if textbox_depth >= MAX_TEXTBOX_DEPTH {
             context.warnings.push(format!(
@@ -1183,7 +1275,7 @@ fn extract_drawing(
         let mut nested_ids = IdAllocator::new(format!("{id}-b"));
         let mut state = StoryState::default();
         let mut blocks = Vec::new();
-        for child in &textbox.children {
+        for child in flow_children(textbox) {
             if story_cap_reached(&mut state, context) {
                 continue;
             }
@@ -1198,7 +1290,7 @@ fn extract_drawing(
                         note_refs,
                         context,
                         textbox_depth + 1,
-                        false,
+                        track_pages,
                     )?;
                     push_blocks(&mut blocks, &mut parsed, &mut state, context)?;
                 }
@@ -1211,6 +1303,7 @@ fn extract_drawing(
                         note_refs,
                         context,
                         textbox_depth + 1,
+                        track_pages,
                     )?;
                     let mut parsed = vec![nested];
                     push_blocks(&mut blocks, &mut parsed, &mut state, context)?;
@@ -1230,20 +1323,6 @@ fn extract_drawing(
         }));
     }
 
-    let relation_id = drawing
-        .first_descendant("blip")
-        .and_then(|node| node.attr("embed").or_else(|| node.attr("link")))
-        .or_else(|| {
-            drawing
-                .first_descendant("imagedata")
-                .and_then(|node| node.attr("id"))
-        });
-    if relation_id.is_none() && drawing.first_descendant("imagedata").is_none() {
-        context
-            .warnings
-            .push("drawing has no image or textbox content; subtree skipped".into());
-        return Ok(None);
-    }
     let id = ids.next();
     let mut content_hash = None;
     match relation_id.and_then(|relation_id| rels.get(relation_id)) {
@@ -1460,7 +1539,7 @@ fn extract_story_part(
     let mut state = StoryState::default();
     let mut refs = Vec::new();
     let mut blocks = Vec::new();
-    for child in &root.children {
+    for child in flow_children(&root) {
         match child.local_name() {
             "p" => {
                 if story_cap_reached(&mut state, context) {
@@ -1491,6 +1570,7 @@ fn extract_story_part(
                     &mut refs,
                     context,
                     0,
+                    false,
                 )?;
                 let mut parsed = vec![block];
                 push_blocks(&mut blocks, &mut parsed, &mut state, context)?;
@@ -1553,7 +1633,7 @@ fn attach_notes(
             let mut state = StoryState::default();
             let mut nested_refs = Vec::new();
             let mut note_blocks = Vec::new();
-            for child in &note.children {
+            for child in flow_children(&note) {
                 if story_cap_reached(&mut state, context) {
                     continue;
                 }
@@ -1581,6 +1661,7 @@ fn attach_notes(
                             &mut nested_refs,
                             context,
                             0,
+                            false,
                         )?;
                         let mut parsed = vec![block];
                         push_blocks(&mut note_blocks, &mut parsed, &mut state, context)?;
@@ -1770,7 +1851,10 @@ fn clear_approx_pages(blocks: &mut [Block]) {
         match block {
             Block::Paragraph { approx_page, .. } => *approx_page = None,
             Block::Textbox { blocks, .. } => clear_approx_pages(blocks),
-            Block::Table { cells, .. } => {
+            Block::Table {
+                cells, approx_page, ..
+            } => {
+                *approx_page = None;
                 for blocks in cells.iter_mut().filter_map(|cell| cell.blocks.as_mut()) {
                     clear_approx_pages(blocks);
                 }

@@ -4,8 +4,8 @@
   "layout": "flow",
   "source": {
     "format": "docx",
-    "sha256": "d8e1b2be5c0fea3dbea45469882891337e8b5e524f14009b181bb2bb4c3d8834",
-    "size_bytes": 2971
+    "sha256": "bae862e01e96442b2df700ac61d4fdc9c1cd4a64f8095840cfcccd39e8e4fcc4",
+    "size_bytes": 3022
   },
   "document": {
     "metadata": {
@@ -16,6 +16,7 @@
   "warnings": [
     "s0-b2: image media relationship is missing or broken",
     "s0-b3: external image target was not fetched",
+    "unsupported visible Office art; subtree skipped",
     "no pagination hints; approx_page omitted"
   ],
   "sections": [
@@ -65,6 +66,28 @@
           "id": "s0-b3",
           "width": 50.0,
           "height": 50.0
+        },
+        {
+          "type": "paragraph",
+          "id": "s0-b4",
+          "role": "body",
+          "runs": [
+            {
+              "content": "Office art policy",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 11.0
+              },
+              "color": {
+                "fill": [
+                  51,
+                  102,
+                  153
+                ]
+              }
+            }
+          ],
+          "content": "Office art policy"
         }
       ],
       "hidden": [

@@ -171,7 +171,7 @@ fn main() {
     write_docx(
         "images",
         &format!(
-            r#"<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><wp:docPr id="1" name="Inline" descr="Inline alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:positionH relativeFrom="page"><wp:posOffset>254000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV><wp:extent cx="2540000" cy="1270000"/><wp:docPr id="2" name="Anchor" descr="Anchor alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="635000" cy="635000"/><wp:docPr id="3" name="Missing" descr="Missing alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rMissing"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="635000" cy="635000"/><wp:docPr id="4" name="External"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rExternal"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>{}"#,
+            r#"<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><wp:docPr id="1" name="Inline" descr="Inline alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:positionH relativeFrom="page"><wp:posOffset>254000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV><wp:extent cx="2540000" cy="1270000"/><wp:docPr id="2" name="Anchor" descr="Anchor alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rImg"/></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="635000" cy="635000"/><wp:docPr id="3" name="Missing" descr="Missing alt"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rMissing"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="635000" cy="635000"/><wp:docPr id="4" name="External"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><a:blip r:embed="rExternal"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:t>Office art policy</w:t><w:pict><v:rect style="width:72pt;height:1pt"/></w:pict><w:drawing/></w:r></w:p>{}"#,
             sect("")
         ),
         false,
@@ -256,6 +256,32 @@ fn main() {
         "breaks",
         &format!(
             r#"<w:p><w:r><w:t>before</w:t><w:br w:type="page"/><w:t>after page</w:t><w:lastRenderedPageBreak/><w:t>after hint</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="PageBreak"/></w:pPr><w:r><w:t>style break</w:t><w:br w:type="column"/><w:lastRenderedPageBreak/></w:r></w:p>{}"#,
+            sect("")
+        ),
+        false,
+        "",
+        vec![],
+    );
+    write_docx(
+        "wrappers",
+        &format!(
+            r#"<w:sdt><w:sdtPr><w:alias w:val="Block control"/><w:text/></w:sdtPr><w:sdtContent>{}</w:sdtContent></w:sdt><w:smartTag>{}</w:smartTag><w:customXml>{}</w:customXml><w:p><w:sdt><w:sdtPr><w:text/></w:sdtPr><w:sdtContent><w:r><w:t>inline sdt</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t> + </w:t></w:r><w:smartTag><w:r><w:t>smart tag</w:t></w:r></w:smartTag><w:r><w:t> + </w:t></w:r><w:customXml><w:r><w:t>custom XML</w:t></w:r></w:customXml></w:p><w:sdt><w:sdtPr/><w:sdtContent><w:tbl><w:tblGrid><w:gridCol w:w="1440"/></w:tblGrid><w:tr><w:tc><w:sdt><w:sdtPr/><w:sdtContent>{}</w:sdtContent></w:sdt></w:tc></w:tr></w:tbl></w:sdtContent></w:sdt>{}"#,
+            p("block sdt"),
+            p("block smart tag"),
+            p("block custom XML"),
+            p("cell sdt"),
+            sect("")
+        ),
+        false,
+        "",
+        vec![],
+    );
+    write_docx(
+        "body-pagination",
+        &format!(
+            r#"{}<w:tbl><w:tblGrid><w:gridCol w:w="2880"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>table page one</w:t><w:lastRenderedPageBreak/><w:t>table page two</w:t></w:r></w:p><w:tbl><w:tblGrid><w:gridCol w:w="1440"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>nested page two</w:t><w:lastRenderedPageBreak/><w:t>nested page three</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="1270000" cy="635000"/><wps:txbx><w:txbxContent><w:p><w:r><w:t>textbox page three</w:t><w:lastRenderedPageBreak/><w:t>textbox page four</w:t></w:r></w:p></w:txbxContent></wps:txbx></wp:inline></w:drawing></w:r></w:p></w:tc></w:tr></w:tbl>{}{}"#,
+            p("outside page one"),
+            p("outside page four"),
             sect("")
         ),
         false,

@@ -26,6 +26,8 @@ are never read.
   intended page frame, not resolved pagination.
 - Logical tables, authored grid widths, merges, nested blocks, and floating
   table placement constraints.
+- Text inside `w:sdt` content controls, smart tags, and custom XML wrappers;
+  these wrappers are transparent and do not create extra flow blocks.
 - Inline image extents and anchored image/textbox placement constraints.
   `frame` records page-, margin-, column-, paragraph-, or line-relative
   offsets. Image bytes are represented by SHA-256 content hashes.
@@ -40,7 +42,11 @@ or visually reorder it.
 
 `lastRenderedPageBreak` is a producer cache, not authored layout. When present,
 docray derives optional `approx_page` block hints and top-level `approx_pages`
-from it. Cached `PAGE` field results never count as pagination. When no cache
+from it. Hints in body table cells, nested tables, and textboxes advance the
+same body counter; header, footer, footnote, and endnote hints do not. A table
+is traversed in row/cell flow order, so its first cell paragraph retains the
+page where the table starts while later cell paragraphs can advance as hints
+pass. Cached `PAGE` field results never count as pagination. When no cache
 markers exist, `approx_page` is omitted and the response contains exactly one
 `no pagination hints; approx_page omitted` warning.
 

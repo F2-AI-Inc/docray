@@ -14,10 +14,12 @@ const root = path.resolve(__dirname, "..");
 const pkgDir = path.resolve(pkgArgument);
 const nativeCli = path.resolve(nativeArgument);
 const fixtures = [
+  { file: "docx/body-pagination.docx", granularity: "element", exact: true },
   { file: "docx/fields.docx", granularity: "element", exact: true },
   { file: "docx/tables.docx", granularity: "element", exact: true },
   { file: "docx/images.docx", granularity: "element", exact: true },
   { file: "docx/stories.docx", granularity: "element", exact: true },
+  { file: "docx/wrappers.docx", granularity: "element", exact: true },
   { file: "pptx/table.pptx", granularity: "element", exact: true },
   { file: "pptx/chart.pptx", granularity: "element", exact: true },
   { file: "pptx/percent-chart.pptx", granularity: "element", exact: true },
