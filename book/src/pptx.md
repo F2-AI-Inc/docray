@@ -38,6 +38,9 @@ deck.pptx` (or a plain upload) just works. Requesting finer detail — `char` or
   and emitted as one text element at the graphic-frame bbox.
 - Pictures are emitted as image elements. Their content hash covers the exact
   referenced media-part bytes, including pictures carried by graphic frames.
+  A picture whose media relationship is missing, broken, or resolves outside
+  the package is still emitted at its geometry without `content_hash`, with a
+  warning naming the element.
 - Geometry-only shapes and connectors are emitted as path elements with the
   fill, stroke, and stroke width represented by the existing JSON model.
 - External click hyperlinks continue to be emitted as link annotations. A

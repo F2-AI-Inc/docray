@@ -69,6 +69,55 @@ fn dtd_entities_are_never_expanded_or_fetched() {
 }
 
 #[test]
+fn escaping_picture_relationships_warn_without_discarding_the_slide() {
+    // Both picture paths (p:pic and a picture graphicFrame) reference media
+    // through targets that escape the package root. Each must degrade to a
+    // per-picture warning while the picture geometry and every other element
+    // on the slide survive — one hostile relationship must not blank the page.
+    let extraction = PptxExtractor
+        .extract(&fixture("escaping-picture.pptx"), None)
+        .unwrap();
+    let page = &extraction.pages[0];
+    assert_eq!(
+        page.elements.len(),
+        3,
+        "both pictures and the survivor shape must be emitted: {:?}",
+        extraction.warnings
+    );
+    let (Element::Image(picture), Element::Image(framed)) = (&page.elements[0], &page.elements[1])
+    else {
+        panic!("both hostile pictures must still be emitted as images");
+    };
+    assert_eq!(picture.content_hash, None);
+    assert_eq!(framed.content_hash, None);
+    let Element::Text(survivor) = &page.elements[2] else {
+        panic!("the shape after the hostile pictures must still extract");
+    };
+    assert_eq!(survivor.content, "Slide still extracts");
+    assert!(
+        !extraction
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("page 1 failed to parse")),
+        "the slide must not be reported as failed: {:?}",
+        extraction.warnings
+    );
+    assert_eq!(
+        extraction
+            .warnings
+            .iter()
+            .filter(
+                |warning| warning.contains("picture media relationship is invalid")
+                    && warning.contains("escapes the package root")
+            )
+            .count(),
+        2,
+        "each hostile relationship warns individually: {:?}",
+        extraction.warnings
+    );
+}
+
+#[test]
 fn max_pages_caps_slides_before_extraction() {
     let bytes =
         fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/pptx/basic.pptx"))
