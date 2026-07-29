@@ -416,6 +416,35 @@ fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
 }
 
 #[test]
+fn alternate_content_extracts_the_fallback_and_warns_when_there_is_none() {
+    // ECMA-376 markup compatibility: none of the mc:Choice extension
+    // namespaces are supported, so the mc:Fallback subtree is the content a
+    // non-supporting consumer must read. Before this behavior existed the
+    // whole wrapper hit the unknown-element catch-all and its shapes vanished
+    // with no warning.
+    let bytes = fs::read(root().join("testdata/pptx/alternate-content.pptx")).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let contents: Vec<&str> = extraction.pages[0]
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            Element::Text(text) => Some(text.content.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        contents,
+        vec!["Before wrapper", "Fallback shape", "After wrapper"],
+        "the Fallback subtree is extracted in document order; Choice is not"
+    );
+    assert_eq!(
+        extraction.warnings,
+        vec!["page 1: AlternateContent without a Fallback, content skipped".to_string()],
+        "a wrapper with no Fallback must warn, not vanish"
+    );
+}
+
+#[test]
 fn missing_chart_part_warns_and_the_rest_of_the_slide_survives() {
     let bytes = fs::read(root().join("testdata/pptx/missing-chart.pptx")).unwrap();
     let extraction = PptxExtractor.extract(&bytes, None).unwrap();
