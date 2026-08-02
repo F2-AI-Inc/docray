@@ -228,7 +228,7 @@ fn markdown_flow_renders_authored_structure_exactly() {
     let actual = flow_extraction().to_markdown();
     let expected = concat!(
         "---\n\n",
-        "## **Heading** [text](https://example.test/h)\n\n",
+        "## Heading [text](https://example.test/h)\n\n",
         "    1. Item text\n\n",
         "| Cell text |  |\n",
         "| --- | --- |\n\n",

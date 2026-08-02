@@ -292,5 +292,5 @@ fn markdown_job_roundtrips_stored_format_and_content_type() {
         r.headers().get("content-type").unwrap(),
         "text/markdown; charset=utf-8"
     );
-    assert!(r.text().unwrap().contains("# **Bold Title**"));
+    assert!(r.text().unwrap().contains("# Bold Title"));
 }

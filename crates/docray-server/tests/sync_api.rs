@@ -452,7 +452,7 @@ fn extract_lean_content_type_default_and_char_rejection() {
         r.headers().get("content-type").unwrap(),
         "text/markdown; charset=utf-8"
     );
-    assert!(r.text().unwrap().contains("# **Bold Title**"));
+    assert!(r.text().unwrap().contains("# Bold Title"));
 
     let r = upload(
         &server.base,

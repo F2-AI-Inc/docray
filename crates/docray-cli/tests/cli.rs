@@ -78,7 +78,7 @@ fn markdown_defaults_to_element_and_char_is_rejected() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Hello World"))
-        .stdout(predicate::str::contains("# **Bold Title**"));
+        .stdout(predicate::str::contains("# Bold Title"));
 
     dps()
         .arg("extract")
