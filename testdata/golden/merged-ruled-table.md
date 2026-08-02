@@ -1,0 +1,19 @@
+<table>
+<thead>
+<tr>
+<th colspan="3">Summary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Alpha</td>
+<td>2</td>
+<td>$4</td>
+</tr>
+<tr>
+<td>Beta</td>
+<td>5</td>
+<td>$9</td>
+</tr>
+</tbody>
+</table>
