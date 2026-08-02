@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use std::str::FromStr;
 
 mod flow;
+mod markdown;
 
 pub use flow::*;
 
@@ -283,6 +284,7 @@ impl Serialize for Granularity {
 pub enum OutputFormat {
     Json,
     Lean,
+    Markdown,
 }
 
 impl OutputFormat {
@@ -290,6 +292,7 @@ impl OutputFormat {
         match self {
             OutputFormat::Json => "json",
             OutputFormat::Lean => "lean",
+            OutputFormat::Markdown => "md",
         }
     }
 }
@@ -307,7 +310,8 @@ impl FromStr for OutputFormat {
         match value {
             "json" => Ok(OutputFormat::Json),
             "lean" => Ok(OutputFormat::Lean),
-            _ => Err(format!("expected json or lean; got {value:?}")),
+            "md" => Ok(OutputFormat::Markdown),
+            _ => Err(format!("expected json, lean, or md; got {value:?}")),
         }
     }
 }

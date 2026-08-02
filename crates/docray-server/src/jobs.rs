@@ -328,6 +328,12 @@ mod tests {
         assert_eq!(job.input_path, "in.pdf");
         assert_eq!(job.granularity, Some(Granularity::Word));
         assert_eq!(job.format, OutputFormat::Lean);
+
+        store
+            .create("markdown", "in.pdf", None, OutputFormat::Markdown)
+            .unwrap();
+        let job = store.claim_next().unwrap().unwrap();
+        assert_eq!(job.format, OutputFormat::Markdown);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

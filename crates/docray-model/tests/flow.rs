@@ -224,6 +224,23 @@ fn lean_flow_renders_the_exact_flow_grammar() {
 }
 
 #[test]
+fn markdown_flow_renders_authored_structure_exactly() {
+    let actual = flow_extraction().to_markdown();
+    let expected = concat!(
+        "---\n\n",
+        "## **Heading** [text](https://example.test/h)\n\n",
+        "    1. Item text\n\n",
+        "| Cell text |  |\n",
+        "| --- | --- |\n\n",
+        "<!-- image -->\n\n",
+        "> Box text\n\n",
+        "---\n\n",
+        "<!-- docray-hidden: comment [s0-b1] Review this -->\n",
+    );
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn hostile_flow_text_cannot_inject_lean_records() {
     let mut flow = flow_extraction();
     let blocks = &mut flow.sections[0].blocks;
