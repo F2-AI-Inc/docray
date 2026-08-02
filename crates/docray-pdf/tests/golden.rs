@@ -197,7 +197,7 @@ fn markdown_goldens_match_on_linux() {
     }
     ensure_pdfium_dir();
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
-    for name in ["simple", "link"] {
+    for name in ["simple", "link", "ruled-table"] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
         let markdown = PdfExtractor.extract(&bytes, None).unwrap().to_markdown();
         let golden_path = testdata().join("golden").join(format!("{name}.md"));

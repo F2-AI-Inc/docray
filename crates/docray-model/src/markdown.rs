@@ -1,8 +1,8 @@
 use super::{
     AnnotationElement, BBox, Block, BreakKind, Element, Extraction, FlowExtraction, FlowTableCell,
-    Font, HiddenItem, ListKind, Page, TableElement, TextRun,
+    Font, HiddenItem, ListKind, Page, PathElement, TableElement, TextElement, TextRun,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write as _;
 
@@ -26,6 +26,51 @@ struct PageBlock {
     heading: Option<usize>,
     rendered_override: Option<String>,
 }
+
+struct PageMarkdown {
+    blocks: Vec<PageBlock>,
+    warnings: Vec<String>,
+}
+
+#[derive(Default)]
+struct TableDetection {
+    tables: Vec<DetectedTable>,
+    warnings: Vec<String>,
+}
+
+struct DetectedTable {
+    bbox: BBox,
+    rows: usize,
+    cols: usize,
+    cells: Vec<DetectedCell>,
+    consumed_text: Vec<String>,
+}
+
+struct DetectedCell {
+    row: usize,
+    col: usize,
+    content: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RulingAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy)]
+struct Ruling {
+    axis: RulingAxis,
+    position: f64,
+    start: f64,
+    end: f64,
+}
+
+const RULING_SNAP_TOLERANCE: f64 = 1.5;
+const RULING_JOIN_TOLERANCE: f64 = 2.0;
+const MIN_RULING_LENGTH: f64 = 8.0;
+const MAX_RULINGS_PER_PAGE: usize = 512;
+const MAX_GRID_SEPARATORS: usize = 64;
 
 impl PageBlock {
     fn width(&self) -> f64 {
@@ -54,12 +99,16 @@ impl Extraction {
             .map(|page| (page.width, blocks_for_page(page, &self.source.format)))
             .collect::<Vec<_>>();
         let body_size =
-            weighted_median_font(page_blocks.iter().flat_map(|(_, blocks)| blocks.iter()));
-        let pages = page_blocks
-            .into_iter()
-            .map(|(page_width, blocks)| render_page(blocks, page_width, body_size))
-            .filter(|page| !page.is_empty())
-            .collect::<Vec<_>>();
+            weighted_median_font(page_blocks.iter().flat_map(|(_, page)| page.blocks.iter()));
+        let mut markdown_warnings = self.warnings.clone();
+        let mut pages = Vec::new();
+        for (page_width, page) in page_blocks {
+            markdown_warnings.extend(page.warnings);
+            let rendered = render_page(page.blocks, page_width, body_size);
+            if !rendered.is_empty() {
+                pages.push(rendered);
+            }
+        }
         for (index, page) in pages.iter().enumerate() {
             if index > 0 {
                 output.write_str("\n\n---\n\n")?;
@@ -71,11 +120,11 @@ impl Extraction {
             .iter()
             .flat_map(|page| &page.hidden)
             .collect::<Vec<_>>();
-        let has_context = !self.warnings.is_empty() || !hidden.is_empty();
+        let has_context = !markdown_warnings.is_empty() || !hidden.is_empty();
         if !pages.is_empty() && has_context {
             output.write_str("\n\n")?;
         }
-        write_trailing_context(output, &self.warnings, &hidden)?;
+        write_trailing_context(output, &markdown_warnings, &hidden)?;
         if !pages.is_empty() || has_context {
             output.write_char('\n')?;
         }
@@ -258,7 +307,7 @@ fn render_page(mut blocks: Vec<PageBlock>, page_width: f64, body_size: f64) -> S
     output.join("\n\n")
 }
 
-fn blocks_for_page(page: &Page, source_format: &str) -> Vec<PageBlock> {
+fn blocks_for_page(page: &Page, source_format: &str) -> PageMarkdown {
     let roles: BTreeMap<&str, usize> = page
         .hidden
         .iter()
@@ -273,10 +322,21 @@ fn blocks_for_page(page: &Page, source_format: &str) -> Vec<PageBlock> {
             Some((id, level))
         })
         .collect();
+    let detection = if source_format == "pdf" {
+        detect_ruled_tables(page)
+    } else {
+        TableDetection::default()
+    };
+    let consumed_text = detection
+        .tables
+        .iter()
+        .flat_map(|table| table.consumed_text.iter().cloned())
+        .collect::<BTreeSet<_>>();
     let mut blocks = Vec::new();
     let mut annotations = Vec::new();
     for element in &page.elements {
         match element {
+            Element::Text(text) if consumed_text.contains(&text.id) => {}
             Element::Text(text) if !clean_text(&text.content).is_empty() => {
                 blocks.push(PageBlock {
                     id: text.id.clone(),
@@ -307,8 +367,8 @@ fn blocks_for_page(page: &Page, source_format: &str) -> Vec<PageBlock> {
                 rendered_override: Some(render_paged_table(table)),
             }),
             Element::Table(table) => {
-                // PDF table structure is intentionally deferred to #63. Until then,
-                // emit only cell text in geometric reading order.
+                // Non-PPTX first-class tables retain geometric text flow. The
+                // PDF ruled-table projection above is deliberately path-based.
                 for (index, cell) in table.cells.iter().enumerate() {
                     if clean_text(&cell.content).is_empty() {
                         continue;
@@ -339,8 +399,450 @@ fn blocks_for_page(page: &Page, source_format: &str) -> Vec<PageBlock> {
             _ => {}
         }
     }
+    for (index, table) in detection.tables.iter().enumerate() {
+        let cells = table
+            .cells
+            .iter()
+            .map(|cell| FlowTableCell {
+                row: cell.row,
+                col: cell.col,
+                row_span: 1,
+                col_span: 1,
+                content: cell.content.clone(),
+                runs: Vec::new(),
+                blocks: None,
+            })
+            .collect::<Vec<_>>();
+        blocks.push(PageBlock {
+            id: format!("p{}-markdown-table-{index}", page.page_number),
+            bbox: table.bbox,
+            content: table
+                .cells
+                .iter()
+                .map(|cell| cell.content.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            size: 0.0,
+            bold: false,
+            segments: Vec::new(),
+            column: 0,
+            heading: None,
+            rendered_override: Some(render_flow_table(table.rows, table.cols, &cells)),
+        });
+    }
     associate_annotations(&mut blocks, &annotations);
-    blocks
+    PageMarkdown {
+        blocks,
+        warnings: detection.warnings,
+    }
+}
+
+/// Detects only high-confidence ruled PDF tables for the Markdown projection.
+/// Phase 2 = borderless/alignment detection; structured TableElement-in-JSON
+/// behind a granularity parameter is a follow-up.
+fn detect_ruled_tables(page: &Page) -> TableDetection {
+    let text = page
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            Element::Text(text) if !clean_text(&text.content).is_empty() => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut rulings = page
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            Element::Path(path) => Some(path),
+            _ => None,
+        })
+        .flat_map(rulings_for_path)
+        .collect::<Vec<_>>();
+    rulings.sort_by(|a, b| {
+        ruling_axis_rank(a.axis)
+            .cmp(&ruling_axis_rank(b.axis))
+            .then_with(|| a.position.total_cmp(&b.position))
+            .then_with(|| a.start.total_cmp(&b.start))
+            .then_with(|| a.end.total_cmp(&b.end))
+    });
+
+    let horizontal_count = rulings
+        .iter()
+        .filter(|ruling| ruling.axis == RulingAxis::Horizontal)
+        .count();
+    let vertical_count = rulings.len() - horizontal_count;
+    if rulings.len() > MAX_RULINGS_PER_PAGE {
+        let warnings = if horizontal_count >= 3 && vertical_count >= 3 {
+            vec![format!(
+                "page {}: ruled-table candidate skipped because path density exceeded the Markdown detector limit",
+                page.page_number
+            )]
+        } else {
+            Vec::new()
+        };
+        return TableDetection {
+            tables: Vec::new(),
+            warnings,
+        };
+    }
+    if horizontal_count < 3 || vertical_count < 3 {
+        return TableDetection::default();
+    }
+
+    let mut components = DisjointSet::new(rulings.len());
+    for horizontal in 0..horizontal_count {
+        for vertical in horizontal_count..rulings.len() {
+            if rulings_intersect(rulings[horizontal], rulings[vertical]) {
+                components.union(horizontal, vertical);
+            }
+        }
+    }
+    let mut grouped = BTreeMap::<usize, Vec<Ruling>>::new();
+    for (index, ruling) in rulings.iter().copied().enumerate() {
+        grouped
+            .entry(components.find(index))
+            .or_default()
+            .push(ruling);
+    }
+
+    let mut detection = TableDetection::default();
+    for component in grouped.values() {
+        match table_from_component(component, &text) {
+            ComponentTable::NotGrid => {}
+            ComponentTable::Rejected(reason) => detection.warnings.push(format!(
+                "page {}: ruled-table candidate skipped: {reason}",
+                page.page_number
+            )),
+            ComponentTable::Detected(table) => detection.tables.push(table),
+        }
+    }
+    detection.tables.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .total_cmp(&b.bbox.y0)
+            .then_with(|| a.bbox.x0.total_cmp(&b.bbox.x0))
+            .then_with(|| a.bbox.y1.total_cmp(&b.bbox.y1))
+            .then_with(|| a.bbox.x1.total_cmp(&b.bbox.x1))
+    });
+    detection
+}
+
+fn ruling_axis_rank(axis: RulingAxis) -> u8 {
+    match axis {
+        RulingAxis::Horizontal => 0,
+        RulingAxis::Vertical => 1,
+    }
+}
+
+fn rulings_for_path(path: &PathElement) -> Vec<Ruling> {
+    let bbox = path.bbox;
+    if ![bbox.x0, bbox.y0, bbox.x1, bbox.y1]
+        .into_iter()
+        .all(f64::is_finite)
+        || bbox.x1 < bbox.x0
+        || bbox.y1 < bbox.y0
+    {
+        return Vec::new();
+    }
+    let width = bbox.x1 - bbox.x0;
+    let height = bbox.y1 - bbox.y0;
+    let stroke_width = path.stroke_width.unwrap_or(1.0).abs();
+    let painted = path.stroke.is_some() || path.fill.is_some();
+    if !painted || (path.stroke.is_some() && stroke_width > 3.0) {
+        return Vec::new();
+    }
+    let thin_limit = if path.stroke.is_some() {
+        (stroke_width * 2.0).clamp(1.5, 6.0)
+    } else {
+        3.0
+    };
+    if width >= MIN_RULING_LENGTH && height <= thin_limit {
+        return vec![Ruling {
+            axis: RulingAxis::Horizontal,
+            position: (bbox.y0 + bbox.y1) / 2.0,
+            start: bbox.x0,
+            end: bbox.x1,
+        }];
+    }
+    if height >= MIN_RULING_LENGTH && width <= thin_limit {
+        return vec![Ruling {
+            axis: RulingAxis::Vertical,
+            position: (bbox.x0 + bbox.x1) / 2.0,
+            start: bbox.y0,
+            end: bbox.y1,
+        }];
+    }
+    if path.stroke.is_none() || width < MIN_RULING_LENGTH || height < MIN_RULING_LENGTH {
+        return Vec::new();
+    }
+    // PDFium path bounds include the stroke expansion. Move rectangle edges
+    // back to their centerlines so adjacent stroked cells snap together.
+    let inset = stroke_width.min(width / 2.0).min(height / 2.0);
+    let rect_x0 = bbox.x0 + inset;
+    let rect_x1 = bbox.x1 - inset;
+    let rect_y0 = bbox.y0 + inset;
+    let rect_y1 = bbox.y1 - inset;
+    vec![
+        Ruling {
+            axis: RulingAxis::Horizontal,
+            position: rect_y0,
+            start: rect_x0,
+            end: rect_x1,
+        },
+        Ruling {
+            axis: RulingAxis::Horizontal,
+            position: rect_y1,
+            start: rect_x0,
+            end: rect_x1,
+        },
+        Ruling {
+            axis: RulingAxis::Vertical,
+            position: rect_x0,
+            start: rect_y0,
+            end: rect_y1,
+        },
+        Ruling {
+            axis: RulingAxis::Vertical,
+            position: rect_x1,
+            start: rect_y0,
+            end: rect_y1,
+        },
+    ]
+}
+
+fn rulings_intersect(horizontal: Ruling, vertical: Ruling) -> bool {
+    horizontal.axis == RulingAxis::Horizontal
+        && vertical.axis == RulingAxis::Vertical
+        && vertical.position >= horizontal.start - RULING_SNAP_TOLERANCE
+        && vertical.position <= horizontal.end + RULING_SNAP_TOLERANCE
+        && horizontal.position >= vertical.start - RULING_SNAP_TOLERANCE
+        && horizontal.position <= vertical.end + RULING_SNAP_TOLERANCE
+}
+
+enum ComponentTable {
+    NotGrid,
+    Rejected(&'static str),
+    Detected(DetectedTable),
+}
+
+fn table_from_component(component: &[Ruling], text: &[&TextElement]) -> ComponentTable {
+    let xs = clustered_positions(
+        component
+            .iter()
+            .filter(|ruling| ruling.axis == RulingAxis::Vertical)
+            .map(|ruling| ruling.position),
+    );
+    let ys = clustered_positions(
+        component
+            .iter()
+            .filter(|ruling| ruling.axis == RulingAxis::Horizontal)
+            .map(|ruling| ruling.position),
+    );
+    if xs.len() < 3 || ys.len() < 3 {
+        return ComponentTable::NotGrid;
+    }
+    if xs.len() > MAX_GRID_SEPARATORS || ys.len() > MAX_GRID_SEPARATORS {
+        return ComponentTable::Rejected("too many row or column separators");
+    }
+
+    let x0 = xs[0];
+    let x1 = *xs.last().unwrap();
+    let y0 = ys[0];
+    let y1 = *ys.last().unwrap();
+    let horizontal_coverage = ys
+        .iter()
+        .map(|position| ruling_coverage(component, RulingAxis::Horizontal, *position, x0, x1))
+        .collect::<Vec<_>>();
+    let vertical_coverage = xs
+        .iter()
+        .map(|position| ruling_coverage(component, RulingAxis::Vertical, *position, y0, y1))
+        .collect::<Vec<_>>();
+    let outer_closed = horizontal_coverage[0] >= 0.9
+        && *horizontal_coverage.last().unwrap() >= 0.9
+        && vertical_coverage[0] >= 0.9
+        && *vertical_coverage.last().unwrap() >= 0.9;
+    let separators_present = horizontal_coverage.iter().all(|coverage| *coverage >= 0.45)
+        && vertical_coverage.iter().all(|coverage| *coverage >= 0.45);
+    if !outer_closed || !separators_present {
+        return ComponentTable::Rejected("rulings do not form a closed grid");
+    }
+
+    let rows = ys.len() - 1;
+    let cols = xs.len() - 1;
+    let Some(cell_count) = rows.checked_mul(cols) else {
+        return ComponentTable::Rejected("grid dimensions overflowed");
+    };
+    let mut assigned = vec![Vec::<&TextElement>::new(); cell_count];
+    for item in text {
+        let center_x = (item.bbox.x0 + item.bbox.x1) / 2.0;
+        let center_y = (item.bbox.y0 + item.bbox.y1) / 2.0;
+        if center_x < x0 - RULING_SNAP_TOLERANCE
+            || center_x > x1 + RULING_SNAP_TOLERANCE
+            || center_y < y0 - RULING_SNAP_TOLERANCE
+            || center_y > y1 + RULING_SNAP_TOLERANCE
+        {
+            continue;
+        }
+        let Some(col) = separator_interval(&xs, center_x) else {
+            continue;
+        };
+        let Some(row) = separator_interval(&ys, center_y) else {
+            continue;
+        };
+        assigned[row * cols + col].push(item);
+    }
+    let occupied = assigned.iter().filter(|cell| !cell.is_empty()).count();
+    let occupied_rows = (0..rows)
+        .filter(|row| (0..cols).any(|col| !assigned[row * cols + col].is_empty()))
+        .count();
+    let occupied_cols = (0..cols)
+        .filter(|col| (0..rows).any(|row| !assigned[row * cols + col].is_empty()))
+        .count();
+    let minimum_occupied = 4_usize.max(cell_count.div_ceil(3));
+    if occupied < minimum_occupied || occupied_rows < 2 || occupied_cols < 2 {
+        return ComponentTable::Rejected("grid has too little cell text");
+    }
+
+    let mut cells = Vec::with_capacity(cell_count);
+    let mut consumed_text = Vec::new();
+    for row in 0..rows {
+        for col in 0..cols {
+            let items = &mut assigned[row * cols + col];
+            items.sort_by(|a, b| {
+                a.bbox
+                    .y0
+                    .total_cmp(&b.bbox.y0)
+                    .then_with(|| a.bbox.x0.total_cmp(&b.bbox.x0))
+                    .then_with(|| a.bbox.y1.total_cmp(&b.bbox.y1))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            consumed_text.extend(items.iter().map(|item| item.id.clone()));
+            cells.push(DetectedCell {
+                row,
+                col,
+                content: items
+                    .iter()
+                    .map(|item| clean_text(&item.content))
+                    .filter(|content| !content.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            });
+        }
+    }
+    consumed_text.sort();
+    consumed_text.dedup();
+    ComponentTable::Detected(DetectedTable {
+        bbox: BBox { x0, y0, x1, y1 },
+        rows,
+        cols,
+        cells,
+        consumed_text,
+    })
+}
+
+fn clustered_positions(values: impl Iterator<Item = f64>) -> Vec<f64> {
+    let mut values = values.filter(|value| value.is_finite()).collect::<Vec<_>>();
+    values.sort_by(f64::total_cmp);
+    let mut clusters = Vec::<Vec<f64>>::new();
+    for value in values {
+        if clusters
+            .last()
+            .is_some_and(|cluster| value - cluster[0] <= RULING_SNAP_TOLERANCE)
+        {
+            clusters.last_mut().unwrap().push(value);
+        } else {
+            clusters.push(vec![value]);
+        }
+    }
+    clusters
+        .into_iter()
+        .filter_map(|mut cluster| median(&mut cluster))
+        .collect()
+}
+
+fn ruling_coverage(
+    component: &[Ruling],
+    axis: RulingAxis,
+    position: f64,
+    start: f64,
+    end: f64,
+) -> f64 {
+    let length = end - start;
+    if length <= 0.0 {
+        return 0.0;
+    }
+    let mut intervals = component
+        .iter()
+        .filter(|ruling| {
+            ruling.axis == axis && (ruling.position - position).abs() <= RULING_SNAP_TOLERANCE
+        })
+        .filter_map(|ruling| {
+            let clipped_start = ruling.start.max(start);
+            let clipped_end = ruling.end.min(end);
+            (clipped_end > clipped_start).then_some((clipped_start, clipped_end))
+        })
+        .collect::<Vec<_>>();
+    intervals.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+    let mut covered = 0.0;
+    let mut current: Option<(f64, f64)> = None;
+    for interval in intervals {
+        match current {
+            Some((current_start, current_end))
+                if interval.0 <= current_end + RULING_JOIN_TOLERANCE =>
+            {
+                current = Some((current_start, current_end.max(interval.1)));
+            }
+            Some((current_start, current_end)) => {
+                covered += current_end - current_start;
+                current = Some(interval);
+            }
+            None => current = Some(interval),
+        }
+    }
+    if let Some((current_start, current_end)) = current {
+        covered += current_end - current_start;
+    }
+    (covered / length).clamp(0.0, 1.0)
+}
+
+fn separator_interval(separators: &[f64], value: f64) -> Option<usize> {
+    separators.windows(2).position(|pair| {
+        value >= pair[0] - RULING_SNAP_TOLERANCE && value <= pair[1] + RULING_SNAP_TOLERANCE
+    })
+}
+
+struct DisjointSet {
+    parents: Vec<usize>,
+}
+
+impl DisjointSet {
+    fn new(len: usize) -> Self {
+        Self {
+            parents: (0..len).collect(),
+        }
+    }
+
+    fn find(&mut self, mut index: usize) -> usize {
+        while self.parents[index] != index {
+            let parent = self.parents[index];
+            self.parents[index] = self.parents[parent];
+            index = self.parents[index];
+        }
+        index
+    }
+
+    fn union(&mut self, left: usize, right: usize) {
+        let left_root = self.find(left);
+        let right_root = self.find(right);
+        if left_root != right_root {
+            let (root, child) = if left_root < right_root {
+                (left_root, right_root)
+            } else {
+                (right_root, left_root)
+            };
+            self.parents[child] = root;
+        }
+    }
 }
 
 fn default_font() -> Font {
@@ -1083,6 +1585,60 @@ mod tests {
         })
     }
 
+    fn cell_text(id: &str, x: f64, y: f64, content: &str) -> Element {
+        let mut element = text(id, x, y, 12.0, false, content);
+        let Element::Text(item) = &mut element else {
+            unreachable!()
+        };
+        item.bbox.x1 = x + 40.0;
+        item.bbox.y1 = y + 10.0;
+        element
+    }
+
+    fn path(id: &str, bbox: BBox) -> Element {
+        Element::Path(PathElement {
+            id: id.into(),
+            bbox,
+            fill: None,
+            stroke: Some([0, 0, 0]),
+            stroke_width: Some(1.0),
+        })
+    }
+
+    fn ruled_grid(mut text: Vec<Element>) -> Vec<Element> {
+        let mut elements = vec![
+            path(
+                "outer",
+                BBox {
+                    x0: 10.0,
+                    y0: 10.0,
+                    x1: 210.0,
+                    y1: 90.0,
+                },
+            ),
+            path(
+                "row",
+                BBox {
+                    x0: 10.0,
+                    y0: 49.5,
+                    x1: 210.0,
+                    y1: 50.5,
+                },
+            ),
+            path(
+                "column",
+                BBox {
+                    x0: 109.5,
+                    y0: 10.0,
+                    x1: 110.5,
+                    y1: 90.0,
+                },
+            ),
+        ];
+        elements.append(&mut text);
+        elements
+    }
+
     fn extraction(elements: Vec<Element>) -> Extraction {
         Extraction {
             schema_version: "1.1".into(),
@@ -1141,6 +1697,33 @@ mod tests {
         ]
         .map(|needle| markdown.find(needle).unwrap());
         assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn ruled_pdf_table_renders_once_as_gfm() {
+        let markdown = extraction(ruled_grid(vec![
+            cell_text("h1", 20.0, 22.0, "H1"),
+            cell_text("h2", 120.0, 22.0, "H2"),
+            cell_text("a", 20.0, 62.0, "A | value"),
+            cell_text("b", 120.0, 62.0, "B"),
+        ]))
+        .to_markdown();
+        assert_eq!(
+            markdown,
+            "| H1 | H2 |\n| --- | --- |\n| A \\| value | B |\n"
+        );
+        assert_eq!(markdown.matches("A \\| value").count(), 1);
+    }
+
+    #[test]
+    fn ruled_candidate_with_sparse_text_is_left_in_flow_and_warned() {
+        let markdown =
+            extraction(ruled_grid(vec![cell_text("only", 20.0, 22.0, "Only")])).to_markdown();
+        assert!(markdown.starts_with("Only\n\n"));
+        assert!(!markdown.contains("| --- |"));
+        assert!(markdown.contains(
+            "> [!WARNING]\n> page 1: ruled-table candidate skipped: grid has too little cell text"
+        ));
     }
 
     #[test]

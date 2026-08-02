@@ -40,9 +40,16 @@ paragraphs; recognizes bullet, numeric, and letter list markers; preserves
 bold, italic, and hyperlink runs; and separates pages with `---`. Heading
 levels H1-H4 are inferred from deterministic font-size ranks relative to the
 document's weighted median body size, with whole-line bold text promoted one
-tier. URI annotations are associated with the overlapping or nearest text.
-PDF table-region text remains plain reading-order text; Markdown does not
-invent table structure where extraction has none.
+tier. URI annotations are associated with the overlapping or nearest text. On
+the PDF path, a strict ruled-table detector reconstructs grids with at least
+two columns and two rows from thin vector rulings and renders their cells as
+GFM pipe tables. Cell text
+is assigned by geometric center and removed from ordinary reading-order output,
+so it appears exactly once. Incomplete grids and path-dense chart-like regions
+are rejected; table-like candidates that cannot be reconstructed are reported
+as Markdown warning callouts. Borderless PDF tables remain reading-order text.
+This Markdown-only reconstruction does not change schema 1.1 JSON, compact JSON,
+or lean output.
 
 DOCX Markdown renders authored flow structure directly: `h1`-`h9` and `title`
 roles become headings (levels above six use H6), quotes become block quotes,
