@@ -1,0 +1,19 @@
+<table>
+<thead>
+<tr>
+<th colspan="3">&lt;/td&gt;&lt;script&gt;alert(1)&lt;/script&gt;</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>safe</td>
+<td>cell</td>
+<td>text</td>
+</tr>
+<tr>
+<td>a&amp;b</td>
+<td>c&lt;d</td>
+<td>e&gt;f</td>
+</tr>
+</tbody>
+</table>
