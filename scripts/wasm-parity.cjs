@@ -36,6 +36,7 @@ const fixtures = [
   { file: "prose.pdf", granularity: "" },
   { file: "code-block.pdf", granularity: "" },
   { file: "key-value-form.pdf", granularity: "" },
+  { file: "three-column-prose.pdf", granularity: "" },
 ];
 
 function exact(failures, label, a, b) {

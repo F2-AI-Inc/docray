@@ -52,15 +52,19 @@ are rejected; table-like candidates that cannot be reconstructed are reported
 as Markdown warning callouts. After ruled detection, a borderless
 (alignment-based) detector runs only on the text no ruled table already claimed:
 it groups visual lines into rows and finds columns from stable whitespace
-gutters, gated strictly (at least three columns and three rows, tight column
-edges, and a dense fill) so prose, code, and key/value forms stay
-reading-order text. Merged cells are recovered as `colspan`/`rowspan` — from
-missing interior separators in ruled grids, and from cells straddling a gutter
-in borderless ones. A table with any merged cell is emitted as a raw HTML
-`<table>` (which carries the spans), while simple all-single-span tables stay
-GFM pipe tables; every cell string is HTML-escaped so untrusted document text
-cannot break out of the table. This Markdown-only reconstruction does not change
-schema 1.1 JSON, compact JSON, or lean output.
+gutters. The gate combines geometry (at least two columns and three rows, tight
+column edges, and a dense fill) with content discriminators — a candidate whose
+cells are predominantly sentence-like is rejected as multi-column running prose,
+and a two-column candidate whose first column is colon-terminated labels is
+rejected as a key/value form — so prose, code, and forms stay reading-order
+text. Merged cells are recovered as `colspan`/`rowspan` — from missing interior
+separators in ruled grids, and from cells straddling a gutter in borderless
+ones. A table with any merged cell is emitted as a raw HTML `<table>` (which
+carries the spans), while simple all-single-span tables stay GFM pipe tables;
+every cell string is HTML-escaped so untrusted document text cannot break out of
+the table, and link targets are dropped unless their scheme is `http`, `https`,
+or `mailto` (scheme-less internal links are kept). This Markdown-only
+reconstruction does not change schema 1.1 JSON, compact JSON, or lean output.
 
 DOCX Markdown renders authored flow structure directly: `h1`-`h9` and `title`
 roles become headings (levels above six use H6), quotes become block quotes,
@@ -73,7 +77,9 @@ comment. Page and section breaks render as `---`.
 Warnings remain visible as GFM warning callouts. Non-visible hidden-channel
 items are retained as trailing `docray-hidden` HTML comments, so they do not
 appear as document prose. Markdown escapes document-controlled Markdown/HTML
-syntax and percent-encodes unsafe link-target characters.
+syntax, percent-encodes unsafe link-target characters, and drops any link whose
+scheme is not `http`, `https`, or `mailto` (rendering its text only) across all
+formats.
 
 Markdown is a reading format, not a lossless replacement for JSON. It omits
 geometry, source hashes, paint, and reconstruction metadata. Use `element` for

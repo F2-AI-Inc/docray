@@ -82,8 +82,9 @@ const INTERIOR_SEPARATOR_PRESENT: f64 = 0.5;
 //
 // Alignment detection is strictly gated and composes as a fallback *after*
 // ruled detection: it only ever runs on text no ruled table already claimed.
-// The gate below is deliberately conservative (≥3 columns, ≥3 rows, stable
-// gutters, tight column edges, dense fill) so prose, code, and key/value forms
+// The gate combines geometry (≥2 columns, ≥3 rows, stable gutters, tight column
+// edges, dense fill) with content discriminators (predominantly tabular cells;
+// not a colon-terminated label/value form) so prose, code, and key/value forms
 // are left as ordinary reading-order text. Enabled by default so the TEDS
 // harness can measure the lift; the gate plus the negative-fixture corpus are
 // the safety net.
@@ -92,24 +93,40 @@ const ENABLE_ALIGNMENT_TABLES: bool = true;
 /// detection is deterministic across sub-point PDFium glyph-metric drift.
 const X_BUCKET: f64 = 3.0;
 /// A gutter must read as whitespace in at least this fraction of row bands.
-const GUTTER_STABILITY: f64 = 0.8;
+/// Calibrated (0.8 → 0.7) to admit real tables whose gutters carry a little
+/// noise; the content discriminators below are the safety net for prose/forms.
+const GUTTER_STABILITY: f64 = 0.7;
 /// Minimum row bands for an alignment table (kills 2-row label/value forms).
 const MIN_ALIGN_ROWS: usize = 3;
-/// Minimum columns for an alignment table. Three (not two) is deliberate: it
-/// rejects two-column key/value forms, the most common false positive.
-const MIN_ALIGN_COLS: usize = 3;
+/// Minimum columns for an alignment table. Two-column candidates are admitted
+/// (many real tables are two-column) but guarded by the content discriminators:
+/// prose-like cells and colon-terminated label/value forms are rejected.
+const MIN_ALIGN_COLS: usize = 2;
+/// Maximum per-column edge stdev (in points) for a column to count as tight.
+/// Relaxed to 1.5 × bucket so lightly jittered real columns pass while ragged
+/// code (much larger jitter) is still rejected.
+const COLUMN_EDGE_STDEV: f64 = X_BUCKET * 1.5;
 /// A vertical gap between adjacent lines larger than this floor (or
 /// `ROW_GAP_K × median line height`, whichever is greater) breaks one table
 /// region from the surrounding prose.
 const ROW_GAP_FLOOR: f64 = 3.0;
 const ROW_GAP_K: f64 = 1.5;
 /// Minimum occupied-cell fraction; sparse accidental alignment is rejected.
-const FILL_RATIO: f64 = 0.5;
+const FILL_RATIO: f64 = 0.4;
 /// At least this fraction of bands must reach ≥2 columns (kills paragraphs with
 /// one stray tab stop).
 const ROW_REGULARITY: f64 = 0.6;
 /// Cap on candidate lines fed to alignment detection, mirroring the ruling cap.
 const MAX_ALIGN_LINES: usize = 512;
+/// A cell counts as "tabular" when it is short — at most this many words and
+/// characters. Running-prose cells (sentence fragments / wrapped lines) exceed
+/// both and are counted as non-tabular.
+const TABULAR_MAX_WORDS: usize = 3;
+const TABULAR_MAX_CHARS: usize = 24;
+/// A candidate is rejected as running prose unless at least this fraction of its
+/// non-empty cells are tabular. This is what keeps multi-column prose (a
+/// newspaper layout) from becoming a garbage table that scrambles reading order.
+const TABULAR_FRACTION: f64 = 0.6;
 
 impl PageBlock {
     fn width(&self) -> f64 {
@@ -862,8 +879,8 @@ fn alignment_region_table(lines: &[AlignLine]) -> AlignmentRegion {
     // right-aligned (numeric) columns a stable right edge. A column with enough
     // single-column items must be tight on at least one side; ragged code fails.
     for col in 0..cols {
-        let tight_left = stdev(&left_edges[col]).map(|s| s <= X_BUCKET);
-        let tight_right = stdev(&right_edges[col]).map(|s| s <= X_BUCKET);
+        let tight_left = stdev(&left_edges[col]).map(|s| s <= COLUMN_EDGE_STDEV);
+        let tight_right = stdev(&right_edges[col]).map(|s| s <= COLUMN_EDGE_STDEV);
         match (tight_left, tight_right) {
             (Some(l), Some(r)) if !l && !r => return AlignmentRegion::None,
             _ => {}
@@ -942,6 +959,39 @@ fn alignment_region_table(lines: &[AlignLine]) -> AlignmentRegion {
         return AlignmentRegion::None;
     }
 
+    // Geometry alone accepts column-laid-out running prose (a newspaper page)
+    // and label/value forms. Reject those by content so they stay reading-order
+    // text: (1) predominantly sentence-like/wrapping cells means prose, not a
+    // table; (2) a two-column candidate whose first column is mostly
+    // colon-terminated labels is a key/value form.
+    let content_cells = cells
+        .iter()
+        .filter(|cell| !cell.content.trim().is_empty())
+        .collect::<Vec<_>>();
+    if content_cells.is_empty() {
+        return AlignmentRegion::None;
+    }
+    let tabular = content_cells
+        .iter()
+        .filter(|cell| is_tabular_cell(&cell.content))
+        .count();
+    if (tabular as f64) < TABULAR_FRACTION * content_cells.len() as f64 {
+        return AlignmentRegion::None;
+    }
+    if cols == 2 {
+        let first_column = content_cells
+            .iter()
+            .filter(|cell| cell.col == 0)
+            .collect::<Vec<_>>();
+        let labels = first_column
+            .iter()
+            .filter(|cell| cell.content.trim_end().ends_with(':'))
+            .count();
+        if !first_column.is_empty() && labels * 2 >= first_column.len() {
+            return AlignmentRegion::None;
+        }
+    }
+
     let bbox = BBox {
         x0: region_x0,
         y0: lines
@@ -979,6 +1029,14 @@ fn column_span_of(x0: f64, x1: f64, columns: &[(f64, f64)]) -> Option<(usize, us
         }
     }
     Some((start?, end?))
+}
+
+/// A cell is "tabular" when it is short in both words and characters. Running
+/// prose cells (sentence fragments or wrapped lines) exceed these bounds.
+fn is_tabular_cell(content: &str) -> bool {
+    let trimmed = content.trim();
+    trimmed.split_whitespace().count() <= TABULAR_MAX_WORDS
+        && trimmed.chars().count() <= TABULAR_MAX_CHARS
 }
 
 fn stdev(values: &[f64]) -> Option<f64> {
@@ -1918,7 +1976,13 @@ fn render_segments_styled(segments: &[Segment], suppress_bold: bool) -> String {
             } else if segment.italic {
                 text = format!("*{text}*");
             }
-            if let Some(href) = &segment.href {
+            // Drop hrefs whose scheme is not on the allowlist (e.g. javascript:,
+            // data:) and render the text only — never emit an unsafe link.
+            if let Some(href) = segment
+                .href
+                .as_deref()
+                .filter(|href| href_scheme_allowed(href))
+            {
                 text = format!("[{text}]({})", escape_link_target(href));
             }
             output.push_str(&text);
@@ -1926,6 +1990,52 @@ fn render_segments_styled(segments: &[Segment], suppress_bold: bool) -> String {
         pending = pending.max(separator(trailing));
     }
     output
+}
+
+/// Whether a link target is safe to emit at a link sink. A reference that
+/// carries an explicit URI scheme is allowed only when that scheme is `http`,
+/// `https`, or `mailto` (case-insensitive); every other scheme — `javascript:`,
+/// `data:`, `vbscript:`, `file:`, … — is dropped so untrusted document hrefs
+/// cannot become an XSS sink at either the Markdown or HTML link sink.
+///
+/// A scheme-less reference (a relative path, a `#fragment`, or a
+/// protocol-relative `//host`) has no dangerous scheme and is allowed, which
+/// preserves legitimate internal document links. Whitespace and control
+/// characters are ignored while reading the scheme because browsers strip them
+/// before resolving one (so `java\tscript:` is treated as `javascript:`).
+fn href_scheme_allowed(href: &str) -> bool {
+    let mut scheme = String::new();
+    let mut has_scheme = false;
+    for ch in href.chars() {
+        if ch.is_whitespace() || ch.is_control() {
+            continue;
+        }
+        match ch {
+            ':' => {
+                has_scheme = true;
+                break;
+            }
+            // A path/query/fragment delimiter before any ':' means there is no
+            // scheme: the reference is relative.
+            '/' | '?' | '#' => break,
+            _ => scheme.push(ch),
+        }
+    }
+    if !has_scheme {
+        return true;
+    }
+    !scheme.is_empty()
+        && scheme
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-'))
+        && matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http" | "https" | "mailto"
+        )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -2106,12 +2216,12 @@ fn render_html_table(rows: usize, cols: usize, cells: &[FlowTableCell]) -> Strin
         }
     }
     let mut output = String::from("<table>\n<thead>\n");
-    render_html_row(&mut output, 0, cols, &anchors, &covered, true);
+    render_html_row(&mut output, 0, rows, cols, &anchors, &covered, true);
     output.push_str("</thead>\n");
     if rows > 1 {
         output.push_str("<tbody>\n");
         for row in 1..rows {
-            render_html_row(&mut output, row, cols, &anchors, &covered, false);
+            render_html_row(&mut output, row, rows, cols, &anchors, &covered, false);
         }
         output.push_str("</tbody>\n");
     }
@@ -2122,6 +2232,7 @@ fn render_html_table(rows: usize, cols: usize, cells: &[FlowTableCell]) -> Strin
 fn render_html_row(
     output: &mut String,
     row: usize,
+    rows: usize,
     cols: usize,
     anchors: &BTreeMap<(usize, usize), &FlowTableCell>,
     covered: &[bool],
@@ -2135,13 +2246,17 @@ fn render_html_row(
         }
         let (attrs, content) = match anchors.get(&(row, col)) {
             Some(cell) => {
+                // Clamp spans to the table bounds so a malformed direct
+                // FlowTableCell span can never emit an out-of-bounds attribute.
+                let col_span = cell.col_span.min(cols - col);
+                let row_span = cell.row_span.min(rows - row);
                 let mut attrs = String::new();
-                if cell.col_span > 1 {
-                    write!(attrs, " colspan=\"{}\"", cell.col_span)
+                if col_span > 1 {
+                    write!(attrs, " colspan=\"{col_span}\"")
                         .expect("writing to a String cannot fail");
                 }
-                if cell.row_span > 1 {
-                    write!(attrs, " rowspan=\"{}\"", cell.row_span)
+                if row_span > 1 {
+                    write!(attrs, " rowspan=\"{row_span}\"")
                         .expect("writing to a String cannot fail");
                 }
                 (attrs, render_html_cell(&cell.content, &cell.runs))
@@ -2185,7 +2300,13 @@ fn render_html_segments(segments: &[Segment]) -> String {
             } else if segment.italic {
                 text = format!("<em>{text}</em>");
             }
-            if let Some(href) = &segment.href {
+            // Same allowlist as the Markdown sink: an href with a non-allowed
+            // scheme is dropped and only the (escaped) text is emitted.
+            if let Some(href) = segment
+                .href
+                .as_deref()
+                .filter(|href| href_scheme_allowed(href))
+            {
                 text = format!("<a href=\"{}\">{text}</a>", escape_html_attr(href));
             }
             output.push_str(&text);
@@ -2879,6 +3000,95 @@ mod tests {
         // renderer's own structural tags appear — none injected from cell text.
         assert_eq!(html.matches("</th>").count(), 1);
         assert_eq!(html.matches("</td>").count(), 2);
+    }
+
+    #[test]
+    fn dangerous_href_schemes_are_dropped_at_both_link_sinks() {
+        // A javascript: (or data:) href must never reach a link sink: both the
+        // Markdown and the HTML renderer drop it and emit the text only.
+        let hostile = Segment {
+            text: "click".into(),
+            bold: false,
+            italic: false,
+            href: Some("javascript:alert(1)".into()),
+        };
+        let markdown = render_segments(std::slice::from_ref(&hostile));
+        assert_eq!(markdown, "click", "{markdown:?}");
+        let html = render_html_segments(std::slice::from_ref(&hostile));
+        assert_eq!(html, "click", "{html:?}");
+
+        // Allowed schemes and scheme-less references still render as links.
+        assert!(href_scheme_allowed("https://example.test/x"));
+        assert!(href_scheme_allowed("HTTP://EXAMPLE.TEST"));
+        assert!(href_scheme_allowed("mailto:a@b.test"));
+        assert!(href_scheme_allowed("#bookmark")); // internal document link
+        assert!(href_scheme_allowed("/relative/path"));
+        // Dangerous schemes are dropped, including whitespace/control-obfuscated
+        // ones (browsers strip the junk before resolving the scheme).
+        assert!(!href_scheme_allowed("javascript:alert(1)"));
+        assert!(!href_scheme_allowed("data:text/html,<script>"));
+        assert!(!href_scheme_allowed("  javascript:alert(1)"));
+        assert!(!href_scheme_allowed("java\tscript:alert(1)"));
+        assert!(!href_scheme_allowed("vbscript:msgbox(1)"));
+        let safe = Segment {
+            text: "ok".into(),
+            bold: false,
+            italic: false,
+            href: Some("https://example.test/a".into()),
+        };
+        assert_eq!(
+            render_html_segments(std::slice::from_ref(&safe)),
+            "<a href=\"https://example.test/a\">ok</a>"
+        );
+    }
+
+    #[test]
+    fn html_table_clamps_out_of_bounds_spans() {
+        // A malformed direct cell span must not emit an attribute past the table
+        // bounds.
+        let cells = vec![FlowTableCell {
+            row: 0,
+            col: 0,
+            row_span: 9,
+            col_span: 9,
+            content: "x".into(),
+            runs: Vec::new(),
+            blocks: None,
+        }];
+        let html = render_html_table(2, 2, &cells);
+        assert!(html.contains("colspan=\"2\""), "{html:?}");
+        assert!(html.contains("rowspan=\"2\""), "{html:?}");
+        assert!(!html.contains("\"9\""), "{html:?}");
+    }
+
+    #[test]
+    fn three_column_running_prose_is_not_a_table() {
+        // Three columns of wrapped running prose have clean gutters and tight
+        // left edges, so geometry alone would accept them; the content
+        // discriminator (predominantly non-tabular cells) rejects them.
+        let mut elements = Vec::new();
+        let column_text = [
+            "the quick brown fox jumps over",
+            "lazy dogs beside the calm river",
+            "while morning light warms the field",
+        ];
+        for r in 0..6 {
+            let y = 100.0 + r as f64 * 16.0;
+            for (c, phrase) in column_text.iter().enumerate() {
+                let x = 40.0 + c as f64 * 175.0;
+                elements.push(sized_text(
+                    &format!("r{r}c{c}"),
+                    x,
+                    y,
+                    x + 150.0,
+                    y + 10.0,
+                    phrase,
+                ));
+            }
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert!(!markdown.contains("<table"), "{markdown:?}");
+        assert!(!markdown.contains("| --- |"), "{markdown:?}");
     }
 
     #[test]

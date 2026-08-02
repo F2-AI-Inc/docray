@@ -208,6 +208,7 @@ fn markdown_goldens_match_on_linux() {
         "prose",
         "code-block",
         "key-value-form",
+        "three-column-prose",
     ] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
         let markdown = PdfExtractor.extract(&bytes, None).unwrap().to_markdown();

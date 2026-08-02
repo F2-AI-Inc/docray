@@ -284,8 +284,57 @@ fn code_block() -> Document {
     base_doc(ops, vec![])
 }
 
-/// Negative corpus: a two-column key/value form. Only two columns exist, so the
-/// ≥3-column gate declines it and the form stays reading-order text.
+/// Negative corpus: a genuine three-column running-prose page (a newspaper-style
+/// layout). The columns have clean gutters and tight left edges, so geometry
+/// alone would accept it — but every cell is a sentence fragment, so the content
+/// discriminator rejects it and it must render as reading-order text.
+fn three_column_prose() -> Document {
+    let mut ops = Vec::new();
+    let rows = [
+        [
+            "the quick brown fox jumps",
+            "beside a calm winding river",
+            "while morning light fills sky",
+        ],
+        [
+            "over the lazy sleeping dog",
+            "under the tall green oak",
+            "as gentle breezes cross fields",
+        ],
+        [
+            "near the old stone bridge",
+            "past the quiet village square",
+            "toward the distant blue hills",
+        ],
+        [
+            "with baskets full of apples",
+            "and songs about the harvest",
+            "they wander the narrow lanes",
+        ],
+        [
+            "before the evening bells ring",
+            "many travelers pause to rest",
+            "sharing bread and warm stories",
+        ],
+        [
+            "until the stars appear above",
+            "and lanterns glow along paths",
+            "guiding everyone safely back home",
+        ],
+    ];
+    for (r, columns) in rows.iter().enumerate() {
+        let y = 700 - (r as i64) * 16;
+        for (c, phrase) in columns.iter().enumerate() {
+            let x = 72 + (c as i64) * 178;
+            text_run(&mut ops, x, y, phrase);
+        }
+    }
+    base_doc(ops, vec![])
+}
+
+/// Negative corpus: a two-column key/value form. The first column is
+/// colon-terminated labels, so the label/value discriminator declines it and
+/// the form stays reading-order text.
 fn key_value_form() -> Document {
     let mut ops = Vec::new();
     let pairs = [
@@ -799,6 +848,9 @@ fn main() {
     code_block().save("testdata/code-block.pdf").unwrap();
     key_value_form()
         .save("testdata/key-value-form.pdf")
+        .unwrap();
+    three_column_prose()
+        .save("testdata/three-column-prose.pdf")
         .unwrap();
 
     // Malformed corpus — all deterministic.
