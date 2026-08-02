@@ -254,6 +254,22 @@ async function main() {
     results.push({ fixture: file + " (lean)", ok: leanOk, failures: leanOk ? [] : [
       `lean differs at line ${firstDiff}: native=${JSON.stringify(nNorm[firstDiff])} wasm=${JSON.stringify(wNorm[firstDiff])}`,
     ], failure_count: leanOk ? 0 : 1 });
+
+    // Markdown is semantic and coordinate-free, so native and WASM output is
+    // expected to be byte-identical even when their Pdfium glyph boxes drift.
+    const mdNative = spawnSync(nativeCli, ["extract", fixturePath, "--format", "md"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (mdNative.status !== 0) {
+      throw new Error(`native markdown failed for ${file}: ${mdNative.stderr.trim()}`);
+    }
+    const mdWasm = docray.extract_markdown(fs.readFileSync(fixturePath), "element", 0, 0);
+    const mdOk = mdNative.stdout === mdWasm;
+    results.push({ fixture: file + " (md)", ok: mdOk, failures: mdOk ? [] : [
+      "markdown differs between native and WASM",
+    ], failure_count: mdOk ? 0 : 1 });
   }
 
   const ok = results.every((result) => result.ok);

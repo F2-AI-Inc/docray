@@ -1,14 +1,17 @@
 # Output formats
 
-docray has two output encodings: `json`, the default machine contract, and
-`lean`, a line-oriented reading format for token-conscious LLM consumers.
-Choose granularity separately: lean supports `element` and `word`; requesting
-lean without a granularity implies `element`.
+docray has three output encodings: `json`, the default machine contract;
+`lean`, a line-oriented reading format for token-conscious LLM consumers; and
+`md`, deterministic GitHub-flavored Markdown for human review and semantic
+consumption. Choose granularity separately: lean and Markdown accept `element`
+and `word`; requesting either without a granularity implies `element`.
 
 ```bash
 docray extract report.pdf --format lean
 docray extract report.pdf --format lean --granularity word
 curl -F file=@report.pdf 'http://localhost:41619/v1/extract?format=lean'
+docray extract report.pdf --format md
+curl -F file=@report.pdf 'http://localhost:41619/v1/extract?format=md'
 ```
 
 Lean was selected by measuring real tokenizer counts on a real-document
@@ -23,7 +26,47 @@ TOON was also measured and declined. Faithful TOON was worse than compact
 JSON for this data shape, while a type-grouped TOON variant still trailed lean
 by 7–10 percentage points.
 
-## Format specification
+## Markdown
+
+Markdown is an additive semantic projection over the existing extraction. It
+does not change the frozen schema 1.1 JSON response, compact JSON, or lean
+bytes. It ends with a newline and is deterministic for identical input bytes
+on a given platform and PDFium build.
+
+For PDF, docray geometrically clusters text into supported columns, guards
+against treating short inline font fragments as columns, orders each column
+top-to-bottom, and emits columns left-to-right. It joins nearby lines into
+paragraphs; recognizes bullet, numeric, and letter list markers; preserves
+bold, italic, and hyperlink runs; and separates pages with `---`. Heading
+levels H1-H4 are inferred from deterministic font-size ranks relative to the
+document's weighted median body size, with whole-line bold text promoted one
+tier. URI annotations are associated with the overlapping or nearest text.
+PDF table-region text remains plain reading-order text; Markdown does not
+invent table structure where extraction has none.
+
+DOCX Markdown renders authored flow structure directly: `h1`-`h9` and `title`
+roles become headings (levels above six use H6), quotes become block quotes,
+lists retain nesting, and logical tables become GFM pipe tables. PPTX uses its
+paged element model: placeholder roles inform headings, geometric sequencing
+sets reading order, and existing first-class PowerPoint tables become GFM pipe
+tables. Images without an exported asset URL are represented by an HTML
+comment. Page and section breaks render as `---`.
+
+Warnings remain visible as GFM warning callouts. Non-visible hidden-channel
+items are retained as trailing `docray-hidden` HTML comments, so they do not
+appear as document prose. Markdown escapes document-controlled Markdown/HTML
+syntax and percent-encodes unsafe link-target characters.
+
+Markdown is a reading format, not a lossless replacement for JSON. It omits
+geometry, source hashes, paint, and reconstruction metadata. Use `element` for
+Markdown unless the same request plumbing also needs `word`; Markdown itself
+does not emit coordinate detail. Use JSON `char` for the full archival model.
+
+Native CLI and HTTP use `--format md` / `?format=md`; HTTP returns
+`Content-Type: text/markdown; charset=utf-8`. The WASM API exports
+`extract_markdown(bytes, granularity, max_input_bytes, max_output_bytes)`.
+
+## Lean format specification
 
 Lean is deterministic, line-oriented UTF-8 with `\n` separators and a final
 newline. The first two lines are always:
@@ -200,8 +243,8 @@ Lean is a reading format, not a lossless replacement for JSON:
   is required for reconstruction.
 - It supports only `element` and `word`; use JSON for the lossless `char`
   hierarchy and reconstruction metadata.
-- The Rust/Wasm API emits JSON only. Lean is available from the native CLI and
-  HTTP server.
+- WASM exposes `extract`, `extract_lean`, and `extract_markdown`; all three
+  share the same input/output caps and stable error envelope.
 
 Lean HTTP successes use `Content-Type: text/plain; charset=utf-8`. Async jobs
 persist their requested format with the job, so the result endpoint returns

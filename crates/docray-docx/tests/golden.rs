@@ -63,6 +63,22 @@ fn element_and_lean_goldens_are_byte_exact_on_every_platform() {
 }
 
 #[test]
+fn markdown_goldens_are_byte_exact() {
+    let golden_dir = root().join("testdata/golden/docx");
+    for name in ["roles", "numbering", "tables", "hyperlinks"] {
+        let markdown = fixture(&format!("{name}.docx")).to_markdown();
+        let path = golden_dir.join(format!("{name}.md"));
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            fs::write(&path, &markdown).unwrap();
+        } else {
+            let expected = fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("missing golden {path:?}; run with UPDATE_GOLDEN=1"));
+            assert_eq!(markdown, expected, "Markdown golden mismatch for {name}");
+        }
+    }
+}
+
+#[test]
 fn capabilities_are_element_only_flow() {
     let capabilities = DocxExtractor.capabilities();
     assert_eq!(capabilities.finest_granularity, Granularity::Element);

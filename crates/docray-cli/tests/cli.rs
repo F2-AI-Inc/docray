@@ -70,6 +70,26 @@ fn lean_char_exits_7_with_bad_format_envelope() {
 }
 
 #[test]
+fn markdown_defaults_to_element_and_char_is_rejected() {
+    dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .args(["--format", "md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Hello World"))
+        .stdout(predicate::str::contains("# **Bold Title**"));
+
+    dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .args(["--format", "md", "--granularity", "char"])
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("\"code\":\"bad_format\""));
+}
+
+#[test]
 fn unknown_output_format_exits_7_with_bad_format_envelope() {
     dps()
         .arg("extract")
@@ -158,6 +178,14 @@ fn pptx_explicit_element_and_lean_work() {
         .assert()
         .success()
         .stdout(predicate::str::starts_with("#docray element v1.6 pages=1"));
+
+    dps()
+        .arg("extract")
+        .arg(testdata("pptx/table.pptx"))
+        .args(["--format", "md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("| Merged |  |"));
 }
 
 #[test]
@@ -192,6 +220,15 @@ fn docx_defaults_to_element_rejects_finer_and_supports_lean() {
             "#docray element v1.7 sections=1",
         ))
         .stdout(predicate::str::contains("Cached heading"));
+
+    dps()
+        .arg("extract")
+        .arg(testdata("docx/roles.docx"))
+        .args(["--format", "md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# H1"))
+        .stdout(predicate::str::contains("## H2"));
 }
 
 #[test]

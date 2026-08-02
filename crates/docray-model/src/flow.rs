@@ -61,7 +61,7 @@ pub enum Story {
 }
 
 impl Story {
-    fn blocks(&self) -> &[Block] {
+    pub(crate) fn blocks(&self) -> &[Block] {
         match self {
             Story::Default { blocks } | Story::First { blocks } | Story::Even { blocks } => blocks,
         }

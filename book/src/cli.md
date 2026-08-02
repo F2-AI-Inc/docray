@@ -6,8 +6,8 @@ docray extract <FILE> [OPTIONS]
 Options:
   --granularity <element|word|char>  Output detail. Omit for byte-identical
                                      lossless (schema 1.1) output.
-  --format <json|lean>               Output encoding. Default: json. Lean
-                                     implies element granularity.
+  --format <json|lean|md>            Output encoding. Default: json. Lean and
+                                     Markdown imply element granularity.
   --max-pages <N>                    Refuse documents over the page/flow cap.
   --pretty                           Pretty-print the JSON.
 ```
@@ -28,13 +28,13 @@ with a stable exit code:
 
 | Exit | Code | Meaning |
 |---:|---|---|
-| 0 | — | success (warnings, if any, are inside the JSON / `#warning` lines in lean) |
+| 0 | — | success (warnings are inside JSON, `#warning` lean lines, or Markdown callouts) |
 | 2 | `unsupported_format` | input is not supported PDF/PPTX/DOCX/DOCM, or is legacy/encrypted Office |
 | 3 | `encrypted_pdf` | password-protected |
 | 4 | `parse_failure` | document could not be opened |
 | 5 | `io_error` | file unreadable / missing |
 | 6 | `too_many_pages` | over the `--max-pages` cap |
-| 7 | `bad_format` | invalid format, or lean requested with `char` granularity |
+| 7 | `bad_format` | invalid format, or lean/Markdown requested with `char` granularity |
 | 8 | `granularity_unavailable` | the requested granularity is finer than this source provides |
 
 Anything else (e.g. 101, or death by signal) means the parser crashed —
@@ -62,6 +62,9 @@ docray extract input.pdf | jq -e '.warnings | length == 0'
 
 # Token-lean element output for an LLM
 docray extract report.pdf --format lean
+
+# Reading-order Markdown with inferred PDF headings
+docray extract report.pdf --format md
 ```
 
 `--format lean --granularity word` emits word boxes. Lean with no explicit
@@ -70,12 +73,16 @@ exit 7 and code `bad_format`. `--pretty` affects JSON only. See
 [output formats](output-formats.md) for the line format and its deliberate
 lossless-JSON deltas.
 
+`--format md` follows the same granularity defaults and `char` rejection.
+Markdown emits semantic prose rather than coordinate detail; `element` is the
+recommended setting.
+
 PPTX supports element granularity. An omitted `--granularity` defaults to
 `element` for PPTX (so `docray extract deck.pptx` just works), and lean also
 defaults to element; asking for finer detail (`word` or `char`) returns exit 8
 with `granularity_unavailable`. See [PowerPoint extraction](pptx.md).
 
-DOCX and DOCM also default to element and support lean. They emit schema 1.7
+DOCX and DOCM also default to element and support lean and Markdown. They emit schema 1.7
 flow sections/blocks; `word` and `char` return exit 8. With pagination hints,
 `--max-pages` caps the approximate page count. Without hints it caps blocks at
 `N * 200` and records the approximation warning. See [Word extraction](docx.md).

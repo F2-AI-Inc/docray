@@ -445,6 +445,23 @@ fn extract_lean_content_type_default_and_char_rejection() {
     assert_eq!(r.status(), 400);
     let v: serde_json::Value = r.json().unwrap();
     assert_eq!(v["error"]["code"], "bad_format");
+
+    let r = upload(&server.base, "/v1/extract?format=md", fixture("simple.pdf"));
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.headers().get("content-type").unwrap(),
+        "text/markdown; charset=utf-8"
+    );
+    assert!(r.text().unwrap().contains("# **Bold Title**"));
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?format=md&granularity=char",
+        fixture("simple.pdf"),
+    );
+    assert_eq!(r.status(), 400);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "bad_format");
 }
 
 #[test]

@@ -65,7 +65,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Extract a document to JSON or lean text on stdout.
+    /// Extract a document to JSON, lean text, or Markdown on stdout.
     Extract {
         file: String,
         #[arg(long)]
@@ -75,8 +75,8 @@ enum Cmd {
         /// Output detail: element, word, or char. Omit for byte-identical v1.1 output.
         #[arg(long, value_parser = parse_granularity)]
         granularity: Option<Granularity>,
-        /// Output encoding: json or lean. Lean implies element granularity.
-        #[arg(long, default_value = "json", value_name = "json|lean")]
+        /// Output encoding: json, lean, or md. Text formats imply element granularity.
+        #[arg(long, default_value = "json", value_name = "json|lean|md")]
         format: String,
     },
 }
@@ -110,9 +110,11 @@ fn run_extract(
         Err(message) => return fail_bad_format(&message),
     };
     let granularity = match (format, granularity) {
-        (OutputFormat::Lean, None) => Some(Granularity::Element),
-        (OutputFormat::Lean, Some(Granularity::Char)) => {
-            return fail_bad_format("lean format requires element or word granularity")
+        (OutputFormat::Lean | OutputFormat::Markdown, None) => Some(Granularity::Element),
+        (OutputFormat::Lean | OutputFormat::Markdown, Some(Granularity::Char)) => {
+            return fail_bad_format(&format!(
+                "{format} format requires element or word granularity"
+            ))
         }
         (_, granularity) => granularity,
     };
@@ -148,6 +150,10 @@ fn run_extract(
     match result {
         Ok(extraction) => {
             let output = match format {
+                OutputFormat::Markdown => match extraction {
+                    DocumentExtraction::Paged(extraction) => extraction.to_markdown(),
+                    DocumentExtraction::Flow(extraction) => extraction.to_markdown(),
+                },
                 OutputFormat::Lean => match extraction {
                     DocumentExtraction::Paged(extraction) => match extraction
                         .with_granularity(granularity.expect("lean granularity is validated above"))

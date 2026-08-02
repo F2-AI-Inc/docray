@@ -190,6 +190,28 @@ fn lean_simple_goldens_match_on_linux() {
 }
 
 #[test]
+fn markdown_goldens_match_on_linux() {
+    if !cfg!(target_os = "linux") {
+        eprintln!("note: PDF Markdown goldens are canonical on Linux");
+        return;
+    }
+    ensure_pdfium_dir();
+    let update = std::env::var("UPDATE_GOLDEN").is_ok();
+    for name in ["simple", "link"] {
+        let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
+        let markdown = PdfExtractor.extract(&bytes, None).unwrap().to_markdown();
+        let golden_path = testdata().join("golden").join(format!("{name}.md"));
+        if update {
+            fs::write(&golden_path, markdown).unwrap();
+        } else {
+            let expected = fs::read_to_string(&golden_path)
+                .unwrap_or_else(|_| panic!("missing golden {golden_path:?}; regenerate on Linux"));
+            assert_eq!(markdown, expected, "Markdown golden mismatch for {name}");
+        }
+    }
+}
+
+#[test]
 fn compact_styles_omit_defaults_but_keep_bold() {
     ensure_pdfium_dir();
     let bytes = fs::read(testdata().join("simple.pdf")).unwrap();

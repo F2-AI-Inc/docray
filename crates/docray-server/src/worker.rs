@@ -29,7 +29,7 @@ pub async fn run_extraction(
     if let Some(level) = granularity {
         cmd.args(["--granularity", level.as_str()]);
     }
-    if format == OutputFormat::Lean {
+    if format != OutputFormat::Json {
         cmd.args(["--format", format.as_str()]);
     }
     if let Some(dir) = &cfg.pdfium_dir {

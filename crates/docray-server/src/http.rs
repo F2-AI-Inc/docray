@@ -123,11 +123,15 @@ fn requested_output(
         None => OutputFormat::Json,
     };
     match (format, granularity) {
-        (OutputFormat::Lean, None) => Ok((Some(Granularity::Element), format)),
-        (OutputFormat::Lean, Some(Granularity::Char)) => Err(OutputQueryError {
-            code: "bad_format",
-            message: "lean format requires element or word granularity".to_string(),
-        }),
+        (OutputFormat::Lean | OutputFormat::Markdown, None) => {
+            Ok((Some(Granularity::Element), format))
+        }
+        (OutputFormat::Lean | OutputFormat::Markdown, Some(Granularity::Char)) => {
+            Err(OutputQueryError {
+                code: "bad_format",
+                message: format!("{format} format requires element or word granularity"),
+            })
+        }
         _ => Ok((granularity, format)),
     }
 }
@@ -163,6 +167,7 @@ fn content_type(format: OutputFormat) -> &'static str {
     match format {
         OutputFormat::Json => "application/json",
         OutputFormat::Lean => "text/plain; charset=utf-8",
+        OutputFormat::Markdown => "text/markdown; charset=utf-8",
     }
 }
 
@@ -435,11 +440,9 @@ async fn job_result(
                     StatusCode::OK,
                     [(
                         "content-type",
-                        if job.format == OutputFormat::Lean.as_str() {
-                            content_type(OutputFormat::Lean)
-                        } else {
-                            content_type(OutputFormat::Json)
-                        },
+                        OutputFormat::from_str(&job.format)
+                            .map(content_type)
+                            .unwrap_or_else(|_| content_type(OutputFormat::Json)),
                     )],
                     bytes,
                 )
@@ -479,6 +482,13 @@ mod tests {
         );
 
         let error = requested_output(Ok(query(Some("char"), Some("lean")))).unwrap_err();
+        assert_eq!(error.code, "bad_format");
+
+        assert_eq!(
+            requested_output(Ok(query(None, Some("md")))).unwrap(),
+            (Some(Granularity::Element), OutputFormat::Markdown)
+        );
+        let error = requested_output(Ok(query(Some("char"), Some("md")))).unwrap_err();
         assert_eq!(error.code, "bad_format");
     }
 

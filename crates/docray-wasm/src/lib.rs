@@ -54,6 +54,50 @@ pub fn extract_lean(
         .map_err(WasmError::into_js)
 }
 
+/// Extracts PDF, PPTX, or DOCX and returns deterministic GFM Markdown.
+/// `granularity` accepts "element", "word", or the empty string (element).
+#[wasm_bindgen]
+pub fn extract_markdown(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+    max_output_bytes: usize,
+) -> Result<String, JsValue> {
+    install_panic_hook();
+    extract_markdown_inner(bytes, granularity, max_input_bytes, max_output_bytes)
+        .map_err(WasmError::into_js)
+}
+
+fn extract_markdown_inner(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+    max_output_bytes: usize,
+) -> Result<String, WasmError> {
+    let cap = output_cap(max_output_bytes);
+    if max_input_bytes != 0 && bytes.len() > max_input_bytes {
+        return Err(WasmError::new(
+            "too_large",
+            format!(
+                "input is {} bytes, limit is {max_input_bytes} bytes",
+                bytes.len()
+            ),
+        ));
+    }
+    let granularity = reading_granularity("md", granularity)?;
+    let extraction = extract_document(bytes, Some(granularity))?;
+    let mut writer = CappedString {
+        buf: String::new(),
+        remaining: cap,
+    };
+    match extraction {
+        DocumentExtraction::Paged(extraction) => extraction.write_markdown(&mut writer),
+        DocumentExtraction::Flow(extraction) => extraction.write_markdown(&mut writer),
+    }
+    .map_err(|_| WasmError::new(OUTPUT_TOO_LARGE, format!("output exceeded {cap} bytes")))?;
+    Ok(writer.buf)
+}
+
 fn extract_lean_inner(
     bytes: &[u8],
     granularity: &str,
@@ -70,16 +114,7 @@ fn extract_lean_inner(
             ),
         ));
     }
-    let granularity = match granularity {
-        "" | "element" => Granularity::Element,
-        "word" => Granularity::Word,
-        other => {
-            return Err(WasmError::new(
-                "bad_format",
-                format!("lean format requires element or word granularity, got {other:?}"),
-            ))
-        }
-    };
+    let granularity = reading_granularity("lean", granularity)?;
     let extraction = extract_document(bytes, Some(granularity))?;
     let projected = match &extraction {
         DocumentExtraction::Paged(extraction) => extraction.with_granularity(granularity),
@@ -109,6 +144,17 @@ fn extract_lean_inner(
             Ok(w.buf)
         }
         GranularExtraction::Char(_) => unreachable!("char is rejected above"),
+    }
+}
+
+fn reading_granularity(format: &str, granularity: &str) -> Result<Granularity, WasmError> {
+    match granularity {
+        "" | "element" => Ok(Granularity::Element),
+        "word" => Ok(Granularity::Word),
+        other => Err(WasmError::new(
+            "bad_format",
+            format!("{format} format requires element or word granularity, got {other:?}"),
+        )),
     }
 }
 
@@ -373,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn docx_json_and_lean_extract_without_pdfium() {
+    fn docx_json_lean_and_markdown_extract_without_pdfium() {
         let bytes = include_bytes!("../../../testdata/docx/fields.docx");
         let json = extract_inner(bytes, "", 0, 0).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -384,6 +430,12 @@ mod tests {
         let lean = extract_lean_inner(bytes, "", 0, 0).unwrap();
         assert!(lean.starts_with("#docray element v1.7 sections=1"));
         assert!(lean.contains("Cached heading"));
+        let markdown = extract_markdown_inner(bytes, "", 0, 0).unwrap();
+        assert!(markdown.contains("Cached heading"));
+        let error = extract_markdown_inner(bytes, "char", 0, 0).unwrap_err();
+        assert_eq!(error.code, "bad_format");
+        let error = extract_markdown_inner(bytes, "", 0, 5).unwrap_err();
+        assert_eq!(error.code, OUTPUT_TOO_LARGE);
     }
 
     #[test]

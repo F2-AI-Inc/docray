@@ -1,4 +1,16 @@
 use docray_model::*;
+use std::str::FromStr;
+
+#[test]
+fn output_format_accepts_markdown_without_changing_existing_names() {
+    assert_eq!(OutputFormat::from_str("json").unwrap(), OutputFormat::Json);
+    assert_eq!(OutputFormat::from_str("lean").unwrap(), OutputFormat::Lean);
+    assert_eq!(
+        OutputFormat::from_str("md").unwrap(),
+        OutputFormat::Markdown
+    );
+    assert_eq!(OutputFormat::Markdown.as_str(), "md");
+}
 
 fn extraction() -> Extraction {
     Extraction {

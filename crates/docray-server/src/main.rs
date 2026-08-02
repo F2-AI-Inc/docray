@@ -115,6 +115,7 @@ async fn process_job(
             let extension = match format {
                 docray_model::OutputFormat::Json => "json",
                 docray_model::OutputFormat::Lean => "lean.txt",
+                docray_model::OutputFormat::Markdown => "md",
             };
             let result_path = cfg
                 .data_dir

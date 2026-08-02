@@ -1,0 +1,3 @@
+| Merged |  |
+| --- | --- |
+| Left | Right |
