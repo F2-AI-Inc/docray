@@ -5,11 +5,12 @@ page. Slide dimensions are read from the presentation in EMUs, converted at
 12,700 EMUs per point, and reported in the same top-left, y-down point space as
 PDF output.
 
-PPTX is available at `element` granularity and in lean output:
+PPTX is available at `element` granularity and in lean or Markdown output:
 
 ```bash
 docray extract deck.pptx --granularity element
 docray extract deck.pptx --format lean
+docray extract deck.pptx --format md
 ```
 
 An omitted granularity defaults to `element` for PPTX, so `docray extract
@@ -69,9 +70,10 @@ deck.pptx` (or a plain upload) just works. Requesting finer detail — `char` or
   shape, picture, and frame rotation/flip transforms are flattened into slide
   coordinates.
 
-Elements follow PowerPoint z-order: master shapes, layout shapes, then the
+JSON and lean elements follow PowerPoint z-order: master shapes, layout shapes, then the
 slide's own `p:spTree`, with document order preserved inside each layer. docray
-does not infer a semantic reading order. Hidden items are explicitly marked as
+does not infer a semantic reading order for those lossless/positional formats.
+Markdown applies geometric column and reading-order sequencing. Hidden items are explicitly marked as
 non-visible context in JSON and lean so consumers do not mistake notes or
 accessibility metadata for slide-visible text.
 

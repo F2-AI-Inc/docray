@@ -19,6 +19,7 @@ DOCX is element-only and defaults to that finest level:
 ```bash
 docray extract report.docx
 docray extract report.docx --format lean
+docray extract report.docx --format md
 ```
 
 `word` and `char` return `granularity_unavailable`. DOCM is parsed identically,

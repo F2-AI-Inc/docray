@@ -5,8 +5,9 @@ make as a consumer** — it changes payload size by more than an order of
 magnitude.
 
 > **The short version: if an LLM reads the output, use `element`, then select
-> the token-lean [`lean` output format](output-formats.md) when you do not need
-> the JSON provenance envelope.** It carries the text, position, and style of
+> the token-lean [`lean` output format](output-formats.md) when you need
+> positions, or `md` when you need clean reading-order prose and do not need
+> the JSON provenance envelope.** Element JSON carries text, position, and style of
 > every element at ~7% of the lossless payload. Only move to `word` when you
 > need word-level highlighting, and to `char` when you need the full archival
 > hierarchy.
