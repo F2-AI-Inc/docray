@@ -212,7 +212,18 @@ impl<'a, W: fmt::Write> BlockWriter<'a, W> {
                     for kind in breaks_before {
                         self.write_break(*kind)?;
                     }
-                    let rendered = render_runs(content, runs, None);
+                    // Headings carry prominence structurally; suppress whole-run
+                    // bold so a heading is never also wrapped in `**bold**`.
+                    let heading_level = if list.is_some() {
+                        None
+                    } else if let Some(level) = heading_role(role) {
+                        Some(level.min(6))
+                    } else if role == "title" {
+                        Some(1)
+                    } else {
+                        None
+                    };
+                    let rendered = render_runs(content, runs, None, heading_level.is_some());
                     let line = if let Some(list) = list {
                         let indent = "  ".repeat(list.level as usize);
                         let marker = match list.kind {
@@ -220,10 +231,8 @@ impl<'a, W: fmt::Write> BlockWriter<'a, W> {
                             ListKind::Bullet => "-",
                         };
                         format!("{indent}{marker} {rendered}")
-                    } else if let Some(level) = heading_role(role) {
-                        format!("{} {rendered}", "#".repeat(level.min(6)))
-                    } else if role == "title" {
-                        format!("# {rendered}")
+                    } else if let Some(level) = heading_level {
+                        format!("{} {rendered}", "#".repeat(level))
                     } else if role == "quote" {
                         rendered
                             .lines()
@@ -283,13 +292,13 @@ fn render_page(mut blocks: Vec<PageBlock>, page_width: f64, body_size: f64) -> S
                 ListMarker::Letter(marker) => format!("- {marker}"),
             };
             format!("{marker} {}", render_segments(&body_segments))
+        } else if let Some(level) = block.heading {
+            // A heading conveys prominence structurally, so it must not also be
+            // wrapped in `**bold**` — suppress whole-run bold inside the heading.
+            let content = render_segments_styled(&block.segments, true);
+            format!("{} {content}", "#".repeat(level.min(6)))
         } else {
-            let content = render_segments(&block.segments);
-            if let Some(level) = block.heading {
-                format!("{} {content}", "#".repeat(level.min(6)))
-            } else {
-                content
-            }
+            render_segments(&block.segments)
         };
         if rendered.is_empty() {
             continue;
@@ -974,17 +983,13 @@ fn infer_headings(blocks: &mut [PageBlock], body_size: f64) {
     let candidate_sizes = blocks
         .iter()
         .filter(|block| {
-            block.rendered_override.is_none()
-                && block.heading.is_none()
-                && (block.size >= threshold || (block.bold && block.size >= body_size * 0.98))
+            block.heading.is_none() && is_heading_candidate(block, body_size, threshold)
         })
         .map(|block| block.size)
         .collect::<Vec<_>>();
     let ranks = cluster_sizes(candidate_sizes, body_size);
     for block in blocks.iter_mut().filter(|block| block.heading.is_none()) {
-        if block.rendered_override.is_some()
-            || !(block.size >= threshold || (block.bold && block.size >= body_size * 0.98))
-        {
+        if !is_heading_candidate(block, body_size, threshold) {
             continue;
         }
         let Some((rank, _)) = ranks
@@ -1000,6 +1005,28 @@ fn infer_headings(blocks: &mut [PageBlock], body_size: f64) {
         }
         block.heading = Some(level);
     }
+}
+
+/// A block is a heading candidate when it is either markedly larger than body
+/// text, or a body-size bold run that also *reads* like a heading (a short
+/// line). The short-line guard keeps bold inline emphasis inside a paragraph
+/// from being promoted to a heading.
+fn is_heading_candidate(block: &PageBlock, body_size: f64, threshold: f64) -> bool {
+    if block.rendered_override.is_some() {
+        return false;
+    }
+    if block.size >= threshold {
+        return true;
+    }
+    block.bold && block.size >= body_size * 0.98 && heading_like_text(&block.content)
+}
+
+fn heading_like_text(content: &str) -> bool {
+    let clean = clean_text(content);
+    if clean.is_empty() {
+        return false;
+    }
+    clean.split_whitespace().count() <= 12 && clean.chars().count() <= 100
 }
 
 fn cluster_sizes(mut sizes: Vec<f64>, body_size: f64) -> Vec<f64> {
@@ -1028,121 +1055,148 @@ fn assign_columns(blocks: &mut [PageBlock], page_width: f64) {
     if blocks.is_empty() {
         return;
     }
-    let threshold = (page_width * 0.055).clamp(18.0, 42.0);
-    let mut anchors = blocks
+    let columns = detect_columns(blocks, page_width);
+    for block in blocks.iter_mut() {
+        block.column = column_for(block, &columns);
+    }
+}
+
+/// A detected text column: the horizontal extent its body text occupies,
+/// ordered left→right in the returned vector.
+#[derive(Clone, Copy)]
+struct ColumnRange {
+    x0: f64,
+    x1: f64,
+}
+
+/// Detects true multi-column layout by finding vertical gutters — bands of the
+/// page width that no body text ever crosses.
+///
+/// The naive approach of clustering left edges misfires on indentation, ragged
+/// lists, and centered lines. Instead we take substantial ("anchor") blocks,
+/// drop the full-width spanning runs (titles/rules that straddle columns), then
+/// union the remaining x-intervals. A gap wider than `gutter_min` between two
+/// unions is a gutter; the intervals on either side are columns. Each surviving
+/// column must carry real support and span most of the content height, so a
+/// lone indented block or a short centered subtitle cannot fabricate a column.
+///
+/// Returns an empty vector for single-column pages (every block → column 0).
+fn detect_columns(blocks: &[PageBlock], page_width: f64) -> Vec<ColumnRange> {
+    let anchors = blocks
         .iter()
-        .enumerate()
-        .filter(|(_, block)| {
+        .filter(|block| block.rendered_override.is_none())
+        .filter(|block| {
             clean_text(&block.content).chars().count() >= 20 || block.width() >= page_width * 0.16
         })
-        .map(|(index, _)| index)
         .collect::<Vec<_>>();
-    if anchors.is_empty() {
-        anchors.extend(0..blocks.len());
+    // Two columns need a few lines each before the geometry is trustworthy.
+    if anchors.len() < 4 {
+        return Vec::new();
     }
-    anchors.sort_by(|a, b| {
-        blocks[*a]
-            .bbox
-            .x0
-            .total_cmp(&blocks[*b].bbox.x0)
-            .then_with(|| blocks[*a].bbox.y0.total_cmp(&blocks[*b].bbox.y0))
-            .then_with(|| blocks[*a].id.cmp(&blocks[*b].id))
-    });
-    let mut raw: Vec<Vec<usize>> = Vec::new();
-    for index in anchors.iter().copied() {
-        let new_cluster = raw.last().is_none_or(|cluster| {
-            blocks[index].bbox.x0 - blocks[*cluster.last().unwrap()].bbox.x0 > threshold
-        });
-        if new_cluster {
-            raw.push(vec![index]);
-        } else {
-            raw.last_mut().unwrap().push(index);
+    let content_x0 = anchors
+        .iter()
+        .map(|b| b.bbox.x0)
+        .fold(f64::INFINITY, f64::min);
+    let content_x1 = anchors
+        .iter()
+        .map(|b| b.bbox.x1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let content_y0 = anchors
+        .iter()
+        .map(|b| b.bbox.y0)
+        .fold(f64::INFINITY, f64::min);
+    let content_y1 = anchors
+        .iter()
+        .map(|b| b.bbox.y1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let content_width = content_x1 - content_x0;
+    let content_height = content_y1 - content_y0;
+    if !content_width.is_finite() || content_width <= 0.0 || content_height <= 0.0 {
+        return Vec::new();
+    }
+
+    // Full-width runs straddle columns; excluding them keeps a spanning title
+    // from filling the gutter and masking the split.
+    let span_limit = content_width * 0.6;
+    let mut intervals = anchors
+        .iter()
+        .filter(|block| block.width() <= span_limit)
+        .map(|block| (block.bbox.x0, block.bbox.x1, block.bbox.y0, block.bbox.y1))
+        .collect::<Vec<_>>();
+    if intervals.len() < 4 {
+        return Vec::new();
+    }
+    intervals.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+
+    // A real gutter is a wide horizontal gap; hairline inter-word gaps must not
+    // split a column.
+    let gutter_min = (page_width * 0.02).max(6.0);
+    let mut runs: Vec<(f64, f64, f64, f64, usize)> = Vec::new();
+    for (x0, x1, y0, y1) in intervals.iter().copied() {
+        match runs.last_mut() {
+            Some(run) if x0 <= run.1 + gutter_min => {
+                run.1 = run.1.max(x1);
+                run.2 = run.2.min(y0);
+                run.3 = run.3.max(y1);
+                run.4 += 1;
+            }
+            _ => runs.push((x0, x1, y0, y1, 1)),
         }
     }
-    let minimum_support = 4_usize.max((anchors.len() * 8).div_ceil(100));
-    let mut major = raw
-        .iter()
-        .filter(|cluster| cluster.len() >= minimum_support)
-        .cloned()
-        .collect::<Vec<_>>();
-    if major.is_empty() {
-        major.push(
-            raw.into_iter()
-                .max_by(|a, b| {
-                    a.len()
-                        .cmp(&b.len())
-                        .then_with(|| blocks[b[0]].bbox.x0.total_cmp(&blocks[a[0]].bbox.x0))
-                })
-                .unwrap(),
-        );
-    }
-    let centers = major
-        .iter()
-        .map(|cluster| {
-            let mut starts = cluster
-                .iter()
-                .map(|index| blocks[*index].bbox.x0)
-                .collect::<Vec<_>>();
-            median(&mut starts).unwrap()
+
+    let min_support = 3.max(intervals.len() / 8);
+    let min_column_width = page_width * 0.1;
+    let min_column_span = content_height * 0.5;
+    let columns = runs
+        .into_iter()
+        .filter(|run| {
+            run.4 >= min_support
+                && (run.1 - run.0) >= min_column_width
+                && (run.3 - run.2) >= min_column_span
+        })
+        .map(|run| ColumnRange {
+            x0: run.0,
+            x1: run.1,
         })
         .collect::<Vec<_>>();
-    let anchor_columns = major
-        .iter()
-        .enumerate()
-        .flat_map(|(column, cluster)| cluster.iter().map(move |index| (*index, column)))
-        .collect::<BTreeMap<_, _>>();
-    for index in 0..blocks.len() {
-        if let Some(column) = anchor_columns.get(&index) {
-            blocks[index].column = *column;
-            continue;
-        }
-        let same_line = anchors.iter().copied().filter(|anchor| {
-            vertical_overlap(&blocks[index], &blocks[*anchor])
-                > blocks[index].height().min(blocks[*anchor].height()) * 0.35
-        });
-        let nearest_anchor = same_line.min_by(|a, b| {
-            horizontal_distance(&blocks[index], &blocks[*a])
-                .total_cmp(&horizontal_distance(&blocks[index], &blocks[*b]))
-                .then_with(|| {
-                    (blocks[index].bbox.x0 - blocks[*a].bbox.x0)
-                        .abs()
-                        .total_cmp(&(blocks[index].bbox.x0 - blocks[*b].bbox.x0).abs())
-                })
-                .then_with(|| blocks[*a].id.cmp(&blocks[*b].id))
-        });
-        let x = nearest_anchor.map_or(blocks[index].bbox.x0, |anchor| blocks[anchor].bbox.x0);
-        blocks[index].column = centers
-            .iter()
-            .enumerate()
-            .min_by(|(ai, a), (bi, b)| (x - **a).abs().total_cmp(&(x - **b).abs()).then(ai.cmp(bi)))
-            .map(|(column, _)| column)
-            .unwrap_or(0);
+    if columns.len() < 2 {
+        return Vec::new();
     }
-    let mut order = (0..centers.len()).collect::<Vec<_>>();
-    order.sort_by(|a, b| centers[*a].total_cmp(&centers[*b]).then(a.cmp(b)));
-    let remap = order
+    columns
+}
+
+/// Assigns a block to the column whose horizontal extent contains its reading
+/// start (left edge), falling back to the nearest column. Ties resolve to the
+/// left-most column so spanning runs lead their band.
+fn column_for(block: &PageBlock, columns: &[ColumnRange]) -> usize {
+    if columns.is_empty() {
+        return 0;
+    }
+    let start = block.bbox.x0;
+    columns
         .iter()
         .enumerate()
-        .map(|(new, old)| (*old, new))
-        .collect::<BTreeMap<_, _>>();
-    for block in blocks {
-        block.column = remap[&block.column];
+        .min_by(|(ai, a), (bi, b)| {
+            column_distance(start, a)
+                .total_cmp(&column_distance(start, b))
+                .then_with(|| ai.cmp(bi))
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(0)
+}
+
+fn column_distance(x: f64, column: &ColumnRange) -> f64 {
+    if x < column.x0 {
+        column.x0 - x
+    } else if x > column.x1 {
+        x - column.x1
+    } else {
+        0.0
     }
 }
 
 fn vertical_overlap(a: &PageBlock, b: &PageBlock) -> f64 {
     (a.bbox.y1.min(b.bbox.y1) - a.bbox.y0.max(b.bbox.y0)).max(0.0)
-}
-
-fn horizontal_distance(a: &PageBlock, b: &PageBlock) -> f64 {
-    let center = (a.bbox.x0 + a.bbox.x1) / 2.0;
-    if b.bbox.x0 <= center && center <= b.bbox.x1 {
-        0.0
-    } else {
-        (a.bbox.x0 - b.bbox.x1)
-            .abs()
-            .min((a.bbox.x1 - b.bbox.x0).abs())
-    }
 }
 
 fn merge_inline_blocks(mut blocks: Vec<PageBlock>) -> Vec<PageBlock> {
@@ -1317,7 +1371,12 @@ fn needs_paragraph_break(previous: &PageBlock, current: &PageBlock, body_size: f
         || (current.bbox.x0 - previous.bbox.x0).abs() > 18.0_f64.max(body_size * 1.8)
 }
 
-fn render_runs(content: &str, runs: &[TextRun], fallback_href: Option<&str>) -> String {
+fn render_runs(
+    content: &str,
+    runs: &[TextRun],
+    fallback_href: Option<&str>,
+    suppress_bold: bool,
+) -> String {
     let font = runs
         .first()
         .map(|run| &run.font)
@@ -1331,10 +1390,14 @@ fn render_runs(content: &str, runs: &[TextRun], fallback_href: Option<&str>) -> 
             }
         }
     }
-    render_segments(&segments)
+    render_segments_styled(&segments, suppress_bold)
 }
 
 fn render_segments(segments: &[Segment]) -> String {
+    render_segments_styled(segments, false)
+}
+
+fn render_segments_styled(segments: &[Segment], suppress_bold: bool) -> String {
     let mut output = String::new();
     let mut pending = Separator::None;
     for segment in segments {
@@ -1344,9 +1407,10 @@ fn render_segments(segments: &[Segment]) -> String {
             push_separator(&mut output, pending);
             pending = Separator::None;
             let mut text = escape_markdown(&normalize_inner_whitespace(body));
-            if segment.bold && segment.italic {
+            let bold = segment.bold && !suppress_bold;
+            if bold && segment.italic {
                 text = format!("***{text}***");
-            } else if segment.bold {
+            } else if bold {
                 text = format!("**{text}**");
             } else if segment.italic {
                 text = format!("*{text}*");
@@ -1497,7 +1561,7 @@ fn render_flow_table(rows: usize, cols: usize, cells: &[FlowTableCell]) -> Strin
     for cell in cells {
         if cell.row < rows && cell.col < cols {
             grid[cell.row][cell.col] =
-                render_runs(&cell.content, &cell.runs, None).replace("<br>\n", "<br>");
+                render_runs(&cell.content, &cell.runs, None, false).replace("<br>\n", "<br>");
         }
     }
     let row = |values: &[String]| format!("| {} |", values.join(" | "));
@@ -1816,6 +1880,86 @@ mod tests {
         let (marker, body_start) = list_item("a) alphabetic item").unwrap();
         assert!(matches!(marker, ListMarker::Letter(value) if value == "a)"));
         assert_eq!(&"a) alphabetic item"[body_start..], "alphabetic item");
+    }
+
+    #[test]
+    fn bold_heading_is_not_double_emphasized() {
+        // A fully bold, larger-than-body title must render as `# Title`, never
+        // as the redundant `# **Title**`.
+        let markdown = extraction(vec![
+            text("title", 50.0, 10.0, 24.0, true, "Bold Title"),
+            text(
+                "body",
+                50.0,
+                45.0,
+                12.0,
+                false,
+                "Body text long enough to anchor the body-size estimate",
+            ),
+        ])
+        .to_markdown();
+        assert!(markdown.contains("# Bold Title"), "{markdown:?}");
+        assert!(!markdown.contains("**"), "{markdown:?}");
+    }
+
+    #[test]
+    fn bold_body_paragraph_is_not_promoted_to_heading() {
+        // A body-size bold run that reads like running prose (a long line) is
+        // inline emphasis, not a heading.
+        let mut elements = (0..4)
+            .map(|row| {
+                text(
+                    &format!("body-{row}"),
+                    50.0,
+                    20.0 + row as f64 * 14.0,
+                    12.0,
+                    false,
+                    "Regular body sentence used for sizing",
+                )
+            })
+            .collect::<Vec<_>>();
+        elements.push(text(
+            "bold",
+            50.0,
+            120.0,
+            12.0,
+            true,
+            "This entire sentence is emphasized in bold but it is clearly ordinary running prose",
+        ));
+        let markdown = extraction(elements).to_markdown();
+        assert!(!markdown.contains('#'), "{markdown:?}");
+        assert!(markdown.contains("**This entire sentence"), "{markdown:?}");
+    }
+
+    #[test]
+    fn indented_lines_are_not_split_into_a_false_column() {
+        // Alternating left edges (ragged indentation) must not be read as two
+        // columns; reading order stays strictly top-to-bottom.
+        let elements = (0..8)
+            .map(|row| {
+                let indent = if row % 2 == 0 { 50.0 } else { 90.0 };
+                text(
+                    &format!("line-{row}"),
+                    indent,
+                    20.0 + row as f64 * 16.0,
+                    12.0,
+                    false,
+                    &format!("Body paragraph line number {row} carried across the page"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let markdown = extraction(elements).to_markdown();
+        let order = (0..8)
+            .map(|row| {
+                markdown
+                    .find(&format!("line number {row} carried"))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            order.windows(2).all(|pair| pair[0] < pair[1]),
+            "{markdown:?}"
+        );
     }
 
     #[test]

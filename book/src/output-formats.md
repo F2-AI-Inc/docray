@@ -39,8 +39,10 @@ top-to-bottom, and emits columns left-to-right. It joins nearby lines into
 paragraphs; recognizes bullet, numeric, and letter list markers; preserves
 bold, italic, and hyperlink runs; and separates pages with `---`. Heading
 levels H1-H4 are inferred from deterministic font-size ranks relative to the
-document's weighted median body size, with whole-line bold text promoted one
-tier. URI annotations are associated with the overlapping or nearest text. On
+document's weighted median body size; body-size bold text is promoted only
+when it also reads like a heading (a short line), and a bold heading is
+promoted one tier. A heading is never additionally wrapped in `**bold**`.
+URI annotations are associated with the overlapping or nearest text. On
 the PDF path, a strict ruled-table detector reconstructs grids with at least
 two columns and two rows from thin vector rulings and renders their cells as
 GFM pipe tables. Cell text

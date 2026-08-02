@@ -1,3 +1,3 @@
 Hello World
 
-# **Bold Title**
+# Bold Title
