@@ -73,6 +73,51 @@ fn simple() -> Document {
     base_doc(simple_content(), vec![])
 }
 
+/// A 2x2 ruled table. In PDF coordinates the outer box is x=72..360,
+/// y=570..650 on a 612x792 page. PDFium expands its 1pt stroke bounds by 1pt,
+/// producing the observed top-left bbox x=71..361, y=141..223. The interior
+/// rulings at x=216 and y=610 divide it into four nominal 144x40pt cells. Text
+/// baselines at y=625/585 place each label's center inside the corresponding
+/// row; x=84/228 places them in the expected columns. The literal pipe in the
+/// lower-left cell pins GFM escaping.
+fn ruled_table() -> Document {
+    base_doc(
+        vec![
+            op("w", vec![1.into()]),
+            op("RG", vec![0.into(), 0.into(), 0.into()]),
+            op("re", vec![72.into(), 570.into(), 288.into(), 80.into()]),
+            op("S", vec![]),
+            op("m", vec![72.into(), 610.into()]),
+            op("l", vec![360.into(), 610.into()]),
+            op("S", vec![]),
+            op("m", vec![216.into(), 570.into()]),
+            op("l", vec![216.into(), 650.into()]),
+            op("S", vec![]),
+            op("BT", vec![]),
+            op("Tf", vec!["F1".into(), 12.into()]),
+            op("Td", vec![84.into(), 625.into()]),
+            op("Tj", vec![Object::string_literal("Name")]),
+            op("ET", vec![]),
+            op("BT", vec![]),
+            op("Tf", vec!["F1".into(), 12.into()]),
+            op("Td", vec![228.into(), 625.into()]),
+            op("Tj", vec![Object::string_literal("Amount")]),
+            op("ET", vec![]),
+            op("BT", vec![]),
+            op("Tf", vec!["F1".into(), 12.into()]),
+            op("Td", vec![84.into(), 585.into()]),
+            op("Tj", vec![Object::string_literal("Alpha | Beta")]),
+            op("ET", vec![]),
+            op("BT", vec![]),
+            op("Tf", vec!["F1".into(), 12.into()]),
+            op("Td", vec![228.into(), 585.into()]),
+            op("Tj", vec![Object::string_literal("$42")]),
+            op("ET", vec![]),
+        ],
+        vec![],
+    )
+}
+
 /// Same content as `simple.pdf` on a 612x792 MediaBox, but the page dict carries
 /// `/Rotate 90` so pdfium presents a 792x612 visible page. Exercises the
 /// post-rotation coordinate contract (top-left, y-down, after page rotation).
@@ -560,6 +605,7 @@ fn main() {
     scan().save("testdata/scan.pdf").unwrap();
     link().save("testdata/link.pdf").unwrap();
     form().save("testdata/form.pdf").unwrap();
+    ruled_table().save("testdata/ruled-table.pdf").unwrap();
 
     // Malformed corpus — all deterministic.
     let good = fs::read("testdata/simple.pdf").unwrap();
