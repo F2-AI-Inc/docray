@@ -49,6 +49,8 @@ struct DetectedTable {
 struct DetectedCell {
     row: usize,
     col: usize,
+    row_span: usize,
+    col_span: usize,
     content: String,
 }
 
@@ -71,6 +73,43 @@ const RULING_JOIN_TOLERANCE: f64 = 2.0;
 const MIN_RULING_LENGTH: f64 = 8.0;
 const MAX_RULINGS_PER_PAGE: usize = 512;
 const MAX_GRID_SEPARATORS: usize = 64;
+/// An interior ruling separator counts as *present* over a cell band when its
+/// coverage of that band clears this fraction; below it the separator is
+/// missing and the two adjacent cells are merged (a colspan/rowspan).
+const INTERIOR_SEPARATOR_PRESENT: f64 = 0.5;
+
+// --- Borderless / alignment-table detection (Phase 2, Markdown-only) ---------
+//
+// Alignment detection is strictly gated and composes as a fallback *after*
+// ruled detection: it only ever runs on text no ruled table already claimed.
+// The gate below is deliberately conservative (≥3 columns, ≥3 rows, stable
+// gutters, tight column edges, dense fill) so prose, code, and key/value forms
+// are left as ordinary reading-order text. Enabled by default so the TEDS
+// harness can measure the lift; the gate plus the negative-fixture corpus are
+// the safety net.
+const ENABLE_ALIGNMENT_TABLES: bool = true;
+/// Histogram/gutter bucket width in points. Quantized to integers so column
+/// detection is deterministic across sub-point PDFium glyph-metric drift.
+const X_BUCKET: f64 = 3.0;
+/// A gutter must read as whitespace in at least this fraction of row bands.
+const GUTTER_STABILITY: f64 = 0.8;
+/// Minimum row bands for an alignment table (kills 2-row label/value forms).
+const MIN_ALIGN_ROWS: usize = 3;
+/// Minimum columns for an alignment table. Three (not two) is deliberate: it
+/// rejects two-column key/value forms, the most common false positive.
+const MIN_ALIGN_COLS: usize = 3;
+/// A vertical gap between adjacent lines larger than this floor (or
+/// `ROW_GAP_K × median line height`, whichever is greater) breaks one table
+/// region from the surrounding prose.
+const ROW_GAP_FLOOR: f64 = 3.0;
+const ROW_GAP_K: f64 = 1.5;
+/// Minimum occupied-cell fraction; sparse accidental alignment is rejected.
+const FILL_RATIO: f64 = 0.5;
+/// At least this fraction of bands must reach ≥2 columns (kills paragraphs with
+/// one stray tab stop).
+const ROW_REGULARITY: f64 = 0.6;
+/// Cap on candidate lines fed to alignment detection, mirroring the ruling cap.
+const MAX_ALIGN_LINES: usize = 512;
 
 impl PageBlock {
     fn width(&self) -> f64 {
@@ -331,11 +370,7 @@ fn blocks_for_page(page: &Page, source_format: &str) -> PageMarkdown {
             Some((id, level))
         })
         .collect();
-    let detection = if source_format == "pdf" {
-        detect_ruled_tables(page)
-    } else {
-        TableDetection::default()
-    };
+    let detection = detect_tables(page, source_format);
     let consumed_text = detection
         .tables
         .iter()
@@ -415,13 +450,24 @@ fn blocks_for_page(page: &Page, source_format: &str) -> PageMarkdown {
             .map(|cell| FlowTableCell {
                 row: cell.row,
                 col: cell.col,
-                row_span: 1,
-                col_span: 1,
+                row_span: cell.row_span,
+                col_span: cell.col_span,
                 content: cell.content.clone(),
                 runs: Vec::new(),
                 blocks: None,
             })
             .collect::<Vec<_>>();
+        // Simple all-span-1 grids stay GFM pipe tables (human-readable and
+        // byte-stable). Any merged cell routes to a raw HTML `<table>`, the
+        // only Markdown-embeddable form that can carry colspan/rowspan.
+        let has_span = cells
+            .iter()
+            .any(|cell| cell.row_span > 1 || cell.col_span > 1);
+        let rendered = if has_span {
+            render_html_table(table.rows, table.cols, &cells)
+        } else {
+            render_flow_table(table.rows, table.cols, &cells)
+        };
         blocks.push(PageBlock {
             id: format!("p{}-markdown-table-{index}", page.page_number),
             bbox: table.bbox,
@@ -436,7 +482,7 @@ fn blocks_for_page(page: &Page, source_format: &str) -> PageMarkdown {
             segments: Vec::new(),
             column: 0,
             heading: None,
-            rendered_override: Some(render_flow_table(table.rows, table.cols, &cells)),
+            rendered_override: Some(rendered),
         });
     }
     associate_annotations(&mut blocks, &annotations);
@@ -446,9 +492,36 @@ fn blocks_for_page(page: &Page, source_format: &str) -> PageMarkdown {
     }
 }
 
+/// Orchestrates PDF table detection: ruled grids are authoritative and claim
+/// their regions first; borderless/alignment detection then runs only on text
+/// no ruled table already consumed. Non-PDF sources use neither path (their
+/// tables are first-class schema elements handled elsewhere). Results merge and
+/// sort by geometry so a page can carry both kinds without them fighting over
+/// the same text.
+fn detect_tables(page: &Page, source_format: &str) -> TableDetection {
+    if source_format != "pdf" {
+        return TableDetection::default();
+    }
+    let mut detection = detect_ruled_tables(page);
+    if ENABLE_ALIGNMENT_TABLES {
+        let alignment = detect_alignment_tables(page, &detection);
+        detection.tables.extend(alignment.tables);
+        detection.warnings.extend(alignment.warnings);
+    }
+    detection.tables.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .total_cmp(&b.bbox.y0)
+            .then_with(|| a.bbox.x0.total_cmp(&b.bbox.x0))
+            .then_with(|| a.bbox.y1.total_cmp(&b.bbox.y1))
+            .then_with(|| a.bbox.x1.total_cmp(&b.bbox.x1))
+    });
+    detection
+}
+
 /// Detects only high-confidence ruled PDF tables for the Markdown projection.
-/// Phase 2 = borderless/alignment detection; structured TableElement-in-JSON
-/// behind a granularity parameter is a follow-up.
+/// Merged cells (missing interior separators) become colspan/rowspan and route
+/// to an HTML `<table>`; simple grids stay GFM pipe tables.
 fn detect_ruled_tables(page: &Page) -> TableDetection {
     let text = page
         .elements
@@ -541,6 +614,381 @@ fn ruling_axis_rank(axis: RulingAxis) -> u8 {
         RulingAxis::Horizontal => 0,
         RulingAxis::Vertical => 1,
     }
+}
+
+/// A visual line of free text: one baseline's worth of elements, left-to-right.
+struct AlignLine<'a> {
+    y0: f64,
+    y1: f64,
+    x0: f64,
+    x1: f64,
+    items: Vec<&'a TextElement>,
+}
+
+/// Detects borderless/alignment tables in the text no ruled table already
+/// claimed. Strictly gated (≥3 columns, ≥3 rows, stable gutters, tight column
+/// edges, dense fill) so prose, code, and key/value forms stay reading-order
+/// text. Column detection is a whitespace-gutter projection over integer
+/// buckets; rows are visual lines grouped into whitespace-separated regions.
+fn detect_alignment_tables(page: &Page, ruled: &TableDetection) -> TableDetection {
+    let consumed: BTreeSet<&str> = ruled
+        .tables
+        .iter()
+        .flat_map(|table| table.consumed_text.iter().map(String::as_str))
+        .collect();
+    let ruled_boxes: Vec<BBox> = ruled.tables.iter().map(|table| table.bbox).collect();
+    let inside_ruled = |x: f64, y: f64| {
+        ruled_boxes.iter().any(|b| {
+            x >= b.x0 - RULING_SNAP_TOLERANCE
+                && x <= b.x1 + RULING_SNAP_TOLERANCE
+                && y >= b.y0 - RULING_SNAP_TOLERANCE
+                && y <= b.y1 + RULING_SNAP_TOLERANCE
+        })
+    };
+    let mut items: Vec<&TextElement> = page
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            Element::Text(text) if !clean_text(&text.content).is_empty() => Some(text),
+            _ => None,
+        })
+        .filter(|text| {
+            [text.bbox.x0, text.bbox.y0, text.bbox.x1, text.bbox.y1]
+                .into_iter()
+                .all(f64::is_finite)
+                && text.bbox.x1 >= text.bbox.x0
+                && text.bbox.y1 >= text.bbox.y0
+        })
+        .filter(|text| !consumed.contains(text.id.as_str()))
+        .filter(|text| {
+            let cx = (text.bbox.x0 + text.bbox.x1) / 2.0;
+            let cy = (text.bbox.y0 + text.bbox.y1) / 2.0;
+            !inside_ruled(cx, cy)
+        })
+        .collect();
+    if items.len() < MIN_ALIGN_ROWS * MIN_ALIGN_COLS || items.len() > MAX_ALIGN_LINES {
+        return TableDetection::default();
+    }
+    items.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .total_cmp(&b.bbox.y0)
+            .then_with(|| a.bbox.x0.total_cmp(&b.bbox.x0))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    // Group into visual lines by vertical overlap (items are pre-sorted by y0,
+    // so only the current line can match).
+    let mut lines: Vec<AlignLine> = Vec::new();
+    for item in items {
+        let matched = lines.last_mut().is_some_and(|line| {
+            let overlap = (line.y1.min(item.bbox.y1) - line.y0.max(item.bbox.y0)).max(0.0);
+            let min_height = (line.y1 - line.y0)
+                .min(item.bbox.y1 - item.bbox.y0)
+                .max(1.0);
+            overlap > 0.35 * min_height
+        });
+        if matched {
+            let line = lines.last_mut().unwrap();
+            line.y0 = line.y0.min(item.bbox.y0);
+            line.y1 = line.y1.max(item.bbox.y1);
+            line.x0 = line.x0.min(item.bbox.x0);
+            line.x1 = line.x1.max(item.bbox.x1);
+            line.items.push(item);
+        } else {
+            lines.push(AlignLine {
+                y0: item.bbox.y0,
+                y1: item.bbox.y1,
+                x0: item.bbox.x0,
+                x1: item.bbox.x1,
+                items: vec![item],
+            });
+        }
+    }
+    for line in &mut lines {
+        line.items.sort_by(|a, b| {
+            a.bbox
+                .x0
+                .total_cmp(&b.bbox.x0)
+                .then_with(|| a.bbox.x1.total_cmp(&b.bbox.x1))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+    }
+    if lines.len() < MIN_ALIGN_ROWS {
+        return TableDetection::default();
+    }
+
+    // A large vertical gap between adjacent lines separates a table block from
+    // surrounding prose, so we test each whitespace-bounded region on its own.
+    let mut heights = lines
+        .iter()
+        .map(|line| (line.y1 - line.y0).max(1.0))
+        .collect::<Vec<_>>();
+    let median_height = median(&mut heights).unwrap_or(10.0);
+    let region_gap = ROW_GAP_FLOOR.max(median_height * ROW_GAP_K);
+    let mut detection = TableDetection::default();
+    let mut region_start = 0;
+    for index in 1..=lines.len() {
+        let split = index == lines.len() || {
+            let gap = lines[index].y0 - lines[index - 1].y1;
+            gap > region_gap
+        };
+        if !split {
+            continue;
+        }
+        let region = &lines[region_start..index];
+        region_start = index;
+        if region.len() >= MIN_ALIGN_ROWS {
+            match alignment_region_table(region) {
+                AlignmentRegion::None => {}
+                AlignmentRegion::NearMiss(reason) => detection.warnings.push(format!(
+                    "page {}: borderless-table candidate skipped: {reason}",
+                    page.page_number
+                )),
+                AlignmentRegion::Detected(table) => {
+                    let overlaps = ruled_boxes.iter().any(|b| {
+                        table.bbox.x1 > b.x0
+                            && table.bbox.x0 < b.x1
+                            && table.bbox.y1 > b.y0
+                            && table.bbox.y0 < b.y1
+                    });
+                    if !overlaps {
+                        detection.tables.push(table);
+                    }
+                }
+            }
+        }
+    }
+    detection
+}
+
+enum AlignmentRegion {
+    None,
+    NearMiss(&'static str),
+    Detected(DetectedTable),
+}
+
+/// Runs column detection + the confidence gate on one whitespace-bounded region
+/// of lines. Each line is a table row; columns come from stable whitespace
+/// gutters. Returns a detected table, a near-miss warning, or nothing.
+fn alignment_region_table(lines: &[AlignLine]) -> AlignmentRegion {
+    let region_x0 = lines
+        .iter()
+        .map(|line| line.x0)
+        .fold(f64::INFINITY, f64::min);
+    let region_x1 = lines
+        .iter()
+        .map(|line| line.x1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if !region_x0.is_finite() || region_x1 <= region_x0 {
+        return AlignmentRegion::None;
+    }
+    let bucket_count = (((region_x1 - region_x0) / X_BUCKET).ceil() as usize).saturating_add(1);
+    if bucket_count == 0 || bucket_count > 4096 {
+        return AlignmentRegion::None;
+    }
+    // Per-bucket count of lines whose text covers that bucket. A bucket that is
+    // whitespace in ≥ GUTTER_STABILITY of lines is a gutter.
+    let mut coverage = vec![0usize; bucket_count];
+    for line in lines {
+        let mut covered = vec![false; bucket_count];
+        for item in &line.items {
+            let lo = (((item.bbox.x0 - region_x0) / X_BUCKET).floor() as isize).max(0) as usize;
+            let hi =
+                (((item.bbox.x1 - region_x0) / X_BUCKET).floor() as usize).min(bucket_count - 1);
+            for bucket in covered.iter_mut().take(hi + 1).skip(lo) {
+                *bucket = true;
+            }
+        }
+        for (bucket, hit) in covered.iter().enumerate() {
+            if *hit {
+                coverage[bucket] += 1;
+            }
+        }
+    }
+    let line_count = lines.len();
+    let gutter_ceiling = ((1.0 - GUTTER_STABILITY) * line_count as f64).floor() as usize;
+    // Columns are maximal runs of non-gutter buckets; leading/trailing gutter
+    // runs are page margins and drop out naturally.
+    let mut columns: Vec<(f64, f64)> = Vec::new();
+    let mut run_start: Option<usize> = None;
+    for (bucket, count) in coverage.iter().enumerate() {
+        let is_gutter = *count <= gutter_ceiling;
+        match (is_gutter, run_start) {
+            (false, None) => run_start = Some(bucket),
+            (true, Some(start)) => {
+                columns.push((
+                    region_x0 + start as f64 * X_BUCKET,
+                    region_x0 + bucket as f64 * X_BUCKET,
+                ));
+                run_start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(start) = run_start {
+        columns.push((
+            region_x0 + start as f64 * X_BUCKET,
+            region_x0 + bucket_count as f64 * X_BUCKET,
+        ));
+    }
+    if columns.len() < MIN_ALIGN_COLS {
+        return AlignmentRegion::None;
+    }
+    if columns.len() > MAX_GRID_SEPARATORS {
+        return AlignmentRegion::None;
+    }
+    let cols = columns.len();
+    let rows = lines.len();
+
+    // Assign every item to the column range its x-interval overlaps; a wide
+    // item straddling a gutter becomes a colspan.
+    let mut occupied = vec![false; rows * cols];
+    let mut left_edges: Vec<Vec<f64>> = vec![Vec::new(); cols];
+    let mut right_edges: Vec<Vec<f64>> = vec![Vec::new(); cols];
+    for line in lines {
+        for item in &line.items {
+            let Some((start_col, end_col)) = column_span_of(item.bbox.x0, item.bbox.x1, &columns)
+            else {
+                continue;
+            };
+            if start_col == end_col {
+                left_edges[start_col].push(item.bbox.x0);
+                right_edges[start_col].push(item.bbox.x1);
+            }
+        }
+    }
+    // Column edge tightness: left-aligned columns have a stable left edge,
+    // right-aligned (numeric) columns a stable right edge. A column with enough
+    // single-column items must be tight on at least one side; ragged code fails.
+    for col in 0..cols {
+        let tight_left = stdev(&left_edges[col]).map(|s| s <= X_BUCKET);
+        let tight_right = stdev(&right_edges[col]).map(|s| s <= X_BUCKET);
+        match (tight_left, tight_right) {
+            (Some(l), Some(r)) if !l && !r => return AlignmentRegion::None,
+            _ => {}
+        }
+    }
+
+    let mut cells: Vec<DetectedCell> = Vec::new();
+    let mut consumed_text: Vec<String> = Vec::new();
+    let mut rows_reaching_two = 0usize;
+    for (row, line) in lines.iter().enumerate() {
+        // Anchor col -> (col_span, item contents, item ids).
+        let mut row_cells: BTreeMap<usize, (usize, Vec<&TextElement>)> = BTreeMap::new();
+        let mut owner: Vec<Option<usize>> = vec![None; cols];
+        for item in &line.items {
+            let Some((start_col, end_col)) = column_span_of(item.bbox.x0, item.bbox.x1, &columns)
+            else {
+                continue;
+            };
+            let anchor = owner[start_col].unwrap_or(start_col);
+            let entry = row_cells.entry(anchor).or_insert((1, Vec::new()));
+            entry.0 = entry.0.max(end_col - anchor + 1);
+            entry.1.push(item);
+            for slot in owner
+                .iter_mut()
+                .take(end_col.min(cols - 1) + 1)
+                .skip(anchor)
+            {
+                *slot = Some(anchor);
+            }
+        }
+        let distinct = row_cells.len();
+        if distinct >= 2 {
+            rows_reaching_two += 1;
+        }
+        for (col, (col_span, mut row_items)) in row_cells {
+            row_items.sort_by(|a, b| {
+                a.bbox
+                    .x0
+                    .total_cmp(&b.bbox.x0)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            for span in 0..col_span {
+                if col + span < cols {
+                    occupied[row * cols + col + span] = true;
+                }
+            }
+            consumed_text.extend(row_items.iter().map(|item| item.id.clone()));
+            cells.push(DetectedCell {
+                row,
+                col,
+                row_span: 1,
+                col_span,
+                content: row_items
+                    .iter()
+                    .map(|item| clean_text(&item.content))
+                    .filter(|content| !content.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            });
+        }
+    }
+
+    let occupied_count = occupied.iter().filter(|cell| **cell).count();
+    let fill = occupied_count as f64 / (rows * cols) as f64;
+    let regularity = rows_reaching_two as f64 / rows as f64;
+    if regularity < ROW_REGULARITY {
+        return AlignmentRegion::None;
+    }
+    if fill < FILL_RATIO {
+        // Strong near-miss: real column/row structure but too sparse to trust.
+        if fill >= FILL_RATIO - 0.15 {
+            return AlignmentRegion::NearMiss(
+                "borderless grid found but too few cells were filled to trust it",
+            );
+        }
+        return AlignmentRegion::None;
+    }
+
+    let bbox = BBox {
+        x0: region_x0,
+        y0: lines
+            .iter()
+            .map(|line| line.y0)
+            .fold(f64::INFINITY, f64::min),
+        x1: region_x1,
+        y1: lines
+            .iter()
+            .map(|line| line.y1)
+            .fold(f64::NEG_INFINITY, f64::max),
+    };
+    consumed_text.sort();
+    consumed_text.dedup();
+    cells.sort_by(|a, b| a.row.cmp(&b.row).then_with(|| a.col.cmp(&b.col)));
+    AlignmentRegion::Detected(DetectedTable {
+        bbox,
+        rows,
+        cols,
+        cells,
+        consumed_text,
+    })
+}
+
+/// The inclusive column index range whose x-extent overlaps `[x0, x1]`.
+fn column_span_of(x0: f64, x1: f64, columns: &[(f64, f64)]) -> Option<(usize, usize)> {
+    let mut start = None;
+    let mut end = None;
+    for (index, column) in columns.iter().enumerate() {
+        let overlaps =
+            x1 > column.0 - RULING_SNAP_TOLERANCE && x0 < column.1 + RULING_SNAP_TOLERANCE;
+        if overlaps {
+            start.get_or_insert(index);
+            end = Some(index);
+        }
+    }
+    Some((start?, end?))
+}
+
+fn stdev(values: &[f64]) -> Option<f64> {
+    if values.len() < 2 {
+        return None;
+    }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let variance =
+        values.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / values.len() as f64;
+    Some(variance.sqrt())
 }
 
 fn rulings_for_path(path: &PathElement) -> Vec<Ruling> {
@@ -712,11 +1160,64 @@ fn table_from_component(component: &[Ruling], text: &[&TextElement]) -> Componen
         return ComponentTable::Rejected("grid has too little cell text");
     }
 
-    let mut cells = Vec::with_capacity(cell_count);
+    // An interior vertical separator `xs[col]` is present over row band `row`
+    // when its clipped coverage clears the threshold; a missing one means the
+    // cell on its left merges rightward (a colspan). Horizontals are symmetric.
+    let vertical_present = |col: usize, row: usize| -> bool {
+        ruling_coverage(
+            component,
+            RulingAxis::Vertical,
+            xs[col],
+            ys[row],
+            ys[row + 1],
+        ) >= INTERIOR_SEPARATOR_PRESENT
+    };
+    let horizontal_present = |row: usize, col: usize| -> bool {
+        ruling_coverage(
+            component,
+            RulingAxis::Horizontal,
+            ys[row],
+            xs[col],
+            xs[col + 1],
+        ) >= INTERIOR_SEPARATOR_PRESENT
+    };
+
+    let mut covered = vec![false; cell_count];
+    let mut cells = Vec::new();
     let mut consumed_text = Vec::new();
     for row in 0..rows {
         for col in 0..cols {
-            let items = &mut assigned[row * cols + col];
+            if covered[row * cols + col] {
+                continue;
+            }
+            // Extend right while the vertical separator on the cell's right edge
+            // is missing over this row band.
+            let mut col_span = 1;
+            while col + col_span < cols && !vertical_present(col + col_span, row) {
+                col_span += 1;
+            }
+            // Extend down while the horizontal separator below is missing across
+            // the whole column span (a clean rectangular merge).
+            let mut row_span = 1;
+            'rows: while row + row_span < rows {
+                for span_col in col..col + col_span {
+                    if horizontal_present(row + row_span, span_col) {
+                        break 'rows;
+                    }
+                }
+                row_span += 1;
+            }
+            // Assign every base cell in the merged rectangle to this anchor; the
+            // covered non-anchor positions emit no cell of their own.
+            let mut items: Vec<&TextElement> = Vec::new();
+            for span_row in row..row + row_span {
+                for span_col in col..col + col_span {
+                    if span_row != row || span_col != col {
+                        covered[span_row * cols + span_col] = true;
+                    }
+                    items.append(&mut assigned[span_row * cols + span_col]);
+                }
+            }
             items.sort_by(|a, b| {
                 a.bbox
                     .y0
@@ -729,6 +1230,8 @@ fn table_from_component(component: &[Ruling], text: &[&TextElement]) -> Componen
             cells.push(DetectedCell {
                 row,
                 col,
+                row_span,
+                col_span,
                 content: items
                     .iter()
                     .map(|item| clean_text(&item.content))
@@ -1575,6 +2078,203 @@ fn render_flow_table(rows: usize, cols: usize, cells: &[FlowTableCell]) -> Strin
     output
 }
 
+/// Renders a table with merged cells as a raw HTML `<table>` — the only
+/// Markdown-embeddable form that can express `colspan`/`rowspan` (GFM/CommonMark
+/// pass block-level raw HTML through verbatim). Row 0 is the header (`<th>` in
+/// `<thead>`); later rows are `<td>` in `<tbody>`. Every cell string is
+/// untrusted PDF text, so all content is HTML-escaped and only integer span
+/// attributes reach the tag — hostile cell text can never break out of a cell.
+fn render_html_table(rows: usize, cols: usize, cells: &[FlowTableCell]) -> String {
+    if rows == 0 || cols == 0 {
+        return String::new();
+    }
+    let mut anchors: BTreeMap<(usize, usize), &FlowTableCell> = BTreeMap::new();
+    let mut covered = vec![false; rows * cols];
+    for cell in cells {
+        if cell.row >= rows || cell.col >= cols {
+            continue;
+        }
+        anchors.insert((cell.row, cell.col), cell);
+        let row_end = (cell.row + cell.row_span.max(1)).min(rows);
+        let col_end = (cell.col + cell.col_span.max(1)).min(cols);
+        for row in cell.row..row_end {
+            for col in cell.col..col_end {
+                if row != cell.row || col != cell.col {
+                    covered[row * cols + col] = true;
+                }
+            }
+        }
+    }
+    let mut output = String::from("<table>\n<thead>\n");
+    render_html_row(&mut output, 0, cols, &anchors, &covered, true);
+    output.push_str("</thead>\n");
+    if rows > 1 {
+        output.push_str("<tbody>\n");
+        for row in 1..rows {
+            render_html_row(&mut output, row, cols, &anchors, &covered, false);
+        }
+        output.push_str("</tbody>\n");
+    }
+    output.push_str("</table>");
+    output
+}
+
+fn render_html_row(
+    output: &mut String,
+    row: usize,
+    cols: usize,
+    anchors: &BTreeMap<(usize, usize), &FlowTableCell>,
+    covered: &[bool],
+    header: bool,
+) {
+    let tag = if header { "th" } else { "td" };
+    output.push_str("<tr>\n");
+    for col in 0..cols {
+        if covered[row * cols + col] {
+            continue;
+        }
+        let (attrs, content) = match anchors.get(&(row, col)) {
+            Some(cell) => {
+                let mut attrs = String::new();
+                if cell.col_span > 1 {
+                    write!(attrs, " colspan=\"{}\"", cell.col_span)
+                        .expect("writing to a String cannot fail");
+                }
+                if cell.row_span > 1 {
+                    write!(attrs, " rowspan=\"{}\"", cell.row_span)
+                        .expect("writing to a String cannot fail");
+                }
+                (attrs, render_html_cell(&cell.content, &cell.runs))
+            }
+            None => (String::new(), String::new()),
+        };
+        writeln!(output, "<{tag}{attrs}>{content}</{tag}>")
+            .expect("writing to a String cannot fail");
+    }
+    output.push_str("</tr>\n");
+}
+
+fn render_html_cell(content: &str, runs: &[TextRun]) -> String {
+    let font = runs
+        .first()
+        .map(|run| &run.font)
+        .cloned()
+        .unwrap_or_else(default_font);
+    let segments = segments_from_text(content, &font, (!runs.is_empty()).then_some(runs));
+    render_html_segments(&segments)
+}
+
+/// Renders styled segments as inline HTML for a table cell: bold → `<strong>`,
+/// italic → `<em>`, links → `<a href>`, newlines → `<br>`. Markdown syntax is
+/// *not* re-emitted here (GFM does not reliably parse Markdown inside a raw-HTML
+/// block); text is HTML-escaped instead.
+fn render_html_segments(segments: &[Segment]) -> String {
+    let mut output = String::new();
+    let mut pending = Separator::None;
+    for segment in segments {
+        let (leading, body, trailing) = split_whitespace(&segment.text);
+        pending = pending.max(separator(leading));
+        if !body.is_empty() {
+            push_html_separator(&mut output, pending);
+            pending = Separator::None;
+            let mut text = html_escape_collapsing(body);
+            if segment.bold && segment.italic {
+                text = format!("<strong><em>{text}</em></strong>");
+            } else if segment.bold {
+                text = format!("<strong>{text}</strong>");
+            } else if segment.italic {
+                text = format!("<em>{text}</em>");
+            }
+            if let Some(href) = &segment.href {
+                text = format!("<a href=\"{}\">{text}</a>", escape_html_attr(href));
+            }
+            output.push_str(&text);
+        }
+        pending = pending.max(separator(trailing));
+    }
+    output
+}
+
+fn push_html_separator(output: &mut String, separator: Separator) {
+    if output.is_empty() {
+        return;
+    }
+    match separator {
+        Separator::None => {}
+        Separator::Space => output.push(' '),
+        Separator::Line => output.push_str("<br>"),
+    }
+}
+
+/// Collapses a segment body's internal whitespace (newlines → `<br>`, other
+/// runs → a single space) and HTML-escapes the visible characters. Visible runs
+/// pass through `escape_html_text`; the injected `<br>`/space separators are
+/// emitted raw so they are never themselves escaped.
+fn html_escape_collapsing(text: &str) -> String {
+    let mut output = String::new();
+    let mut pending = Separator::None;
+    let mut run = String::new();
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !run.is_empty() {
+                push_html_separator(&mut output, pending);
+                pending = Separator::None;
+                output.push_str(&escape_html_text(&run));
+                run.clear();
+            }
+            pending = pending.max(if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+                Separator::Line
+            } else {
+                Separator::Space
+            });
+        } else {
+            run.push(ch);
+        }
+    }
+    if !run.is_empty() {
+        push_html_separator(&mut output, pending);
+        output.push_str(&escape_html_text(&run));
+    }
+    output
+}
+
+/// HTML-escapes untrusted text for element content. Distinct from
+/// `escape_markdown`: that helper backslash-escapes Markdown metacharacters
+/// (`*_[]#|`) which would appear literally inside a raw-HTML block. Here only
+/// the HTML-significant characters and control characters are neutralized.
+fn escape_html_text(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            _ if ch.is_control() => output.push(' '),
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
+/// HTML-escapes untrusted text for a double-quoted attribute value. Adds `"`
+/// and `'` to the text set so a hostile value can never close the attribute or
+/// inject a new one. Span attributes are integers, but the helper stays honest.
+fn escape_html_attr(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            '\'' => output.push_str("&#39;"),
+            _ if ch.is_control() => output.push(' '),
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
 fn write_trailing_context<W: fmt::Write>(
     output: &mut W,
     warnings: &[String],
@@ -1979,5 +2679,300 @@ mod tests {
             content: "ctrTitle".into(),
         });
         assert!(document.to_markdown().starts_with("# Centered title\n"));
+    }
+
+    /// A text element with a fully specified bounding box, for hand-computed
+    /// borderless and merged-cell geometry.
+    fn sized_text(id: &str, x0: f64, y0: f64, x1: f64, y1: f64, content: &str) -> Element {
+        Element::Text(TextElement {
+            id: id.into(),
+            bbox: BBox { x0, y0, x1, y1 },
+            content: content.into(),
+            font: Font {
+                name: "Test Sans".into(),
+                size: 10.0,
+                bold: false,
+                italic: false,
+            },
+            color: TextColor {
+                fill: Some([0, 0, 0]),
+                stroke: None,
+            },
+            lines: None,
+            runs: None,
+        })
+    }
+
+    fn thin_h(id: &str, x0: f64, x1: f64, y: f64) -> Element {
+        path(
+            id,
+            BBox {
+                x0,
+                y0: y - 0.5,
+                x1,
+                y1: y + 0.5,
+            },
+        )
+    }
+
+    fn thin_v(id: &str, x: f64, y0: f64, y1: f64) -> Element {
+        path(
+            id,
+            BBox {
+                x0: x - 0.5,
+                y0,
+                x1: x + 0.5,
+                y1,
+            },
+        )
+    }
+
+    #[test]
+    fn borderless_alignment_table_renders_as_gfm() {
+        // Three tight columns over three rows with clean whitespace gutters is a
+        // borderless table; with every span == 1 it stays a GFM pipe table.
+        let rows = [
+            ["Name", "Qty", "Price"],
+            ["Alpha", "2", "$4"],
+            ["Beta", "5", "$9"],
+        ];
+        let mut elements = Vec::new();
+        for (r, values) in rows.iter().enumerate() {
+            let y = 100.0 + r as f64 * 20.0;
+            for (c, value) in values.iter().enumerate() {
+                let x = 50.0 + c as f64 * 100.0;
+                elements.push(sized_text(
+                    &format!("r{r}c{c}"),
+                    x,
+                    y,
+                    x + 40.0,
+                    y + 10.0,
+                    value,
+                ));
+            }
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert_eq!(
+            markdown,
+            "| Name | Qty | Price |\n| --- | --- | --- |\n| Alpha | 2 | $4 |\n| Beta | 5 | $9 |\n"
+        );
+    }
+
+    #[test]
+    fn ruled_merged_header_becomes_html_table_with_colspan() {
+        // A 3×3 ruled grid whose two interior verticals are absent over the
+        // header band: row 0 is a single cell spanning all three columns, so the
+        // table must emit HTML `<table>` (GFM pipe cannot carry colspan).
+        let mut elements = vec![
+            thin_h("h0", 10.0, 310.0, 10.0),
+            thin_h("h1", 10.0, 310.0, 50.0),
+            thin_h("h2", 10.0, 310.0, 90.0),
+            thin_h("h3", 10.0, 310.0, 130.0),
+            thin_v("vL", 10.0, 10.0, 130.0),
+            thin_v("vR", 310.0, 10.0, 130.0),
+            // interior verticals exist only below the header band (rows 1–2).
+            thin_v("v1", 110.0, 50.0, 130.0),
+            thin_v("v2", 210.0, 50.0, 130.0),
+            sized_text("hdr", 140.0, 25.0, 180.0, 35.0, "Summary"),
+        ];
+        let data = [["Alpha", "2", "$4"], ["Beta", "5", "$9"]];
+        for (r, values) in data.iter().enumerate() {
+            let y = 60.0 + r as f64 * 40.0;
+            for (c, value) in values.iter().enumerate() {
+                let x = 40.0 + c as f64 * 100.0;
+                elements.push(sized_text(
+                    &format!("d{r}{c}"),
+                    x,
+                    y,
+                    x + 40.0,
+                    y + 10.0,
+                    value,
+                ));
+            }
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert_eq!(
+            markdown,
+            "<table>\n<thead>\n<tr>\n<th colspan=\"3\">Summary</th>\n</tr>\n</thead>\n<tbody>\n\
+             <tr>\n<td>Alpha</td>\n<td>2</td>\n<td>$4</td>\n</tr>\n\
+             <tr>\n<td>Beta</td>\n<td>5</td>\n<td>$9</td>\n</tr>\n</tbody>\n</table>\n"
+        );
+    }
+
+    #[test]
+    fn borderless_merged_title_becomes_html_table_with_colspan() {
+        // A borderless block with a title spanning all columns over enough data
+        // rows keeps its gutters stable (the title covers them in only one row),
+        // yielding a colspan and therefore an HTML `<table>`.
+        let mut elements = vec![sized_text("title", 50.0, 100.0, 290.0, 110.0, "Report")];
+        for r in 0..5 {
+            let y = 115.0 + r as f64 * 15.0;
+            for c in 0..3 {
+                let x = 50.0 + c as f64 * 100.0;
+                elements.push(sized_text(
+                    &format!("r{r}c{c}"),
+                    x,
+                    y,
+                    x + 40.0,
+                    y + 10.0,
+                    &format!("v{r}{c}"),
+                ));
+            }
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert!(
+            markdown.starts_with("<table>\n<thead>\n<tr>\n<th colspan=\"3\">Report</th>\n"),
+            "{markdown:?}"
+        );
+        assert!(
+            markdown.contains("<tbody>\n<tr>\n<td>v00</td>"),
+            "{markdown:?}"
+        );
+        assert!(markdown.trim_end().ends_with("</table>"), "{markdown:?}");
+    }
+
+    #[test]
+    fn hostile_cell_text_cannot_break_out_of_html_table() {
+        // Untrusted cell text must be HTML-escaped; a payload trying to close the
+        // cell and inject a script is neutralized, and the span attribute stays
+        // an integer.
+        let cells = vec![
+            FlowTableCell {
+                row: 0,
+                col: 0,
+                row_span: 1,
+                col_span: 2,
+                content: "</td><script>alert(1)</script>".into(),
+                runs: Vec::new(),
+                blocks: None,
+            },
+            FlowTableCell {
+                row: 1,
+                col: 0,
+                row_span: 1,
+                col_span: 1,
+                content: "\"onmouseover=alert(2)".into(),
+                runs: Vec::new(),
+                blocks: None,
+            },
+            FlowTableCell {
+                row: 1,
+                col: 1,
+                row_span: 1,
+                col_span: 1,
+                content: "safe".into(),
+                runs: Vec::new(),
+                blocks: None,
+            },
+        ];
+        let html = render_html_table(2, 2, &cells);
+        assert!(!html.contains("<script>"), "{html:?}");
+        assert!(!html.contains("</td><script>"), "{html:?}");
+        assert!(
+            html.contains("&lt;/td&gt;&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "{html:?}"
+        );
+        // The `"onmouseover=` payload lands in text position (never an
+        // attribute), so it is inert literal text safely enclosed in its cell.
+        assert!(html.contains("<td>\"onmouseover=alert(2)</td>"), "{html:?}");
+        // Row 0 is one colspan-2 header cell; row 1 has two body cells. Only the
+        // renderer's own structural tags appear — none injected from cell text.
+        assert_eq!(html.matches("</th>").count(), 1);
+        assert_eq!(html.matches("</td>").count(), 2);
+    }
+
+    #[test]
+    fn html_escaping_helpers_neutralize_metacharacters() {
+        assert_eq!(escape_html_text("a<b>&c"), "a&lt;b&gt;&amp;c");
+        assert_eq!(escape_html_attr("x\"y'z<&>"), "x&quot;y&#39;z&lt;&amp;&gt;");
+    }
+
+    #[test]
+    fn borderless_bold_cell_renders_strong_in_html() {
+        let mut bold = Segment {
+            text: "Bad<x>".into(),
+            bold: true,
+            italic: false,
+            href: None,
+        };
+        bold.href = None;
+        assert_eq!(
+            render_html_segments(std::slice::from_ref(&bold)),
+            "<strong>Bad&lt;x&gt;</strong>"
+        );
+    }
+
+    #[test]
+    fn prose_is_not_misclassified_as_borderless_table() {
+        // Full-width running lines have a single column; nothing is emitted as a
+        // table.
+        let mut elements = Vec::new();
+        for r in 0..5 {
+            let y = 100.0 + r as f64 * 14.0;
+            elements.push(sized_text(
+                &format!("line{r}"),
+                50.0,
+                y,
+                500.0,
+                y + 10.0,
+                "A full width running prose line that spans the whole content column",
+            ));
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert!(!markdown.contains("<table"), "{markdown:?}");
+        assert!(!markdown.contains("| --- |"), "{markdown:?}");
+    }
+
+    #[test]
+    fn two_column_key_value_form_is_not_a_table() {
+        // A key/value form has only two columns; the ≥3-column gate rejects it so
+        // forms stay reading-order text.
+        let pairs = [
+            ("Name:", "John Doe"),
+            ("Email:", "j@example.test"),
+            ("Phone:", "555-0100"),
+            ("City:", "Springfield"),
+        ];
+        let mut elements = Vec::new();
+        for (r, (key, value)) in pairs.iter().enumerate() {
+            let y = 100.0 + r as f64 * 16.0;
+            elements.push(sized_text(&format!("k{r}"), 50.0, y, 90.0, y + 10.0, key));
+            elements.push(sized_text(
+                &format!("v{r}"),
+                150.0,
+                y,
+                260.0,
+                y + 10.0,
+                value,
+            ));
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert!(!markdown.contains("<table"), "{markdown:?}");
+        assert!(!markdown.contains("| --- |"), "{markdown:?}");
+    }
+
+    #[test]
+    fn ragged_code_columns_are_rejected_by_edge_tightness() {
+        // Three token groups per line but with jittered left/right edges: the
+        // column-edge stdev exceeds the bucket width, so code is left as text.
+        let jitter = [0.0, 20.0, 6.0, 14.0];
+        let mut elements = Vec::new();
+        for (r, shift) in jitter.iter().enumerate() {
+            let y = 100.0 + r as f64 * 14.0;
+            for c in 0..3 {
+                let x = 50.0 + c as f64 * 90.0 + shift;
+                elements.push(sized_text(
+                    &format!("t{r}{c}"),
+                    x,
+                    y,
+                    x + 30.0,
+                    y + 10.0,
+                    "tok",
+                ));
+            }
+        }
+        let markdown = extraction(elements).to_markdown();
+        assert!(!markdown.contains("<table"), "{markdown:?}");
+        assert!(!markdown.contains("| --- |"), "{markdown:?}");
     }
 }
