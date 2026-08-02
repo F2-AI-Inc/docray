@@ -29,6 +29,13 @@ const fixtures = [
   { file: "form.pdf", granularity: "" },
   { file: "rotated.pdf", granularity: "" },
   { file: "link.pdf", granularity: "" },
+  { file: "borderless-table.pdf", granularity: "" },
+  { file: "merged-ruled-table.pdf", granularity: "" },
+  { file: "merged-borderless-table.pdf", granularity: "" },
+  { file: "hostile-cell-table.pdf", granularity: "" },
+  { file: "prose.pdf", granularity: "" },
+  { file: "code-block.pdf", granularity: "" },
+  { file: "key-value-form.pdf", granularity: "" },
 ];
 
 function exact(failures, label, a, b) {
