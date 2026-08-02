@@ -125,6 +125,183 @@ fn rotated() -> Document {
     base_doc(simple_content(), vec![("Rotate", 90.into())])
 }
 
+/// Emits one `BT … Tj … ET` text run at PDF-space `(x, y)` (baseline), F1 12pt.
+fn text_run(ops: &mut Vec<Operation>, x: i64, y: i64, content: &str) {
+    ops.push(op("BT", vec![]));
+    ops.push(op("Tf", vec!["F1".into(), 12.into()]));
+    ops.push(op("Td", vec![x.into(), y.into()]));
+    ops.push(op("Tj", vec![Object::string_literal(content)]));
+    ops.push(op("ET", vec![]));
+}
+
+/// A stroked horizontal segment at PDF-space `y` from `x0` to `x1`.
+fn hline(ops: &mut Vec<Operation>, x0: i64, x1: i64, y: i64) {
+    ops.push(op("m", vec![x0.into(), y.into()]));
+    ops.push(op("l", vec![x1.into(), y.into()]));
+    ops.push(op("S", vec![]));
+}
+
+/// A stroked vertical segment at PDF-space `x` from `y0` to `y1`.
+fn vline(ops: &mut Vec<Operation>, x: i64, y0: i64, y1: i64) {
+    ops.push(op("m", vec![x.into(), y0.into()]));
+    ops.push(op("l", vec![x.into(), y1.into()]));
+    ops.push(op("S", vec![]));
+}
+
+/// A borderless 3×3 alignment table: three left-aligned columns at x=72/222/372
+/// over three rows 20pt apart, no rulings. The whitespace gutters between the
+/// columns are wide and stable, so the alignment detector reconstructs it; with
+/// every span == 1 it renders as a GFM pipe table.
+fn borderless_table() -> Document {
+    let mut ops = Vec::new();
+    let rows = [
+        ["Name", "Qty", "Price"],
+        ["Alpha", "2", "$4"],
+        ["Beta", "5", "$9"],
+    ];
+    for (r, values) in rows.iter().enumerate() {
+        let y = 700 - (r as i64) * 20;
+        for (c, value) in values.iter().enumerate() {
+            let x = 72 + (c as i64) * 150;
+            text_run(&mut ops, x, y, value);
+        }
+    }
+    base_doc(ops, vec![])
+}
+
+/// A ruled 3×3 grid whose two interior verticals stop below the header band, so
+/// row 0 is one cell spanning all three columns. The missing interior separator
+/// segments become a colspan, forcing the HTML `<table>` renderer (GFM pipe
+/// cannot carry colspan/rowspan). Outer box x=72..372, y=650..750; row rulings
+/// at y=683/717; interior verticals x=172/272 only over y=650..717.
+fn merged_ruled_table() -> Document {
+    let mut ops = vec![
+        op("w", vec![1.into()]),
+        op("RG", vec![0.into(), 0.into(), 0.into()]),
+    ];
+    ops.push(op(
+        "re",
+        vec![72.into(), 650.into(), 300.into(), 100.into()],
+    ));
+    ops.push(op("S", vec![]));
+    hline(&mut ops, 72, 372, 683);
+    hline(&mut ops, 72, 372, 717);
+    vline(&mut ops, 172, 650, 717);
+    vline(&mut ops, 272, 650, 717);
+    text_run(&mut ops, 180, 727, "Summary");
+    text_run(&mut ops, 90, 695, "Alpha");
+    text_run(&mut ops, 200, 695, "2");
+    text_run(&mut ops, 300, 695, "$4");
+    text_run(&mut ops, 90, 662, "Beta");
+    text_run(&mut ops, 200, 662, "5");
+    text_run(&mut ops, 300, 662, "$9");
+    base_doc(ops, vec![])
+}
+
+/// A borderless block whose first row is a wide title straddling the gutter
+/// between the first two columns; the five data rows below keep the gutters
+/// stable. The title becomes a colspan cell, forcing the HTML `<table>`
+/// renderer. Columns at x=72/172/272 (the title reaches into the second column
+/// but not the third).
+fn merged_borderless_table() -> Document {
+    let mut ops = Vec::new();
+    text_run(&mut ops, 72, 720, "Quarterly Financial Report");
+    for r in 0..5 {
+        let y = 700 - r * 16;
+        for c in 0..3 {
+            let x = 72 + c * 100;
+            text_run(&mut ops, x, y, &format!("v{r}{c}"));
+        }
+    }
+    base_doc(ops, vec![])
+}
+
+/// A merged (colspan) ruled table whose header cell is hostile PDF text
+/// (`</td><script>…`). Because it merges, it routes through the HTML renderer;
+/// the fixture pins that untrusted cell text is HTML-escaped and cannot break
+/// out of the `<table>`. Same 3×3 geometry as `merged_ruled_table` so the grid
+/// carries enough filled cells to pass the occupancy gate.
+fn hostile_cell_table() -> Document {
+    let mut ops = vec![
+        op("w", vec![1.into()]),
+        op("RG", vec![0.into(), 0.into(), 0.into()]),
+    ];
+    ops.push(op(
+        "re",
+        vec![72.into(), 650.into(), 300.into(), 100.into()],
+    ));
+    ops.push(op("S", vec![]));
+    hline(&mut ops, 72, 372, 683);
+    hline(&mut ops, 72, 372, 717);
+    vline(&mut ops, 172, 650, 717);
+    vline(&mut ops, 272, 650, 717);
+    text_run(&mut ops, 90, 727, "</td><script>alert(1)</script>");
+    text_run(&mut ops, 90, 695, "safe");
+    text_run(&mut ops, 200, 695, "cell");
+    text_run(&mut ops, 300, 695, "text");
+    text_run(&mut ops, 90, 662, "a&b");
+    text_run(&mut ops, 200, 662, "c<d");
+    text_run(&mut ops, 300, 662, "e>f");
+    base_doc(ops, vec![])
+}
+
+/// Negative corpus: full-width running prose. Every line spans the content
+/// column, so no stable interior gutter exists and detection is declined — the
+/// lines must render as ordinary reading-order text.
+fn prose() -> Document {
+    let mut ops = Vec::new();
+    for r in 0..5 {
+        let y = 700 - r * 14;
+        text_run(
+            &mut ops,
+            72,
+            y,
+            "This is a full width running prose line that fills the content column",
+        );
+    }
+    base_doc(ops, vec![])
+}
+
+/// Negative corpus: ragged code indentation. Three token groups per line, but
+/// the left/right edges jitter far more than a bucket width, so the column-edge
+/// tightness guard rejects it. Must render as reading-order text.
+fn code_block() -> Document {
+    let mut ops = Vec::new();
+    let lines = [
+        ("def", "main", "():"),
+        ("return", "value", "plus"),
+        ("xx", "eq", "one"),
+        ("yy", "eq", "two"),
+    ];
+    let shifts = [0i64, 20, 6, 14];
+    for (r, (a, b, c)) in lines.iter().enumerate() {
+        let y = 700 - (r as i64) * 14;
+        let shift = shifts[r];
+        text_run(&mut ops, 72 + shift, y, a);
+        text_run(&mut ops, 162 + shift, y, b);
+        text_run(&mut ops, 252 + shift, y, c);
+    }
+    base_doc(ops, vec![])
+}
+
+/// Negative corpus: a two-column key/value form. Only two columns exist, so the
+/// ≥3-column gate declines it and the form stays reading-order text.
+fn key_value_form() -> Document {
+    let mut ops = Vec::new();
+    let pairs = [
+        ("Name:", "John Doe"),
+        ("Email:", "jdoe@example.test"),
+        ("Phone:", "555-0100"),
+        ("City:", "Springfield"),
+    ];
+    for (r, (key, value)) in pairs.iter().enumerate() {
+        let y = 700 - (r as i64) * 16;
+        text_run(&mut ops, 72, y, key);
+        text_run(&mut ops, 200, y, value);
+    }
+    base_doc(ops, vec![])
+}
+
 fn gray_image() -> Stream {
     Stream::new(
         dictionary! {
@@ -606,6 +783,23 @@ fn main() {
     link().save("testdata/link.pdf").unwrap();
     form().save("testdata/form.pdf").unwrap();
     ruled_table().save("testdata/ruled-table.pdf").unwrap();
+    borderless_table()
+        .save("testdata/borderless-table.pdf")
+        .unwrap();
+    merged_ruled_table()
+        .save("testdata/merged-ruled-table.pdf")
+        .unwrap();
+    merged_borderless_table()
+        .save("testdata/merged-borderless-table.pdf")
+        .unwrap();
+    hostile_cell_table()
+        .save("testdata/hostile-cell-table.pdf")
+        .unwrap();
+    prose().save("testdata/prose.pdf").unwrap();
+    code_block().save("testdata/code-block.pdf").unwrap();
+    key_value_form()
+        .save("testdata/key-value-form.pdf")
+        .unwrap();
 
     // Malformed corpus — all deterministic.
     let good = fs::read("testdata/simple.pdf").unwrap();
