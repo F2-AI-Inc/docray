@@ -29,8 +29,7 @@
           "text_elements=0",
           "image_coverage=1.000",
           "largest_image_ratio=1.000",
-          "image_covers_page",
-          "image_present_sparse_text"
+          "image_covers_page"
         ]
       },
       "elements": [
