@@ -2,6 +2,19 @@ use crate::{round3, CompactElement, Element, Extraction, Granularity, HiddenItem
 use serde::{Deserialize, Serialize};
 
 const TEXT_COVERAGE_FLOOR: f64 = 0.001;
+const MEANINGFUL_TEXT_COVERAGE: f64 = 0.02;
+const TEXT_COVERAGE_OPERATING_POINT: f64 = 0.15;
+// The confidence ramp for a correct Text/Mixed page starts well below the
+// classification threshold: genuinely dense-but-low-coverage pages (small
+// fonts, tight leading) sit at coverage 0.005-0.02 yet are unambiguously
+// text, and must not be pinned to the 0.5 floor. This only moves the
+// confidence ramp's lower bound; the 0.02 classification threshold is
+// unchanged.
+const TEXT_CONFIDENCE_RAMP_FLOOR: f64 = 0.005;
+// Significant image area carrying almost no mapped text is an under-read scan
+// that OCR should recover. The low text gate protects figure pages that DO
+// carry real text (they keep needs_ocr=false).
+const OCR_SPARSE_TEXT_COVERAGE: f64 = 0.05;
 const MEANINGFUL_TEXT_GLYPHS: usize = 8;
 const MEANINGFUL_IMAGE_COVERAGE: f64 = 0.01;
 const MIXED_IMAGE_COVERAGE: f64 = 0.20;
@@ -166,8 +179,12 @@ impl Extraction {
 
 pub fn classify_page(page: &crate::Page, warnings: &[String]) -> PageClassification {
     let signals = page_signals(page);
-    let meaningful_text =
-        signals.text_coverage >= TEXT_COVERAGE_FLOOR || signals.glyphs >= MEANINGFUL_TEXT_GLYPHS;
+    let full_page_raster = signals.largest_image_ratio >= DOMINATING_IMAGE_COVERAGE;
+    let sparse_text = signals.text_coverage < MEANINGFUL_TEXT_COVERAGE;
+    // A dominant raster carrying only a stray glyph layer is a scan, not a text
+    // page: glyph count must not vouch for "meaningful text" in that case.
+    let meaningful_text = signals.text_coverage >= MEANINGFUL_TEXT_COVERAGE
+        || (signals.glyphs >= MEANINGFUL_TEXT_GLYPHS && !(full_page_raster && sparse_text));
     let full_page_image = signals.largest_image_ratio >= FULL_PAGE_IMAGE_COVERAGE;
     let mixed = meaningful_text && signals.image_coverage >= MIXED_IMAGE_COVERAGE;
     let garbled = warnings.iter().any(|warning| {
@@ -190,10 +207,15 @@ pub fn classify_page(page: &crate::Page, warnings: &[String]) -> PageClassificat
         PageKind::Image
     };
 
+    // Significant image + almost no text = an under-read scan. The low text
+    // gate keeps figure pages that carry real text at needs_ocr=false.
+    let image_present_sparse_text = signals.image_coverage >= MIXED_IMAGE_COVERAGE
+        && signals.text_coverage < OCR_SPARSE_TEXT_COVERAGE;
     let needs_ocr = garbled
         || matches!(kind, PageKind::Scanned | PageKind::Image)
         || signals.largest_image_ratio >= DOMINATING_IMAGE_COVERAGE
-        || signals.text_coverage < TEXT_COVERAGE_FLOOR;
+        || signals.text_coverage < TEXT_COVERAGE_FLOOR
+        || image_present_sparse_text;
 
     let mut reasons = vec![
         ratio_reason("text_coverage", signals.text_coverage),
@@ -214,6 +236,9 @@ pub fn classify_page(page: &crate::Page, warnings: &[String]) -> PageClassificat
     }
     if garbled {
         reasons.push("suspected_garbled_text".into());
+    }
+    if image_present_sparse_text {
+        reasons.push("image_present_sparse_text".into());
     }
 
     PageClassification {
@@ -293,7 +318,9 @@ fn page_signals(page: &crate::Page) -> PageSignals {
 }
 
 fn classification_confidence(kind: PageKind, signals: &PageSignals) -> f64 {
-    let text_above = normalized_above(signals.text_coverage, TEXT_COVERAGE_FLOOR);
+    let text_above = ((signals.text_coverage - TEXT_CONFIDENCE_RAMP_FLOOR)
+        / (TEXT_COVERAGE_OPERATING_POINT - TEXT_CONFIDENCE_RAMP_FLOOR))
+        .clamp(0.0, 1.0);
     let text_below = normalized_below(signals.text_coverage, TEXT_COVERAGE_FLOOR);
     let image_above = normalized_above(signals.image_coverage, MEANINGFUL_IMAGE_COVERAGE);
     let image_below_mixed = normalized_below(signals.image_coverage, MIXED_IMAGE_COVERAGE);
@@ -338,4 +365,187 @@ fn clipped_bbox_area(bbox: &crate::BBox, width: f64, height: f64) -> f64 {
 
 fn positive_area(x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
     (x1 - x0).max(0.0) * (y1 - y0).max(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        BBox, Char, Element, Font, ImageElement, Line, Page, TextColor, TextElement, Word,
+    };
+
+    const PAGE_W: f64 = 600.0;
+    const PAGE_H: f64 = 800.0;
+
+    /// Builds a single text element carrying `glyphs` characters, each with a
+    /// `size x size` bbox, so total text coverage is controllable.
+    fn text_element(glyphs: usize, glyph_size: f64) -> Element {
+        let chars: Vec<Char> = (0..glyphs)
+            .map(|i| {
+                let x = i as f64 * glyph_size;
+                Char {
+                    content: "a".into(),
+                    bbox: BBox {
+                        x0: x,
+                        y0: 0.0,
+                        x1: x + glyph_size,
+                        y1: glyph_size,
+                    },
+                    unicode: u32::from(b'a'),
+                }
+            })
+            .collect();
+        let word_bbox = BBox {
+            x0: 0.0,
+            y0: 0.0,
+            x1: glyphs as f64 * glyph_size,
+            y1: glyph_size,
+        };
+        Element::Text(TextElement {
+            id: "t0".into(),
+            bbox: word_bbox,
+            content: "a".repeat(glyphs),
+            font: Font {
+                name: "Test".into(),
+                size: 10.0,
+                bold: false,
+                italic: false,
+            },
+            color: TextColor {
+                fill: Some([0, 0, 0]),
+                stroke: None,
+            },
+            lines: Some(vec![Line {
+                bbox: word_bbox,
+                baseline_y: glyph_size,
+                words: vec![Word {
+                    content: "a".repeat(glyphs),
+                    bbox: word_bbox,
+                    chars,
+                }],
+            }]),
+            runs: None,
+        })
+    }
+
+    fn full_page_image() -> Element {
+        Element::Image(ImageElement {
+            id: "i0".into(),
+            bbox: BBox {
+                x0: 0.0,
+                y0: 0.0,
+                x1: PAGE_W,
+                y1: PAGE_H,
+            },
+            quad: [[0.0, 0.0], [PAGE_W, 0.0], [PAGE_W, PAGE_H], [0.0, PAGE_H]],
+            pixel_width: Some(1200),
+            pixel_height: Some(1600),
+            colorspace: Some("DeviceRGB".into()),
+            content_hash: Some("deadbeef".into()),
+        })
+    }
+
+    /// An image element occupying a `w x h` box anchored at the origin, so
+    /// `image_coverage` and `largest_image_ratio` are directly controllable
+    /// and stay below the full-page/dominating thresholds.
+    fn partial_image(w: f64, h: f64) -> Element {
+        Element::Image(ImageElement {
+            id: "i1".into(),
+            bbox: BBox {
+                x0: 0.0,
+                y0: 0.0,
+                x1: w,
+                y1: h,
+            },
+            quad: [[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]],
+            pixel_width: Some(600),
+            pixel_height: Some(800),
+            colorspace: Some("DeviceRGB".into()),
+            content_hash: Some("cafef00d".into()),
+        })
+    }
+
+    fn page(elements: Vec<Element>) -> Page {
+        Page {
+            page_number: 1,
+            width: PAGE_W,
+            height: PAGE_H,
+            rotation: 0,
+            scanned: false,
+            elements,
+            hidden: vec![],
+        }
+    }
+
+    #[test]
+    fn scanned_page_with_stray_glyph_layer_is_scanned_and_needs_ocr() {
+        // Full-page raster covering the page (ratio 1.0) plus a stray 10-glyph
+        // text layer with 1pt boxes → text_coverage ≈ 10/480000 ≈ 2e-5, well
+        // under MEANINGFUL_TEXT_COVERAGE. Glyph count must not vouch for text.
+        let page = page(vec![full_page_image(), text_element(10, 1.0)]);
+        let signals = page_signals(&page);
+        assert!(signals.largest_image_ratio >= FULL_PAGE_IMAGE_COVERAGE);
+        assert!(signals.text_coverage < MEANINGFUL_TEXT_COVERAGE);
+        assert_eq!(signals.glyphs, 10);
+
+        let c = classify_page(&page, &[]);
+        assert_eq!(c.kind, PageKind::Scanned);
+        assert!(c.needs_ocr);
+    }
+
+    #[test]
+    fn sparse_text_page_without_image_stays_text_and_no_ocr() {
+        // 10 glyphs, no image. glyph_size chosen so coverage ≈ 0.005: between
+        // TEXT_COVERAGE_FLOOR and MEANINGFUL_TEXT_COVERAGE. A genuinely sparse
+        // but complete text page must not be dragged into needs_ocr.
+        // area per glyph = 240 (√240 ≈ 15.49) → 10 glyphs → 2400 / 480000 = 0.005.
+        let page = page(vec![text_element(10, 240.0_f64.sqrt())]);
+        let signals = page_signals(&page);
+        assert!(signals.largest_image_ratio < DOMINATING_IMAGE_COVERAGE);
+        assert!(signals.text_coverage >= TEXT_COVERAGE_FLOOR);
+        assert!(signals.text_coverage < MEANINGFUL_TEXT_COVERAGE);
+        assert_eq!(signals.glyphs, 10);
+
+        let c = classify_page(&page, &[]);
+        assert_eq!(c.kind, PageKind::Text);
+        assert!(!c.needs_ocr);
+    }
+
+    #[test]
+    fn image_with_sparse_text_layer_needs_ocr() {
+        // Significant image (~30% of page, ratio 0.30 < DOMINATING 0.60) plus a
+        // stray text layer at coverage ≈ 0.01: 10 glyphs of area 480 each →
+        // 4800 / 480000 = 0.01, under OCR_SPARSE_TEXT_COVERAGE (0.05). This is
+        // the under-read-scan pattern; the gated trigger must force needs_ocr.
+        let page = page(vec![
+            partial_image(360.0, 400.0),
+            text_element(10, 480.0_f64.sqrt()),
+        ]);
+        let signals = page_signals(&page);
+        assert!((signals.image_coverage - 0.30).abs() < 1e-6);
+        assert!(signals.largest_image_ratio < DOMINATING_IMAGE_COVERAGE);
+        assert!(signals.text_coverage < OCR_SPARSE_TEXT_COVERAGE);
+        assert!((signals.text_coverage - 0.01).abs() < 1e-6);
+
+        let c = classify_page(&page, &[]);
+        assert!(c.needs_ocr);
+        assert!(c.reasons.iter().any(|r| r == "image_present_sparse_text"));
+    }
+
+    #[test]
+    fn figure_page_with_good_text_no_forced_ocr() {
+        // Same ~30% image, but the text layer carries real content: 6 glyphs of
+        // area 9216 each → 55296 / 480000 ≈ 0.115, above OCR_SPARSE_TEXT_COVERAGE
+        // (0.05). The sparse-text gate must stay inert so figure-with-caption
+        // pages are not force-flagged for OCR.
+        let page = page(vec![partial_image(360.0, 400.0), text_element(6, 96.0)]);
+        let signals = page_signals(&page);
+        assert!((signals.image_coverage - 0.30).abs() < 1e-6);
+        assert!(signals.largest_image_ratio < DOMINATING_IMAGE_COVERAGE);
+        assert!(signals.text_coverage >= OCR_SPARSE_TEXT_COVERAGE);
+
+        let c = classify_page(&page, &[]);
+        assert!(!c.reasons.iter().any(|r| r == "image_present_sparse_text"));
+        assert!(!c.needs_ocr);
+    }
 }

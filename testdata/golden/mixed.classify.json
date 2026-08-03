@@ -22,13 +22,14 @@
       "scanned": false,
       "classification": {
         "kind": "mixed",
-        "confidence": 0.619,
-        "needs_ocr": false,
+        "confidence": 0.512,
+        "needs_ocr": true,
         "reasons": [
           "text_coverage=0.008",
           "text_elements=1",
           "image_coverage=0.248",
-          "largest_image_ratio=0.248"
+          "largest_image_ratio=0.248",
+          "image_present_sparse_text"
         ]
       },
       "elements": [

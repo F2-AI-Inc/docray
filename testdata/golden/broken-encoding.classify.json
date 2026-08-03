@@ -24,7 +24,7 @@
       "scanned": false,
       "classification": {
         "kind": "text",
-        "confidence": 1.0,
+        "confidence": 0.503,
         "needs_ocr": true,
         "reasons": [
           "text_coverage=0.006",
