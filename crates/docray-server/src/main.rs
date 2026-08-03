@@ -34,6 +34,7 @@ async fn main() {
                     input_path,
                     granularity,
                     format,
+                    classify,
                 } = match store.claim_next() {
                     Ok(Some(job)) => job,
                     Ok(None) => {
@@ -53,6 +54,7 @@ async fn main() {
                     &input_path,
                     granularity,
                     format,
+                    classify,
                 ));
                 if work.catch_unwind().await.is_err() {
                     if let Err(e) = store.mark_failed(&id, "crash", "worker task panicked") {
@@ -108,8 +110,17 @@ async fn process_job(
     input_path: &str,
     granularity: Option<docray_model::Granularity>,
     format: docray_model::OutputFormat,
+    classify: bool,
 ) {
-    let outcome = run_extraction(cfg, Path::new(input_path), None, granularity, format).await;
+    let outcome = run_extraction(
+        cfg,
+        Path::new(input_path),
+        None,
+        granularity,
+        format,
+        classify,
+    )
+    .await;
     let marked = match outcome {
         WorkerOutcome::Success(bytes) => {
             let extension = match format {

@@ -39,6 +39,11 @@ const fixtures = [
   { file: "code-block.pdf", granularity: "" },
   { file: "key-value-form.pdf", granularity: "" },
   { file: "three-column-prose.pdf", granularity: "" },
+  { file: "simple.pdf", granularity: "", classify: true },
+  { file: "scan.pdf", granularity: "", classify: true },
+  { file: "image.pdf", granularity: "", classify: true },
+  { file: "mixed.pdf", granularity: "", classify: true },
+  { file: "broken-encoding.pdf", granularity: "", classify: true },
 ];
 
 function exact(failures, label, a, b) {
@@ -128,6 +133,17 @@ function compare(native, wasm) {
     near(`${label}.height`, a.height, b.height);
     exact(failures, `${label}.rotation`, a.rotation, b.rotation);
     exact(failures, `${label}.scanned`, a.scanned, b.scanned);
+    if (a.classification || b.classification) {
+      exact(failures, `${label}.classification.kind`, a.classification?.kind, b.classification?.kind);
+      exact(failures, `${label}.classification.needs_ocr`, a.classification?.needs_ocr, b.classification?.needs_ocr);
+      near(`${label}.classification.confidence`, a.classification?.confidence, b.classification?.confidence);
+      exact(
+        failures,
+        `${label}.classification.reason_signals`,
+        a.classification?.reasons.map((reason) => reason.split("=")[0]),
+        b.classification?.reasons.map((reason) => reason.split("=")[0]),
+      );
+    }
     exact(failures, `${label}.element_count`, a.elements.length, b.elements.length);
     for (let ei = 0; ei < Math.min(a.elements.length, b.elements.length); ei += 1) {
       const ae = a.elements[ei];
@@ -220,13 +236,14 @@ async function main() {
 
   const results = [];
   for (const fixture of fixtures) {
-    const { file, granularity, exact: requiresExact } = fixture;
+    const { file, granularity, classify, exact: requiresExact } = fixture;
     const fixturePath = path.join(root, "testdata", file);
     // Deliberately extract PPTX before Pdfium initialization. This proves the
     // pure-Rust Office path has no hidden dependency on the Emscripten module.
     if (file.endsWith(".pdf")) await ensurePdfium();
     const nativeArgs = ["extract", fixturePath];
     if (granularity) nativeArgs.push("--granularity", granularity);
+    if (classify) nativeArgs.push("--classify");
     const nativeRun = spawnSync(nativeCli, nativeArgs, {
       cwd: root,
       encoding: "utf8",
@@ -237,8 +254,12 @@ async function main() {
     }
 
     const native = JSON.parse(nativeRun.stdout);
-    const wasm = JSON.parse(docray.extract(fs.readFileSync(fixturePath), granularity, 0, 0));
-    results.push({ fixture: file, ...(requiresExact ? compareExact(native, wasm) : compare(native, wasm)) });
+    const wasmJson = classify
+      ? docray.extract_classified(fs.readFileSync(fixturePath), granularity, 0, 0)
+      : docray.extract(fs.readFileSync(fixturePath), granularity, 0, 0);
+    const wasm = JSON.parse(wasmJson);
+    const label = classify ? `${file} (classify)` : file;
+    results.push({ fixture: label, ...(requiresExact ? compareExact(native, wasm) : compare(native, wasm)) });
 
     // Lean output must match wasm-vs-native: same Rust renderer over the
     // same extraction. Structure/content compare exactly; numbers within

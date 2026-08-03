@@ -38,6 +38,21 @@ pub fn extract(
     extract_inner(bytes, granularity, max_input_bytes, max_output_bytes).map_err(WasmError::into_js)
 }
 
+/// Extracts JSON with schema-1.8 per-page classification. This separate export
+/// preserves the established four-argument `extract` JavaScript API and makes
+/// classification explicitly opt in.
+#[wasm_bindgen]
+pub fn extract_classified(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+    max_output_bytes: usize,
+) -> Result<String, JsValue> {
+    install_panic_hook();
+    extract_inner_with_classify(bytes, granularity, max_input_bytes, max_output_bytes, true)
+        .map_err(WasmError::into_js)
+}
+
 /// Extracts PDF, PPTX, or DOCX and returns the token-lean line format (see the docs'
 /// Output formats page). `granularity` accepts "element", "word", or the
 /// empty string (implies element, matching the CLI/HTTP surfaces). "char" is
@@ -164,6 +179,16 @@ fn extract_inner(
     max_input_bytes: usize,
     max_output_bytes: usize,
 ) -> Result<String, WasmError> {
+    extract_inner_with_classify(bytes, granularity, max_input_bytes, max_output_bytes, false)
+}
+
+fn extract_inner_with_classify(
+    bytes: &[u8],
+    granularity: &str,
+    max_input_bytes: usize,
+    max_output_bytes: usize,
+    classify: bool,
+) -> Result<String, WasmError> {
     let cap = output_cap(max_output_bytes);
     if max_input_bytes != 0 && bytes.len() > max_input_bytes {
         return Err(WasmError::new(
@@ -193,6 +218,9 @@ fn extract_inner(
     let extraction = extract_document(bytes, requested)?;
 
     match (extraction, requested) {
+        (DocumentExtraction::Paged(extraction), requested) if classify => {
+            json_capped(&extraction.with_classification(requested), cap)
+        }
         (DocumentExtraction::Paged(extraction), Some(granularity)) => {
             json_capped(&extraction.with_granularity(granularity), cap)
         }
@@ -406,6 +434,18 @@ mod tests {
         assert_eq!(value["granularity"], "element");
         assert_eq!(value["source"]["format"], "pptx");
         assert_eq!(value["pages"][0]["elements"][0]["type"], "table");
+    }
+
+    #[test]
+    fn classified_export_shape_extracts_without_pdfium() {
+        let bytes = include_bytes!("../../../testdata/pptx/basic.pptx");
+        let json = extract_inner_with_classify(bytes, "element", 0, 0, true).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["schema_version"], "1.8");
+        assert_eq!(value["granularity"], "element");
+        assert!(value["pages"][0]["classification"]["kind"].is_string());
+        assert!(value["pages"][0]["classification"]["needs_ocr"].is_boolean());
     }
 
     #[test]

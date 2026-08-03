@@ -169,12 +169,12 @@ fn job_lifecycle_success_and_failure() {
 }
 
 #[test]
-fn job_granularity_is_stored_and_forwarded_to_the_worker_cli() {
+fn job_output_options_are_stored_and_forwarded_to_the_worker_cli() {
     let server = TestServer::start();
     let client = reqwest::blocking::Client::new();
     let r = upload(
         &server.base,
-        "/v1/jobs?granularity=word",
+        "/v1/jobs?granularity=word&classify=true",
         fixture("simple.pdf"),
     );
     assert_eq!(r.status(), 202);
@@ -205,8 +205,9 @@ fn job_granularity_is_stored_and_forwarded_to_the_worker_cli() {
         .unwrap();
     assert_eq!(r.status(), 200);
     let v: serde_json::Value = r.json().unwrap();
-    assert_eq!(v["schema_version"], "1.6");
+    assert_eq!(v["schema_version"], "1.8");
     assert_eq!(v["granularity"], "word");
+    assert_eq!(v["pages"][0]["classification"]["kind"], "text");
     assert_eq!(v["pages"][0]["elements"][0]["words"][0][0], "Hello");
 }
 

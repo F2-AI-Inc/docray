@@ -419,6 +419,22 @@ fn extract_granularity_element_and_invalid_value() {
 }
 
 #[test]
+fn extract_classify_true_emits_schema_1_8_page_classification() {
+    let server = TestServer::start();
+    let r = upload(
+        &server.base,
+        "/v1/extract?classify=true",
+        fixture("simple.pdf"),
+    );
+    assert_eq!(r.status(), 200);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["schema_version"], "1.8");
+    assert_eq!(v["pages"][0]["classification"]["kind"], "text");
+    assert_eq!(v["pages"][0]["classification"]["needs_ocr"], false);
+    assert_eq!(v["pages"][0]["scanned"], false);
+}
+
+#[test]
 fn extract_lean_content_type_default_and_char_rejection() {
     let server = TestServer::start();
 

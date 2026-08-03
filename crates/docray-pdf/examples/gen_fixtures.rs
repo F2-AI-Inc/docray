@@ -533,6 +533,47 @@ fn scan() -> Document {
     doc
 }
 
+/// Native text plus a meaningful, non-dominating image. The image is exactly
+/// 300x400pt on a 612x792pt page, so its hand-computed coverage is
+/// 120_000 / 484_704 = 0.248. The mapped title glyphs exceed the 0.001 text
+/// coverage floor, pinning this page as mixed rather than image or scanned.
+fn mixed() -> Document {
+    let mut doc = base_doc(
+        vec![
+            op("BT", vec![]),
+            op("Tf", vec!["F1".into(), 18.into()]),
+            op("Td", vec![72.into(), 720.into()]),
+            op(
+                "Tj",
+                vec![Object::string_literal("Native text beside artwork")],
+            ),
+            op("ET", vec![]),
+            op("q", vec![]),
+            op(
+                "cm",
+                vec![
+                    300.into(),
+                    0.into(),
+                    0.into(),
+                    400.into(),
+                    100.into(),
+                    200.into(),
+                ],
+            ),
+            op("Do", vec!["Im1".into()]),
+            op("Q", vec![]),
+        ],
+        vec![],
+    );
+    let img_id = doc.add_object(gray_image());
+    let page_id = doc.page_iter().next().unwrap();
+    let resources_id = doc.get_page_resources(page_id).unwrap().1[0];
+    if let Ok(Object::Dictionary(res)) = doc.get_object_mut(resources_id) {
+        res.set("XObject", dictionary! { "Im1" => img_id });
+    }
+    doc
+}
+
 fn link() -> Document {
     let mut doc = base_doc(
         vec![
@@ -943,6 +984,7 @@ fn main() {
     rotated().save("testdata/rotated.pdf").unwrap();
     image().save("testdata/image.pdf").unwrap();
     scan().save("testdata/scan.pdf").unwrap();
+    mixed().save("testdata/mixed.pdf").unwrap();
     link().save("testdata/link.pdf").unwrap();
     form().save("testdata/form.pdf").unwrap();
     ruled_table().save("testdata/ruled-table.pdf").unwrap();

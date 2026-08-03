@@ -20,6 +20,7 @@ pub async fn run_extraction(
     max_pages: Option<u32>,
     granularity: Option<Granularity>,
     format: OutputFormat,
+    classify: bool,
 ) -> WorkerOutcome {
     let mut cmd = Command::new(&cfg.cli_path);
     cmd.arg("extract").arg(input);
@@ -31,6 +32,9 @@ pub async fn run_extraction(
     }
     if format != OutputFormat::Json {
         cmd.args(["--format", format.as_str()]);
+    }
+    if classify {
+        cmd.arg("--classify");
     }
     if let Some(dir) = &cfg.pdfium_dir {
         cmd.env("DOCRAY_PDFIUM_DIR", dir);

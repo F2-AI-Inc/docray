@@ -78,6 +78,9 @@ enum Cmd {
         /// Output encoding: json, lean, or md. Text formats imply element granularity.
         #[arg(long, default_value = "json", value_name = "json|lean|md")]
         format: String,
+        /// Add deterministic per-page classification (schema 1.8 JSON only).
+        #[arg(long)]
+        classify: bool,
     },
 }
 
@@ -90,7 +93,8 @@ fn main() -> ExitCode {
             pretty,
             granularity,
             format,
-        } => run_extract(&file, max_pages, pretty, granularity, &format),
+            classify,
+        } => run_extract(&file, max_pages, pretty, granularity, &format, classify),
     }
 }
 
@@ -104,11 +108,15 @@ fn run_extract(
     pretty: bool,
     granularity: Option<Granularity>,
     format: &str,
+    classify: bool,
 ) -> ExitCode {
     let format = match OutputFormat::from_str(format) {
         Ok(format) => format,
         Err(message) => return fail_bad_format(&message),
     };
+    if classify && format != OutputFormat::Json {
+        return fail_bad_format("--classify is available only with JSON output");
+    }
     let granularity = match (format, granularity) {
         (OutputFormat::Lean | OutputFormat::Markdown, None) => Some(Granularity::Element),
         (OutputFormat::Lean | OutputFormat::Markdown, Some(Granularity::Char)) => {
@@ -173,6 +181,14 @@ fn run_extract(
                 },
                 OutputFormat::Json => {
                     let mut json = match extraction {
+                        DocumentExtraction::Paged(extraction) if classify => {
+                            let projected = extraction.with_classification(granularity);
+                            if pretty {
+                                serde_json::to_string_pretty(&projected)
+                            } else {
+                                serde_json::to_string(&projected)
+                            }
+                        }
                         DocumentExtraction::Paged(extraction) if granularity.is_some() => {
                             let projected = extraction.with_granularity(granularity.unwrap());
                             if pretty {
@@ -189,6 +205,8 @@ fn run_extract(
                             }
                         }
                         DocumentExtraction::Flow(extraction) => {
+                            // Flow documents have no physical pages to classify. Keep
+                            // their schema-1.7 authored-flow response unchanged.
                             let projected = extraction
                                 .with_granularity(
                                     granularity.expect("flow output defaults to element"),

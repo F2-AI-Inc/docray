@@ -22,6 +22,7 @@ pub struct ClaimedJob {
     pub input_path: String,
     pub granularity: Option<Granularity>,
     pub format: OutputFormat,
+    pub classify: bool,
 }
 
 fn now() -> i64 {
@@ -43,6 +44,7 @@ impl JobStore {
                 input_path TEXT NOT NULL,
                 granularity TEXT,
                 format TEXT NOT NULL DEFAULT 'json',
+                classify INTEGER NOT NULL DEFAULT 0,
                 result_path TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -74,6 +76,19 @@ impl JobStore {
             )
             .expect("cannot migrate job schema");
         }
+        let has_classify = conn
+            .prepare("PRAGMA table_info(jobs)")
+            .expect("cannot inspect job schema")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("cannot read job schema")
+            .any(|column| column.expect("cannot read job schema column") == "classify");
+        if !has_classify {
+            conn.execute(
+                "ALTER TABLE jobs ADD COLUMN classify INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            .expect("cannot migrate job schema");
+        }
         JobStore {
             conn: Mutex::new(conn),
         }
@@ -95,16 +110,18 @@ impl JobStore {
         input_path: &str,
         granularity: Option<Granularity>,
         format: OutputFormat,
+        classify: bool,
     ) -> Result<(), rusqlite::Error> {
         let t = now();
         self.conn().execute(
-            "INSERT INTO jobs (id, status, input_path, granularity, format, created_at, updated_at)
-             VALUES (?1, 'queued', ?2, ?3, ?4, ?5, ?5)",
+            "INSERT INTO jobs (id, status, input_path, granularity, format, classify, created_at, updated_at)
+             VALUES (?1, 'queued', ?2, ?3, ?4, ?5, ?6, ?6)",
             rusqlite::params![
                 id,
                 input_path,
                 granularity.map(Granularity::as_str),
                 format.as_str(),
+                classify,
                 t
             ],
         )?;
@@ -115,16 +132,24 @@ impl JobStore {
     /// empty; `Err` means the store failed (distinct so callers don't spin).
     pub fn claim_next(&self) -> Result<Option<ClaimedJob>, rusqlite::Error> {
         let conn = self.conn();
-        let claimed: Option<(String, String, Option<String>, String)> = conn
+        let claimed: Option<(String, String, Option<String>, String, bool)> = conn
             .query_row(
                 "UPDATE jobs SET status = 'running', updated_at = ?1
              WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1)
-             RETURNING id, input_path, granularity, format",
+             RETURNING id, input_path, granularity, format, classify",
                 rusqlite::params![now()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .optional()?;
-        Ok(claimed.map(|(id, input_path, level, format)| {
+        Ok(claimed.map(|(id, input_path, level, format, classify)| {
             let granularity = level.map(|value| {
                 value
                     .parse()
@@ -138,6 +163,7 @@ impl JobStore {
                 input_path,
                 granularity,
                 format,
+                classify,
             }
         }))
     }
@@ -242,11 +268,23 @@ mod tests {
         let input = dir.join("in.pdf");
         std::fs::write(&input, b"x").unwrap();
         store
-            .create("old", input.to_str().unwrap(), None, OutputFormat::Json)
+            .create(
+                "old",
+                input.to_str().unwrap(),
+                None,
+                OutputFormat::Json,
+                false,
+            )
             .unwrap();
         store.mark_failed("old", "crash", "boom").unwrap();
         store
-            .create("fresh", input.to_str().unwrap(), None, OutputFormat::Json)
+            .create(
+                "fresh",
+                input.to_str().unwrap(),
+                None,
+                OutputFormat::Json,
+                false,
+            )
             .unwrap();
 
         // TTL 0 expires everything terminal that is at least 1s old; backdate 'old'.
@@ -274,7 +312,13 @@ mod tests {
         let store = Arc::new(JobStore::new(&dir.join("t.sqlite")));
         for i in 0..10 {
             store
-                .create(&format!("job-{i}"), "in.pdf", None, OutputFormat::Json)
+                .create(
+                    &format!("job-{i}"),
+                    "in.pdf",
+                    None,
+                    OutputFormat::Json,
+                    false,
+                )
                 .unwrap();
         }
 
@@ -310,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn claim_preserves_requested_granularity() {
+    fn claim_preserves_requested_output_options() {
         let dir = std::env::temp_dir().join(format!("dps-granularity-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = JobStore::new(&dir.join("t.sqlite"));
@@ -320,6 +364,7 @@ mod tests {
                 "in.pdf",
                 Some(Granularity::Word),
                 OutputFormat::Lean,
+                false,
             )
             .unwrap();
 
@@ -328,12 +373,14 @@ mod tests {
         assert_eq!(job.input_path, "in.pdf");
         assert_eq!(job.granularity, Some(Granularity::Word));
         assert_eq!(job.format, OutputFormat::Lean);
+        assert!(!job.classify);
 
         store
-            .create("markdown", "in.pdf", None, OutputFormat::Markdown)
+            .create("classified", "in.pdf", None, OutputFormat::Json, true)
             .unwrap();
         let job = store.claim_next().unwrap().unwrap();
-        assert_eq!(job.format, OutputFormat::Markdown);
+        assert_eq!(job.format, OutputFormat::Json);
+        assert!(job.classify);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -72,6 +72,42 @@ covering ≥ 85% of the page area** — the signal that a page's text
 is not machine-readable and needs OCR to recover. It also flags pre-rendered
 (rasterized-slide) pages, which have the same property.
 
+## Opt-in page classification (schema 1.8)
+
+An explicit classify request adds this object to every physical page:
+
+```json
+"classification": {
+  "kind": "mixed",
+  "confidence": 0.82,
+  "needs_ocr": false,
+  "reasons": ["text_coverage=0.012", "text_elements=3", "image_coverage=0.248"]
+}
+```
+
+`kind` is `text`, `scanned`, `image`, or `mixed`. The deterministic v1 rules
+use summed clipped glyph-box area divided by page area, mapped glyph and text
+element counts, summed and largest image coverage, vector-path density, and
+the existing page-scoped `suspected_garbled_text` warning:
+
+- mapped text is meaningful at 0.001 page coverage or eight glyphs;
+- an image is meaningful at 0.01 page coverage and participates in `mixed`
+  at 0.20 coverage when meaningful text is also present;
+- little/no mapped text plus an image covering at least 0.85 is `scanned`;
+- meaningful mapped text without meaningful image coverage is `text`; other
+  visual/no-text pages are `image`.
+
+`needs_ocr` is true for `scanned` and `image`, a largest-image ratio of at
+least 0.60, text coverage below 0.001, or suspected garbled text. A garbled
+page therefore needs OCR even when its physical text operators make the kind
+`text`. `confidence` is a rounded 0..1 decision-margin score: distance from
+the thresholds used for the selected kind, not a statistically calibrated
+probability. `reasons` records the rounded signals in stable evaluation order.
+
+Classification does not read or mutate the legacy `scanned` field. Omitting
+the option serializes the original schema `1.1` model directly, so no
+classification field or version change can leak into default bytes.
+
 Granularity-shaped schema `1.6` pages can also carry a `hidden` array. The
 field is omitted when empty and is copied unchanged across granularities:
 
@@ -232,9 +268,18 @@ links.
 
 ## Stability
 
+| Schema | Selected by |
+|---|---|
+| `1.1` | PDF JSON with no shaping parameters |
+| `1.6` | Explicit `element`, `word`, or `char` granularity for paged output |
+| `1.7` | DOCX/DOCM authored-flow output |
+| `1.8` | Opt-in classified paged output, with or without granularity |
+
 - The no-parameter response is frozen at schema `1.1` — new fields are only
   ever additive, and granularity-shaped responses carry their own version
   (`1.6`) and a `granularity` discriminator. Flow responses use schema `1.7`.
+  Opt-in classified paged responses use schema `1.8` and may also carry the
+  requested granularity discriminator.
   PDF emits no hidden items, runs,
   tables, or charts, so its
   no-parameter `1.1` bytes remain unchanged.

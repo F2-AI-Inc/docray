@@ -40,6 +40,42 @@ fn explicit_char_has_v1_6_envelope_and_lossless_hierarchy() {
 }
 
 #[test]
+fn classify_is_opt_in_schema_1_8_and_composes_with_granularity() {
+    dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .arg("--classify")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\":\"1.8\""))
+        .stdout(predicate::str::contains(
+            "\"classification\":{\"kind\":\"text\"",
+        ))
+        .stdout(predicate::str::contains("\"needs_ocr\":false"));
+
+    dps()
+        .arg("extract")
+        .arg(testdata("mixed.pdf"))
+        .args(["--classify", "--granularity", "element"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\":\"1.8\""))
+        .stdout(predicate::str::contains("\"granularity\":\"element\""))
+        .stdout(predicate::str::contains("\"kind\":\"mixed\""));
+}
+
+#[test]
+fn classify_rejects_non_json_formats() {
+    dps()
+        .arg("extract")
+        .arg(testdata("simple.pdf"))
+        .args(["--classify", "--format", "lean"])
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("\"code\":\"bad_format\""));
+}
+
+#[test]
 fn lean_defaults_to_element_and_emits_fixed_header_lines() {
     let assert = dps()
         .arg("extract")

@@ -89,6 +89,8 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 struct OutputQuery {
     granularity: Option<String>,
     format: Option<String>,
+    #[serde(default)]
+    classify: bool,
 }
 
 #[derive(Debug)]
@@ -99,7 +101,7 @@ struct OutputQueryError {
 
 fn requested_output(
     query: Result<Query<OutputQuery>, QueryRejection>,
-) -> Result<(Option<Granularity>, OutputFormat), OutputQueryError> {
+) -> Result<(Option<Granularity>, OutputFormat, bool), OutputQueryError> {
     let query = query.map_err(|error| OutputQueryError {
         code: "bad_granularity",
         message: error.to_string(),
@@ -122,9 +124,15 @@ fn requested_output(
         })?,
         None => OutputFormat::Json,
     };
+    if query.0.classify && format != OutputFormat::Json {
+        return Err(OutputQueryError {
+            code: "bad_format",
+            message: "classify=true is available only with JSON output".into(),
+        });
+    }
     match (format, granularity) {
         (OutputFormat::Lean | OutputFormat::Markdown, None) => {
-            Ok((Some(Granularity::Element), format))
+            Ok((Some(Granularity::Element), format, false))
         }
         (OutputFormat::Lean | OutputFormat::Markdown, Some(Granularity::Char)) => {
             Err(OutputQueryError {
@@ -132,7 +140,7 @@ fn requested_output(
                 message: format!("{format} format requires element or word granularity"),
             })
         }
-        _ => Ok((granularity, format)),
+        _ => Ok((granularity, format, query.0.classify)),
     }
 }
 
@@ -212,7 +220,7 @@ async fn sync_extract(
     query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let (granularity, format) = match requested_output(query) {
+    let (granularity, format, classify) = match requested_output(query) {
         Ok(value) => value,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
@@ -275,6 +283,7 @@ async fn sync_extract(
         Some(state.cfg.sync_max_pages),
         granularity,
         format,
+        classify,
     )
     .await;
     outcome_to_response(outcome, format)
@@ -350,7 +359,7 @@ async fn create_job(
     query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let (granularity, format) = match requested_output(query) {
+    let (granularity, format, classify) = match requested_output(query) {
         Ok(value) => value,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
@@ -386,10 +395,13 @@ async fn create_job(
         return resp;
     }
 
-    if let Err(e) = state
-        .jobs
-        .create(&id, input_path.to_str().unwrap(), granularity, format)
-    {
+    if let Err(e) = state.jobs.create(
+        &id,
+        input_path.to_str().unwrap(),
+        granularity,
+        format,
+        classify,
+    ) {
         let _ = std::fs::remove_file(&input_path);
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -471,6 +483,7 @@ mod tests {
         Query(OutputQuery {
             granularity: granularity.map(str::to_string),
             format: format.map(str::to_string),
+            classify: false,
         })
     }
 
@@ -478,7 +491,7 @@ mod tests {
     fn lean_query_implies_element_and_rejects_char() {
         assert_eq!(
             requested_output(Ok(query(None, Some("lean")))).unwrap(),
-            (Some(Granularity::Element), OutputFormat::Lean)
+            (Some(Granularity::Element), OutputFormat::Lean, false)
         );
 
         let error = requested_output(Ok(query(Some("char"), Some("lean")))).unwrap_err();
@@ -486,7 +499,7 @@ mod tests {
 
         assert_eq!(
             requested_output(Ok(query(None, Some("md")))).unwrap(),
-            (Some(Granularity::Element), OutputFormat::Markdown)
+            (Some(Granularity::Element), OutputFormat::Markdown, false)
         );
         let error = requested_output(Ok(query(Some("char"), Some("md")))).unwrap_err();
         assert_eq!(error.code, "bad_format");
