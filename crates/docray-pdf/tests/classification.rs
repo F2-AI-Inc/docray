@@ -30,7 +30,7 @@ fn hand_verified_fixture_classifications_cover_all_page_kinds_and_garble() {
         ("simple.pdf", PageKind::Text, false),
         ("scan.pdf", PageKind::Scanned, true),
         ("image.pdf", PageKind::Image, true),
-        ("mixed.pdf", PageKind::Mixed, false),
+        ("mixed.pdf", PageKind::Mixed, true),
     ];
     let mut confidences = Vec::new();
     for (fixture, kind, needs_ocr) in cases {
