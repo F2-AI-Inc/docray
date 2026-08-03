@@ -1,7 +1,7 @@
 //! Generates the committed test corpus. Run once and commit the outputs:
 //! cargo run -p docray-pdf --example gen_fixtures
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::{dictionary, Dictionary, Document, Object, Stream, StringFormat};
 use std::fs;
 
 fn base_doc(content_ops: Vec<Operation>, extra_page_entries: Vec<(&str, Object)>) -> Document {
@@ -71,6 +71,116 @@ fn simple_content() -> Vec<Operation> {
 
 fn simple() -> Document {
     base_doc(simple_content(), vec![])
+}
+
+/// A deterministic Type 3 font fixture. Each byte has a visible box glyph;
+/// `unicode` optionally supplies the font's ToUnicode mapping. This lets the
+/// broken fixture exercise missing character mappings without depending on a
+/// platform font, while the CJK control proves that mapped non-Latin text is
+/// not treated as garble.
+fn type3_text(codes: &[u8], unicode: Option<&[u16]>) -> Document {
+    assert!(!codes.is_empty());
+    assert!(codes.windows(2).all(|pair| pair[1] == pair[0] + 1));
+    assert!(unicode.is_none_or(|mapping| mapping.len() == codes.len()));
+
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let mut char_procs = Dictionary::new();
+    let mut differences = vec![(codes[0] as i64).into()];
+    let mut widths = Vec::new();
+
+    for index in 0..codes.len() {
+        let name = format!("glyph_{:02}", index + 1);
+        let glyph = Stream::new(
+            dictionary! {},
+            b"600 0 0 0 500 700 d1\n0 0 500 700 re f\n".to_vec(),
+        );
+        let glyph_id = doc.add_object(glyph);
+        char_procs.set(name.as_bytes(), glyph_id);
+        differences.push(Object::Name(name.into_bytes()));
+        widths.push(600.into());
+    }
+
+    let mut font = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type3",
+        "FontBBox" => vec![0.into(), 0.into(), 500.into(), 700.into()],
+        "FontMatrix" => vec![Object::Real(0.001), 0.into(), 0.into(), Object::Real(0.001), 0.into(), 0.into()],
+        "CharProcs" => char_procs,
+        "Encoding" => dictionary! {
+            "Type" => "Encoding",
+            "Differences" => differences,
+        },
+        "FirstChar" => codes[0] as i64,
+        "LastChar" => *codes.last().unwrap() as i64,
+        "Widths" => widths,
+        "Resources" => dictionary! {},
+    };
+
+    if let Some(mapping) = unicode {
+        let bfchar = codes
+            .iter()
+            .zip(mapping)
+            .map(|(code, value)| format!("<{code:02X}> <{value:04X}>"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let cmap = format!(
+            "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (docray) /Ordering (fixture) /Supplement 0 >> def\n/CMapName /docray-fixture def\n/CMapType 2 def\n1 begincodespacerange\n<01> <FF>\nendcodespacerange\n{} beginbfchar\n{}\nendbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n",
+            mapping.len(), bfchar
+        );
+        let to_unicode_id = doc.add_object(Stream::new(dictionary! {}, cmap.into_bytes()));
+        font.set("ToUnicode", to_unicode_id);
+    }
+
+    let font_id = doc.add_object(font);
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! { "F1" => font_id },
+    });
+    let content = Content {
+        operations: vec![
+            op("BT", vec![]),
+            op("Tf", vec!["F1".into(), 24.into()]),
+            op("Td", vec![72.into(), 700.into()]),
+            op(
+                "Tj",
+                vec![Object::String(codes.to_vec(), StringFormat::Literal)],
+            ),
+            op("ET", vec![]),
+        ],
+    };
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "Resources" => resources_id,
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
+fn broken_encoding() -> Document {
+    // C0 byte values with custom glyph names have no standard Unicode fallback
+    // and no ToUnicode map. PDFium exposes them as unmapped/control glyphs.
+    type3_text(&(0x0e..=0x19).collect::<Vec<_>>(), None)
+}
+
+fn cjk() -> Document {
+    // 你好世界漢字文本 — eight mapped glyphs, all legitimate non-Latin text.
+    type3_text(
+        &(1..=8).collect::<Vec<_>>(),
+        Some(&[
+            0x4f60, 0x597d, 0x4e16, 0x754c, 0x6f22, 0x5b57, 0x6587, 0x672c,
+        ]),
+    )
 }
 
 /// A 2x2 ruled table. In PDF coordinates the outer box is x=72..360,
@@ -826,6 +936,10 @@ fn find_from(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
 fn main() {
     fs::create_dir_all("testdata/malformed").unwrap();
     simple().save("testdata/simple.pdf").unwrap();
+    broken_encoding()
+        .save("testdata/broken-encoding.pdf")
+        .unwrap();
+    cjk().save("testdata/cjk.pdf").unwrap();
     rotated().save("testdata/rotated.pdf").unwrap();
     image().save("testdata/image.pdf").unwrap();
     scan().save("testdata/scan.pdf").unwrap();

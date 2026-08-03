@@ -63,8 +63,9 @@ Everything you need to place a box on a rendered page:
 ```
 
 `warnings` is the no-silent-failure channel: skipped object kinds, per-page
-parse problems, geometry that couldn't be read. Empty means a fully clean
-extraction.
+parse problems, geometry that couldn't be read, and pages whose text is likely
+garbled because many glyphs are unmapped, replacement characters, or control
+characters. Empty means a fully clean extraction.
 
 `scanned` is true when a page has **no text elements and a single image
 covering ≥ 85% of the page area** — the signal that a page's text

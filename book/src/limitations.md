@@ -10,6 +10,11 @@ known, not hidden.
   cached break markers. See [Word extraction](docx.md).
 - **No OCR.** Raster-only pages are *flagged* (`"scanned": true`) but their
   text is not recovered — recovering it requires OCR downstream.
+- **Broken font encodings.** PDF pages dominated by unmapped glyphs, Unicode
+  replacement characters, or non-whitespace control characters emit a
+  `suspected_garbled_text` warning. The extracted text and geometry remain
+  unchanged; cipher-style mappings to plausible but wrong letters are not
+  detected.
 - **No semantic layer.** docray reports physical structure — it does not
   classify headings or lists and does not infer reading order. PDF text and
   words appear in content-stream order; PPTX elements appear in z-order.
