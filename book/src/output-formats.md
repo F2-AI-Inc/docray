@@ -26,6 +26,18 @@ TOON was also measured and declined. Faithful TOON was worse than compact
 JSON for this data shape, while a type-grouped TOON variant still trailed lean
 by 7–10 percentage points.
 
+## Classified JSON
+
+Paged JSON can opt into deterministic page routing metadata with
+`--classify` (CLI), `classify=true` (sync and async HTTP), or the WASM
+`extract_classified` export. The response uses schema `1.8` and adds
+`classification { kind, confidence, needs_ocr, reasons }` to every page.
+It composes with `element`, `word`, and `char` granularity. Classification is
+JSON-only; lean and Markdown remain reading projections without routing fields.
+
+Without the option, PDF JSON remains byte-identical schema `1.1`. The legacy
+`scanned` field and its existing heuristic are not changed.
+
 ## Markdown
 
 Markdown is an additive semantic projection over the existing extraction. It
@@ -267,7 +279,8 @@ Lean is a reading format, not a lossless replacement for JSON:
   is required for reconstruction.
 - It supports only `element` and `word`; use JSON for the lossless `char`
   hierarchy and reconstruction metadata.
-- WASM exposes `extract`, `extract_lean`, and `extract_markdown`; all three
+- WASM exposes `extract`, `extract_classified`, `extract_lean`, and
+  `extract_markdown`; all four
   share the same input/output caps and stable error envelope.
 
 Lean HTTP successes use `Content-Type: text/plain; charset=utf-8`. Async jobs

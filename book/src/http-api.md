@@ -11,7 +11,7 @@ same JSON envelope:
 ## Sync extraction
 
 ```text
-POST /v1/extract[?granularity=element|word|char][&format=json|lean|md]
+POST /v1/extract[?granularity=element|word|char][&format=json|lean|md][&classify=true]
 Content-Type: multipart/form-data   (field name: file)
 ```
 
@@ -28,6 +28,7 @@ curl -sf -F file=@report.pdf 'http://localhost:41619/v1/extract?granularity=elem
 curl -sf -F file=@deck.pptx 'http://localhost:41619/v1/extract?granularity=element'
 curl -sf -F file=@report.docx 'http://localhost:41619/v1/extract'
 curl -sf -F file=@report.pdf 'http://localhost:41619/v1/extract?format=md'
+curl -sf -F file=@report.pdf 'http://localhost:41619/v1/extract?classify=true'
 ```
 
 ## Async jobs
@@ -35,7 +36,7 @@ curl -sf -F file=@report.pdf 'http://localhost:41619/v1/extract?format=md'
 For large documents (default cap 1 GiB):
 
 ```text
-POST /v1/jobs[?granularity=…][&format=json|lean|md] → 202 {"job_id": "…"}
+POST /v1/jobs[?granularity=…][&format=json|lean|md][&classify=true] → 202 {"job_id": "…"}
 GET  /v1/jobs/{id}                → {"job_id", "status", "error"}
 GET  /v1/jobs/{id}/result         → 200 stored JSON, lean, or Markdown bytes
 ```
@@ -43,7 +44,7 @@ GET  /v1/jobs/{id}/result         → 200 stored JSON, lean, or Markdown bytes
 `status` walks `queued → running → succeeded | failed`. The result endpoint
 returns `404` with code `not_ready` until the job succeeds and `not_found`
 for unknown ids. Jobs and results are retained for 24 h (configurable), then
-swept. The requested format is persisted on the job, and the result endpoint
+swept. The requested format and classification option are persisted on the job, and the result endpoint
 uses it to return the corresponding JSON, lean, or Markdown content type. Job
 state is instance-local — see
 [architecture & guarantees](architecture.md).

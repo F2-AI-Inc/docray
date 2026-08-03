@@ -8,6 +8,8 @@ Options:
                                      lossless (schema 1.1) output.
   --format <json|lean|md>            Output encoding. Default: json. Lean and
                                      Markdown imply element granularity.
+  --classify                         Add per-page classification (schema 1.8;
+                                     JSON only).
   --max-pages <N>                    Refuse documents over the page/flow cap.
   --pretty                           Pretty-print the JSON.
 ```
@@ -53,9 +55,9 @@ treat it as `crash`. The server does exactly this mapping.
 docray extract report.pdf --granularity element \
   | jq -r '.pages[].elements[] | select(.type=="text") | .text'
 
-# Pages that need OCR
-docray extract scan.pdf --granularity element \
-  | jq '[.pages[] | select(.scanned) | .page_number]'
+# Pages that need OCR, including mixed/garbled cases
+docray extract scan.pdf --classify --granularity element \
+  | jq '[.pages[] | select(.classification.needs_ocr) | .page_number]'
 
 # Fail a CI step if extraction produced warnings
 docray extract input.pdf | jq -e '.warnings | length == 0'
@@ -76,6 +78,11 @@ lossless-JSON deltas.
 `--format md` follows the same granularity defaults and `char` rejection.
 Markdown emits semantic prose rather than coordinate detail; `element` is the
 recommended setting.
+
+`--classify` is opt-in and available only for JSON. Paged PDF/PPTX responses
+use schema `1.8` and add a `classification` object to each page. With no flag,
+PDF output remains the byte-identical schema `1.1` contract and the legacy
+`scanned` field is unchanged.
 
 PPTX supports element granularity. An omitted `--granularity` defaults to
 `element` for PPTX (so `docray extract deck.pptx` just works), and lean also
