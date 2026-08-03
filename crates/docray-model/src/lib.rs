@@ -3,9 +3,11 @@ use std::fmt;
 use std::fmt::Write as _;
 use std::str::FromStr;
 
+mod classification;
 mod flow;
 mod markdown;
 
+pub use classification::*;
 pub use flow::*;
 
 pub fn round3(v: f64) -> f64 {

@@ -151,6 +151,27 @@ fn compact_simple_goldens_match() {
 }
 
 #[test]
+fn classified_goldens_match() {
+    ensure_pdfium_dir();
+    let update = std::env::var("UPDATE_GOLDEN").is_ok();
+    for name in ["simple", "scan", "image", "mixed", "broken-encoding"] {
+        let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
+        let out = PdfExtractor.extract(&bytes, None).unwrap();
+        let json = serde_json::to_string_pretty(&out.with_classification(None)).unwrap();
+        let golden_path = testdata()
+            .join("golden")
+            .join(format!("{name}.classify.json"));
+        if update {
+            fs::write(&golden_path, json).unwrap();
+        } else {
+            let expected = fs::read_to_string(&golden_path)
+                .unwrap_or_else(|_| panic!("missing golden {golden_path:?} - regenerate on Linux"));
+            assert_matches_golden(&json, &expected, &format!("{name}.classify"));
+        }
+    }
+}
+
+#[test]
 fn lean_simple_goldens_match_on_linux() {
     if !cfg!(target_os = "linux") {
         eprintln!(

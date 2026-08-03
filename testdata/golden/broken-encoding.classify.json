@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.8",
+  "source": {
+    "format": "pdf",
+    "sha256": "67ff97031b81d5f3c88b2ee6b905ad1dd73c4b45b8ed89d148d552e1e6fde027",
+    "size_bytes": 2178
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {
+      "title": null,
+      "author": null
+    }
+  },
+  "warnings": [
+    "page 1: suspected_garbled_text: 12 of 12 glyphs are unmapped, replacement, or control characters"
+  ],
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612.0,
+      "height": 792.0,
+      "rotation": 0,
+      "scanned": false,
+      "classification": {
+        "kind": "text",
+        "confidence": 1.0,
+        "needs_ocr": true,
+        "reasons": [
+          "text_coverage=0.006",
+          "text_elements=1",
+          "suspected_garbled_text"
+        ]
+      },
+      "elements": [
+        {
+          "type": "text",
+          "id": "p1-e0",
+          "bbox": {
+            "x0": 72.0,
+            "y0": 75.2,
+            "x1": 244.8,
+            "y1": 92.0
+          },
+          "content": "\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019",
+          "font": {
+            "name": "",
+            "size": 24.0,
+            "bold": false,
+            "italic": false
+          },
+          "color": {
+            "fill": [
+              0,
+              0,
+              0
+            ],
+            "stroke": [
+              0,
+              0,
+              0
+            ]
+          },
+          "lines": [
+            {
+              "bbox": {
+                "x0": 72.0,
+                "y0": 75.2,
+                "x1": 244.8,
+                "y1": 92.0
+              },
+              "baseline_y": 92.0,
+              "words": [
+                {
+                  "content": "\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019",
+                  "bbox": {
+                    "x0": 72.0,
+                    "y0": 75.2,
+                    "x1": 244.8,
+                    "y1": 92.0
+                  },
+                  "chars": [
+                    {
+                      "content": "\u000e",
+                      "bbox": {
+                        "x0": 72.0,
+                        "y0": 75.2,
+                        "x1": 86.4,
+                        "y1": 92.0
+                      },
+                      "unicode": 14
+                    },
+                    {
+                      "content": "\u000f",
+                      "bbox": {
+                        "x0": 86.4,
+                        "y0": 75.2,
+                        "x1": 100.8,
+                        "y1": 92.0
+                      },
+                      "unicode": 15
+                    },
+                    {
+                      "content": "\u0010",
+                      "bbox": {
+                        "x0": 100.8,
+                        "y0": 75.2,
+                        "x1": 115.2,
+                        "y1": 92.0
+                      },
+                      "unicode": 16
+                    },
+                    {
+                      "content": "\u0011",
+                      "bbox": {
+                        "x0": 115.2,
+                        "y0": 75.2,
+                        "x1": 129.6,
+                        "y1": 92.0
+                      },
+                      "unicode": 17
+                    },
+                    {
+                      "content": "\u0012",
+                      "bbox": {
+                        "x0": 129.6,
+                        "y0": 75.2,
+                        "x1": 144.0,
+                        "y1": 92.0
+                      },
+                      "unicode": 18
+                    },
+                    {
+                      "content": "\u0013",
+                      "bbox": {
+                        "x0": 144.0,
+                        "y0": 75.2,
+                        "x1": 158.4,
+                        "y1": 92.0
+                      },
+                      "unicode": 19
+                    },
+                    {
+                      "content": "\u0014",
+                      "bbox": {
+                        "x0": 158.4,
+                        "y0": 75.2,
+                        "x1": 172.8,
+                        "y1": 92.0
+                      },
+                      "unicode": 20
+                    },
+                    {
+                      "content": "\u0015",
+                      "bbox": {
+                        "x0": 172.8,
+                        "y0": 75.2,
+                        "x1": 187.2,
+                        "y1": 92.0
+                      },
+                      "unicode": 21
+                    },
+                    {
+                      "content": "\u0016",
+                      "bbox": {
+                        "x0": 187.2,
+                        "y0": 75.2,
+                        "x1": 201.6,
+                        "y1": 92.0
+                      },
+                      "unicode": 22
+                    },
+                    {
+                      "content": "\u0017",
+                      "bbox": {
+                        "x0": 201.6,
+                        "y0": 75.2,
+                        "x1": 216.0,
+                        "y1": 92.0
+                      },
+                      "unicode": 23
+                    },
+                    {
+                      "content": "\u0018",
+                      "bbox": {
+                        "x0": 216.0,
+                        "y0": 75.2,
+                        "x1": 230.4,
+                        "y1": 92.0
+                      },
+                      "unicode": 24
+                    },
+                    {
+                      "content": "\u0019",
+                      "bbox": {
+                        "x0": 230.4,
+                        "y0": 75.2,
+                        "x1": 244.8,
+                        "y1": 92.0
+                      },
+                      "unicode": 25
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
