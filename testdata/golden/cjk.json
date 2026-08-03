@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.1",
+  "source": {
+    "format": "pdf",
+    "sha256": "c734c22aad1fc7c22092005e898636a41fce1607e42e12657689671450ee06a1",
+    "size_bytes": 2170
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {
+      "title": null,
+      "author": null
+    }
+  },
+  "warnings": [],
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612.0,
+      "height": 792.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "id": "p1-e0",
+          "bbox": {
+            "x0": 72.0,
+            "y0": 75.2,
+            "x1": 187.2,
+            "y1": 92.0
+          },
+          "content": "你好世界漢字文本",
+          "font": {
+            "name": "",
+            "size": 24.0,
+            "bold": false,
+            "italic": false
+          },
+          "color": {
+            "fill": [
+              0,
+              0,
+              0
+            ],
+            "stroke": [
+              0,
+              0,
+              0
+            ]
+          },
+          "lines": [
+            {
+              "bbox": {
+                "x0": 72.0,
+                "y0": 75.2,
+                "x1": 187.2,
+                "y1": 92.0
+              },
+              "baseline_y": 92.0,
+              "words": [
+                {
+                  "content": "你好世界漢字文本",
+                  "bbox": {
+                    "x0": 72.0,
+                    "y0": 75.2,
+                    "x1": 187.2,
+                    "y1": 92.0
+                  },
+                  "chars": [
+                    {
+                      "content": "你",
+                      "bbox": {
+                        "x0": 72.0,
+                        "y0": 75.2,
+                        "x1": 86.4,
+                        "y1": 92.0
+                      },
+                      "unicode": 20320
+                    },
+                    {
+                      "content": "好",
+                      "bbox": {
+                        "x0": 86.4,
+                        "y0": 75.2,
+                        "x1": 100.8,
+                        "y1": 92.0
+                      },
+                      "unicode": 22909
+                    },
+                    {
+                      "content": "世",
+                      "bbox": {
+                        "x0": 100.8,
+                        "y0": 75.2,
+                        "x1": 115.2,
+                        "y1": 92.0
+                      },
+                      "unicode": 19990
+                    },
+                    {
+                      "content": "界",
+                      "bbox": {
+                        "x0": 115.2,
+                        "y0": 75.2,
+                        "x1": 129.6,
+                        "y1": 92.0
+                      },
+                      "unicode": 30028
+                    },
+                    {
+                      "content": "漢",
+                      "bbox": {
+                        "x0": 129.6,
+                        "y0": 75.2,
+                        "x1": 144.0,
+                        "y1": 92.0
+                      },
+                      "unicode": 28450
+                    },
+                    {
+                      "content": "字",
+                      "bbox": {
+                        "x0": 144.0,
+                        "y0": 75.2,
+                        "x1": 158.4,
+                        "y1": 92.0
+                      },
+                      "unicode": 23383
+                    },
+                    {
+                      "content": "文",
+                      "bbox": {
+                        "x0": 158.4,
+                        "y0": 75.2,
+                        "x1": 172.8,
+                        "y1": 92.0
+                      },
+                      "unicode": 25991
+                    },
+                    {
+                      "content": "本",
+                      "bbox": {
+                        "x0": 172.8,
+                        "y0": 75.2,
+                        "x1": 187.2,
+                        "y1": 92.0
+                      },
+                      "unicode": 26412
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

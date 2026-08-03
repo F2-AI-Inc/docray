@@ -14,6 +14,35 @@ use sha2::{Digest, Sha256};
 const MAX_FORM_DEPTH: usize = 16;
 // A raster must cover at least 85% of the page to classify a zero-text page as scanned.
 const SCANNED_IMAGE_COVERAGE_THRESHOLD: f64 = 0.85;
+// Require both enough evidence and a high density before warning. A handful of
+// unmapped decorative glyphs must not taint an otherwise clean page.
+const GARBLED_TEXT_MIN_SUSPECT_GLYPHS: usize = 8;
+const GARBLED_TEXT_MIN_PERCENT: usize = 50;
+
+#[derive(Default)]
+struct PageTextQuality {
+    glyphs: usize,
+    suspect_glyphs: usize,
+}
+
+impl PageTextQuality {
+    fn observe(&mut self, unicode: Option<char>) {
+        self.glyphs += 1;
+        if unicode.is_none_or(is_suspect_text_char) {
+            self.suspect_glyphs += 1;
+        }
+    }
+
+    fn is_likely_garbled(&self) -> bool {
+        self.suspect_glyphs >= GARBLED_TEXT_MIN_SUSPECT_GLYPHS
+            && self.suspect_glyphs.saturating_mul(100)
+                >= self.glyphs.saturating_mul(GARBLED_TEXT_MIN_PERCENT)
+    }
+}
+
+fn is_suspect_text_char(ch: char) -> bool {
+    ch == '\u{fffd}' || (ch.is_control() && !ch.is_whitespace())
+}
 
 pub struct PdfExtractor;
 
@@ -183,6 +212,7 @@ fn extract_page(
     );
     let page_text = page.text().map_err(|e| format!("{e:?}"))?;
     let mut elements = Vec::new();
+    let mut text_quality = PageTextQuality::default();
 
     // Index-based object access rather than `objects().iter()`: a fused iterator
     // would silently drop the remainder of a page's objects if one failed to
@@ -199,6 +229,7 @@ fn extract_page(
                 None,
                 0,
                 &mut elements,
+                &mut text_quality,
                 warnings,
             ),
             Err(e) => {
@@ -235,6 +266,17 @@ fn extract_page(
     let height = round3(page.height().value as f64);
     let scanned = page_is_scanned(width, height, &elements);
 
+    if text_quality.is_likely_garbled() {
+        warnings.push(format!(
+            "page {page_number}: suspected_garbled_text: {} of {} glyphs are unmapped, replacement, or control characters",
+            text_quality.suspect_glyphs, text_quality.glyphs
+        ));
+    }
+
+    // A v2 heuristic may detect cipher-style failures that map glyphs to the
+    // wrong but statistically plausible letters. This v1 deliberately limits
+    // itself to direct decode-failure signals to avoid false positives.
+
     Ok(Page {
         page_number,
         width,
@@ -259,11 +301,20 @@ fn extract_object(
     ancestor: Option<PdfMatrix>,
     form_depth: usize,
     elements: &mut Vec<Element>,
+    text_quality: &mut PageTextQuality,
     warnings: &mut Vec<String>,
 ) {
     if let Some(text_obj) = object.as_text_object() {
         let id = format!("p{page_number}-e{}", elements.len());
-        match text_element(id, text_obj, page_text, space, page_number, ancestor) {
+        match text_element(
+            id,
+            text_obj,
+            page_text,
+            space,
+            page_number,
+            ancestor,
+            text_quality,
+        ) {
             Ok(Some(el)) => elements.push(Element::Text(el)),
             // Whitespace-only run: no element by design (plan-mandated).
             Ok(None) => {}
@@ -325,6 +376,7 @@ fn extract_object(
                     Some(child_to_page),
                     form_depth + 1,
                     elements,
+                    text_quality,
                     warnings,
                 ),
                 Err(e) => warnings.push(format!(
@@ -355,6 +407,7 @@ fn text_element(
     space: &PageSpace,
     page_number: u32,
     ancestor: Option<PdfMatrix>,
+    text_quality: &mut PageTextQuality,
 ) -> Result<Option<TextElement>, String> {
     // Pdfium's `scaled_font_size()` includes the text object's own matrix but,
     // for nested objects, not any containing form matrices. Character geometry
@@ -369,7 +422,9 @@ fn text_element(
         .chars_for_object(obj)
         .map_err(|e| format!("page {page_number}: text object skipped: {e:?}"))?;
     for ch in chars.iter() {
-        let c = ch.unicode_char().map(String::from).unwrap_or_default();
+        let unicode = ch.unicode_char();
+        text_quality.observe(unicode);
+        let c = unicode.map(String::from).unwrap_or_default();
         content.push_str(&c);
         let b = ch
             .loose_bounds()
@@ -393,7 +448,7 @@ fn text_element(
             ),
         };
         raw.push(RawChar {
-            unicode: ch.unicode_char().map(|c| c as u32).unwrap_or(0),
+            unicode: unicode.map(|c| c as u32).unwrap_or(0),
             content: c,
             bbox,
             font_size,
@@ -742,5 +797,49 @@ fn font_weight_value(w: &PdfFontWeight) -> u32 {
         PdfFontWeight::Weight800 => 800,
         PdfFontWeight::Weight900 => 900,
         PdfFontWeight::Custom(v) => *v,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_quality_flags_each_direct_decode_failure_signal() {
+        for signal in [None, Some('\u{fffd}'), Some('\u{000e}')] {
+            let mut quality = PageTextQuality::default();
+            for _ in 0..GARBLED_TEXT_MIN_SUSPECT_GLYPHS {
+                quality.observe(signal);
+            }
+            assert!(quality.is_likely_garbled(), "signal {signal:?}");
+        }
+    }
+
+    #[test]
+    fn text_quality_ignores_legitimate_unicode_and_normal_whitespace() {
+        let mut quality = PageTextQuality::default();
+        for ch in "你好世界مرحبا\n\t".chars() {
+            quality.observe(Some(ch));
+        }
+        assert_eq!(quality.suspect_glyphs, 0);
+        assert!(!quality.is_likely_garbled());
+    }
+
+    #[test]
+    fn text_quality_requires_a_conservative_density_and_count() {
+        let mut too_few = PageTextQuality::default();
+        for _ in 0..GARBLED_TEXT_MIN_SUSPECT_GLYPHS - 1 {
+            too_few.observe(None);
+        }
+        assert!(!too_few.is_likely_garbled());
+
+        let mut too_sparse = PageTextQuality::default();
+        for _ in 0..GARBLED_TEXT_MIN_SUSPECT_GLYPHS {
+            too_sparse.observe(None);
+        }
+        for _ in 0..=GARBLED_TEXT_MIN_SUSPECT_GLYPHS {
+            too_sparse.observe(Some('a'));
+        }
+        assert!(!too_sparse.is_likely_garbled());
     }
 }

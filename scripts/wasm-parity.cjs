@@ -25,6 +25,8 @@ const fixtures = [
   { file: "pptx/percent-chart.pptx", granularity: "element", exact: true },
   { file: "pptx/inherited-shapes.pptx", granularity: "element", exact: true },
   { file: "simple.pdf", granularity: "" },
+  { file: "broken-encoding.pdf", granularity: "" },
+  { file: "cjk.pdf", granularity: "" },
   { file: "ruled-table.pdf", granularity: "" },
   { file: "form.pdf", granularity: "" },
   { file: "rotated.pdf", granularity: "" },
