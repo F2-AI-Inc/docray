@@ -22,7 +22,7 @@
       "scanned": false,
       "classification": {
         "kind": "mixed",
-        "confidence": 0.619,
+        "confidence": 0.512,
         "needs_ocr": false,
         "reasons": [
           "text_coverage=0.008",
