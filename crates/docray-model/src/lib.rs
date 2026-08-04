@@ -7,6 +7,7 @@ mod classification;
 mod flow;
 pub mod grouping;
 mod markdown;
+mod regroup;
 
 pub use classification::*;
 pub use flow::*;
