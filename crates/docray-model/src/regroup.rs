@@ -135,4 +135,20 @@ mod tests {
     fn below_min_elements_is_not_fragmented() {
         assert!(!is_glyph_fragmented(&make_text_page(&["a", "b", "c"])));
     }
+
+    #[test]
+    fn seven_single_glyph_elements_below_min_is_not_fragmented() {
+        // 7 < FRAGMENT_MIN_ELEMENTS (8) → not fragmented even though all single-glyph
+        assert!(!is_glyph_fragmented(&make_text_page(&[
+            "a", "b", "c", "d", "e", "f", "g"
+        ])));
+    }
+
+    #[test]
+    fn eight_single_glyph_elements_at_min_is_fragmented() {
+        // exactly at the 8-element floor, all single-glyph → fragmented
+        assert!(is_glyph_fragmented(&make_text_page(&[
+            "a", "b", "c", "d", "e", "f", "g", "h"
+        ])));
+    }
 }
