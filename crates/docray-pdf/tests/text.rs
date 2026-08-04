@@ -18,7 +18,7 @@ fn extract(fixture: &str) -> docray_model::Extraction {
     ensure_pdfium_dir();
     let path = format!("{}/../../testdata/{fixture}", env!("CARGO_MANIFEST_DIR"));
     let bytes = std::fs::read(path).unwrap();
-    PdfExtractor.extract(&bytes, None).unwrap()
+    PdfExtractor.extract(&bytes, None, None).unwrap()
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn rejects_garbage_and_respects_page_cap() {
     ))
     .unwrap();
     assert!(matches!(
-        PdfExtractor.extract(&garbage, None),
+        PdfExtractor.extract(&garbage, None, None),
         Err(ExtractError::UnsupportedFormat)
     ));
 
@@ -132,7 +132,7 @@ fn rejects_garbage_and_respects_page_cap() {
     ))
     .unwrap();
     assert!(matches!(
-        PdfExtractor.extract(&bytes, Some(0)),
+        PdfExtractor.extract(&bytes, Some(0), None),
         Err(ExtractError::TooManyPages {
             limit: 0,
             actual: 1

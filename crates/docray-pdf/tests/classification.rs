@@ -18,7 +18,7 @@ fn classification(fixture: &str) -> PageClassification {
         .join("../../testdata")
         .join(fixture);
     let extraction = PdfExtractor
-        .extract(&std::fs::read(path).unwrap(), None)
+        .extract(&std::fs::read(path).unwrap(), None, None)
         .unwrap();
     let value = serde_json::to_value(extraction.with_classification(None)).unwrap();
     serde_json::from_value(value["pages"][0]["classification"].clone()).unwrap()
@@ -64,7 +64,7 @@ fn classification_is_schema_1_8_and_legacy_scanned_is_unchanged() {
     let bytes =
         std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/scan.pdf"))
             .unwrap();
-    let extraction = PdfExtractor.extract(&bytes, None).unwrap();
+    let extraction = PdfExtractor.extract(&bytes, None, None).unwrap();
     let default = serde_json::to_value(&extraction).unwrap();
     let classified = serde_json::to_value(extraction.with_classification(None)).unwrap();
 

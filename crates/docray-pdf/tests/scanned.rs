@@ -17,7 +17,7 @@ fn extract(fixture: &str) -> docray_model::Extraction {
         .join("../../testdata")
         .join(fixture);
     PdfExtractor
-        .extract(&std::fs::read(path).unwrap(), None)
+        .extract(&std::fs::read(path).unwrap(), None, None)
         .unwrap()
 }
 

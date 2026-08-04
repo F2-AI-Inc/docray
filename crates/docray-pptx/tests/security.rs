@@ -1,4 +1,4 @@
-use docray_core::{ExtractError, Extractor};
+use docray_core::{ExtractError, Extractor, PageSelection};
 use docray_model::Element;
 use docray_pptx::PptxExtractor;
 use std::fs;
@@ -14,13 +14,31 @@ fn fixture(name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn page_selection_is_unsupported_for_pptx() {
+    let bytes =
+        fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/pptx/basic.pptx"))
+            .unwrap();
+    let selection: PageSelection = "1-1".parse().unwrap();
+    let error = PptxExtractor
+        .extract(&bytes, None, Some(selection))
+        .unwrap_err();
+    assert_eq!(error.code(), "page_selection_unsupported");
+    assert_eq!(
+        error,
+        ExtractError::PageSelectionUnsupported { format: "pptx" }
+    );
+}
+
+#[test]
 fn hostile_containers_return_structured_errors() {
     for (name, expected_fragment) in [
         ("zip-bomb.pptx", "compression-ratio limit"),
         ("path-traversal.pptx", "unsafe OPC entry name"),
         ("truncated.pptx", "invalid ZIP container"),
     ] {
-        let error = PptxExtractor.extract(&fixture(name), None).unwrap_err();
+        let error = PptxExtractor
+            .extract(&fixture(name), None, None)
+            .unwrap_err();
         assert_eq!(error.code(), "parse_failure", "{name}: {error}");
         assert!(
             error.to_string().contains(expected_fragment),
@@ -32,7 +50,7 @@ fn hostile_containers_return_structured_errors() {
 #[test]
 fn format_disambiguation_and_cfb_have_specific_unsupported_messages() {
     let error = PptxExtractor
-        .extract(&fixture("not-pptx.zip"), None)
+        .extract(&fixture("not-pptx.zip"), None, None)
         .unwrap_err();
     assert_eq!(error.code(), "unsupported_format");
     assert!(error
@@ -40,7 +58,7 @@ fn format_disambiguation_and_cfb_have_specific_unsupported_messages() {
         .contains("zip archive is not a PowerPoint file"));
 
     let error = PptxExtractor
-        .extract(&fixture("legacy-office.cfb"), None)
+        .extract(&fixture("legacy-office.cfb"), None, None)
         .unwrap_err();
     assert_eq!(
         error,
@@ -53,7 +71,7 @@ fn format_disambiguation_and_cfb_have_specific_unsupported_messages() {
 #[test]
 fn dtd_entities_are_never_expanded_or_fetched() {
     for name in ["xxe.pptx", "external-entity.pptx"] {
-        let extraction = PptxExtractor.extract(&fixture(name), None).unwrap();
+        let extraction = PptxExtractor.extract(&fixture(name), None, None).unwrap();
         let text = extraction.pages[0]
             .elements
             .iter()
@@ -75,7 +93,7 @@ fn escaping_picture_relationships_warn_without_discarding_the_slide() {
     // per-picture warning while the picture geometry and every other element
     // on the slide survive — one hostile relationship must not blank the page.
     let extraction = PptxExtractor
-        .extract(&fixture("escaping-picture.pptx"), None)
+        .extract(&fixture("escaping-picture.pptx"), None, None)
         .unwrap();
     let page = &extraction.pages[0];
     assert_eq!(
@@ -123,7 +141,7 @@ fn max_pages_caps_slides_before_extraction() {
         fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/pptx/basic.pptx"))
             .unwrap();
     assert_eq!(
-        PptxExtractor.extract(&bytes, Some(0)),
+        PptxExtractor.extract(&bytes, Some(0), None),
         Err(ExtractError::TooManyPages {
             limit: 0,
             actual: 1

@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use docray_core::{check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format};
+use docray_core::{
+    check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format, PageSelection,
+};
 use docray_docx::DocxExtractor;
 use docray_model::{Extraction, FlowExtraction, GranularExtraction, Granularity, OutputFormat};
 use docray_ooxml::{sniff_opc, OpcKind};
@@ -32,16 +34,17 @@ impl Backend {
         &self,
         bytes: &[u8],
         max_pages: Option<u32>,
+        pages: Option<PageSelection>,
     ) -> Result<DocumentExtraction, ExtractError> {
         match self {
             Backend::Pdf => PdfExtractor
-                .extract(bytes, max_pages)
+                .extract(bytes, max_pages, pages)
                 .map(DocumentExtraction::Paged),
             Backend::Pptx => PptxExtractor
-                .extract(bytes, max_pages)
+                .extract(bytes, max_pages, pages)
                 .map(DocumentExtraction::Paged),
             Backend::Docx => DocxExtractor
-                .extract(bytes, max_pages)
+                .extract(bytes, max_pages, pages)
                 .map(DocumentExtraction::Flow),
         }
     }
@@ -153,8 +156,12 @@ fn run_extract(
         }
         other => other,
     };
+    // `--pages` is not yet a CLI flag; the plumbing param is threaded through
+    // so the CLI compiles against the trait's pages parameter without a way to
+    // supply it yet (deliberate, not a silent-ignore: there is no flag to set).
+    let pages: Option<PageSelection> = None;
     let result = check_granularity(&capabilities, granularity)
-        .and_then(|()| backend.extract(&bytes, max_pages));
+        .and_then(|()| backend.extract(&bytes, max_pages, pages));
     match result {
         Ok(extraction) => {
             let output = match format {

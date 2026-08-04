@@ -1,4 +1,4 @@
-use docray_core::Extractor;
+use docray_core::{ExtractError, Extractor, PageSelection};
 use docray_docx::DocxExtractor;
 use docray_model::Block;
 use std::fs;
@@ -14,9 +14,25 @@ fn fixture(name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn page_selection_is_unsupported_for_docx() {
+    let bytes =
+        fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/docx/fields.docx"))
+            .unwrap();
+    let selection: PageSelection = "1-1".parse().unwrap();
+    let error = DocxExtractor
+        .extract(&bytes, None, Some(selection))
+        .unwrap_err();
+    assert_eq!(error.code(), "page_selection_unsupported");
+    assert_eq!(
+        error,
+        ExtractError::PageSelectionUnsupported { format: "docx" }
+    );
+}
+
+#[test]
 fn hostile_fields_are_bounded_and_instructions_are_never_visible() {
     let extraction = DocxExtractor
-        .extract(&fixture("docx-field-nesting.docx"), None)
+        .extract(&fixture("docx-field-nesting.docx"), None, None)
         .unwrap();
     let visible = extraction.sections[0]
         .blocks
@@ -47,7 +63,7 @@ fn style_numbering_and_mc_attacks_warn_without_panicking_or_hanging() {
             "markup-compatibility nesting depth limit",
         ),
     ] {
-        let extraction = DocxExtractor.extract(&fixture(name), None).unwrap();
+        let extraction = DocxExtractor.extract(&fixture(name), None, None).unwrap();
         assert!(
             extraction
                 .warnings
@@ -62,7 +78,7 @@ fn style_numbering_and_mc_attacks_warn_without_panicking_or_hanging() {
 #[test]
 fn huge_story_stops_at_the_documented_block_cap() {
     let extraction = DocxExtractor
-        .extract(&fixture("docx-huge-story.docx"), None)
+        .extract(&fixture("docx-huge-story.docx"), None, None)
         .unwrap();
     assert!(extraction.sections[0].blocks.len() <= 250_000);
     assert!(extraction
@@ -74,7 +90,7 @@ fn huge_story_stops_at_the_documented_block_cap() {
 #[test]
 fn pagination_hints_do_not_bypass_the_max_pages_block_cap() {
     assert!(matches!(
-        DocxExtractor.extract(&fixture("docx-hinted-block-cap.docx"), Some(2)),
+        DocxExtractor.extract(&fixture("docx-hinted-block-cap.docx"), Some(2), None),
         Err(docray_core::ExtractError::TooManyPages {
             limit: 2,
             actual: 3
@@ -85,7 +101,7 @@ fn pagination_hints_do_not_bypass_the_max_pages_block_cap() {
 #[test]
 fn malformed_image_target_keeps_the_block_and_warns() {
     let extraction = DocxExtractor
-        .extract(&fixture("docx-bad-image-target.docx"), None)
+        .extract(&fixture("docx-bad-image-target.docx"), None, None)
         .unwrap();
     assert!(matches!(
         extraction.sections[0].blocks.first(),
@@ -102,7 +118,7 @@ fn malformed_image_target_keeps_the_block_and_warns() {
 #[test]
 fn corrupt_optional_parts_and_header_target_degrade_to_warnings() {
     let extraction = DocxExtractor
-        .extract(&fixture("docx-corrupt-optional-parts.docx"), None)
+        .extract(&fixture("docx-corrupt-optional-parts.docx"), None, None)
         .unwrap();
     let Block::Paragraph { runs, content, .. } = &extraction.sections[0].blocks[0] else {
         panic!("valid body content must survive optional-part failures");

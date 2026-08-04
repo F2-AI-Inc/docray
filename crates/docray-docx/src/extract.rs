@@ -1,6 +1,6 @@
 use crate::numbering::{Counters, Numbering, ResolvedList};
 use crate::styles::{ParagraphStyle, Styles};
-use docray_core::{Capabilities, ExtractError, Extractor, GeometryKind};
+use docray_core::{Capabilities, ExtractError, Extractor, GeometryKind, PageSelection};
 use docray_model::{
     round3, Block, BreakKind, DocMetadata, FlowDocumentInfo, FlowExtraction, FlowLayout,
     FlowTableCell, Granularity, HiddenItem, Margins, Placement, PlacementFrame, Section, Source,
@@ -45,7 +45,11 @@ impl Extractor for DocxExtractor {
         &self,
         bytes: &[u8],
         max_pages: Option<u32>,
+        pages: Option<PageSelection>,
     ) -> Result<FlowExtraction, ExtractError> {
+        if pages.is_some() {
+            return Err(ExtractError::PageSelectionUnsupported { format: "docx" });
+        }
         if bytes.starts_with(CFB_MAGIC) {
             return Err(ExtractError::UnsupportedFormatMessage(
                 "legacy or encrypted Office documents are not supported".into(),
