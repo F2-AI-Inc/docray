@@ -5,8 +5,8 @@
 // per document, so a worker abort surfaces as a 'crash' error by architecture
 // rather than taking down the service.
 use crate::{bind::pdfium, coords::PageSpace};
-use docray_core::grouping::{group_into_lines, RawChar};
 use docray_core::{sniff_format, Capabilities, ExtractError, Extractor, Format, GeometryKind};
+use docray_model::grouping::{group_into_lines, RawChar};
 use docray_model::*;
 use pdfium_render::prelude::*;
 use sha2::{Digest, Sha256};

@@ -5,7 +5,9 @@ use std::str::FromStr;
 
 mod classification;
 mod flow;
+pub mod grouping;
 mod markdown;
+mod regroup;
 
 pub use classification::*;
 pub use flow::*;
@@ -842,7 +844,11 @@ fn round1(value: f64) -> f64 {
     }
 }
 
-fn compact_bbox(bbox: &BBox) -> [f64; 4] {
+// `pub(crate)`: also called from `regroup::compact_fragmented_elements` when
+// projecting regrouped lines / passthrough non-text elements to the compact
+// shape. Widening from module-private is a visibility-only change — no
+// behavior differs on the existing call sites in this file.
+pub(crate) fn compact_bbox(bbox: &BBox) -> [f64; 4] {
     [
         round1(bbox.x0),
         round1(bbox.y0),
@@ -851,7 +857,7 @@ fn compact_bbox(bbox: &BBox) -> [f64; 4] {
     ]
 }
 
-fn compact_font(font: &Font) -> CompactFont {
+pub(crate) fn compact_font(font: &Font) -> CompactFont {
     CompactFont {
         name: font.name.clone(),
         size: font.size,
@@ -860,7 +866,7 @@ fn compact_font(font: &Font) -> CompactFont {
     }
 }
 
-fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
+pub(crate) fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
     let fill = color.fill.filter(|value| *value != [0, 0, 0]);
     let stroke = color.stroke.filter(|value| *value != [0, 0, 0]);
     if fill.is_none() && stroke.is_none() {
@@ -870,7 +876,7 @@ fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
     }
 }
 
-fn compact_runs(runs: &Option<Vec<TextRun>>) -> Option<Vec<CompactTextRun>> {
+pub(crate) fn compact_runs(runs: &Option<Vec<TextRun>>) -> Option<Vec<CompactTextRun>> {
     runs.as_ref().map(|runs| {
         runs.iter()
             .map(|run| CompactTextRun {
@@ -899,7 +905,7 @@ impl Extraction {
             Granularity::Element | Granularity::Word => {
                 GranularExtraction::Compact(CompactExtraction {
                     granularity,
-                    schema_version: "1.6",
+                    schema_version: "1.9",
                     source: self.source.clone(),
                     document: CompactDocumentInfo {
                         page_count: self.document.page_count,
@@ -921,22 +927,26 @@ impl Extraction {
 }
 
 fn compact_page(page: &Page, granularity: Granularity) -> CompactPage {
+    let elements = if regroup::is_glyph_fragmented(&page.elements) {
+        regroup::compact_fragmented_elements(&page.elements, granularity)
+    } else {
+        page.elements
+            .iter()
+            .map(|element| compact_element(element, granularity))
+            .collect()
+    };
     CompactPage {
         page_number: page.page_number,
         width: page.width,
         height: page.height,
         rotation: page.rotation,
         scanned: page.scanned,
-        elements: page
-            .elements
-            .iter()
-            .map(|element| compact_element(element, granularity))
-            .collect(),
+        elements,
         hidden: page.hidden.clone(),
     }
 }
 
-fn compact_element(element: &Element, granularity: Granularity) -> CompactElement {
+pub(crate) fn compact_element(element: &Element, granularity: Granularity) -> CompactElement {
     match element {
         Element::Text(text) => {
             let content = match granularity {
@@ -1021,5 +1031,218 @@ fn compact_element(element: &Element, granularity: Granularity) -> CompactElemen
             subtype: annotation.subtype.clone(),
             uri: annotation.uri.clone(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod compact_page_regroup_tests {
+    use super::*;
+    use crate::regroup::is_glyph_fragmented;
+
+    fn bbox() -> BBox {
+        BBox {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 10.0,
+            y1: 10.0,
+        }
+    }
+
+    fn font() -> Font {
+        Font {
+            name: "Test".to_string(),
+            size: 12.0,
+            bold: false,
+            italic: false,
+        }
+    }
+
+    fn color() -> TextColor {
+        TextColor {
+            fill: Some([0, 0, 0]),
+            stroke: None,
+        }
+    }
+
+    fn base_extraction(elements: Vec<Element>) -> Extraction {
+        Extraction {
+            schema_version: "1.1".into(),
+            source: Source {
+                format: "pdf".into(),
+                sha256: "abc".into(),
+                size_bytes: 10,
+            },
+            document: DocumentInfo {
+                page_count: 1,
+                metadata: DocMetadata {
+                    title: None,
+                    author: None,
+                },
+            },
+            warnings: vec![],
+            pages: vec![Page {
+                page_number: 1,
+                width: 612.0,
+                height: 792.0,
+                rotation: 0,
+                scanned: false,
+                elements,
+                hidden: vec![],
+            }],
+        }
+    }
+
+    /// Builds one single-glyph `Element::Text` per `(char, x0)` entry, all on
+    /// one baseline, spelling out "hello world" glyph-by-glyph — the same
+    /// shape a glyph-fragmented PDF (missing ToUnicode word boundaries)
+    /// produces: one `Element::Text` per glyph instead of per word.
+    fn fragmented_hello_world_elements() -> Vec<Element> {
+        "hello world"
+            .chars()
+            .filter(|c| *c != ' ')
+            .zip(
+                // x0 for each letter: 8pt glyph width, no gap within a word,
+                // 12pt gap between "hello" and "world" (exceeds the
+                // `0.25 * font_size` = 3pt word-split threshold at 12pt font).
+                [0.0, 8.0, 16.0, 24.0, 32.0, 52.0, 60.0, 68.0, 76.0, 84.0],
+            )
+            .enumerate()
+            .map(|(i, (ch, x0))| {
+                let bbox = BBox {
+                    x0,
+                    y0: 88.0,
+                    x1: x0 + 8.0,
+                    y1: 100.0,
+                };
+                let char = Char {
+                    content: ch.to_string(),
+                    bbox,
+                    unicode: ch as u32,
+                };
+                let word = Word {
+                    content: ch.to_string(),
+                    bbox,
+                    chars: vec![char],
+                };
+                let line = Line {
+                    bbox,
+                    baseline_y: 100.0,
+                    words: vec![word],
+                };
+                Element::Text(TextElement {
+                    id: format!("g{i}"),
+                    bbox,
+                    content: ch.to_string(),
+                    font: font(),
+                    color: color(),
+                    lines: Some(vec![line]),
+                    runs: None,
+                })
+            })
+            .collect()
+    }
+
+    /// Builds `count` ordinary multi-word `Element::Text` items ("hello
+    /// world" repeated), each with a full line/word/char hierarchy — the
+    /// shape of a normal (non-fragmented) page.
+    fn normal_multi_word_elements(count: usize) -> Vec<Element> {
+        (0..count)
+            .map(|i| {
+                let content = "hello world";
+                let words: Vec<Word> = content
+                    .split(' ')
+                    .map(|word_str| {
+                        let chars: Vec<Char> = word_str
+                            .chars()
+                            .map(|c| Char {
+                                content: c.to_string(),
+                                bbox: bbox(),
+                                unicode: c as u32,
+                            })
+                            .collect();
+                        Word {
+                            content: word_str.to_string(),
+                            bbox: bbox(),
+                            chars,
+                        }
+                    })
+                    .collect();
+                let line = Line {
+                    bbox: bbox(),
+                    baseline_y: 5.0,
+                    words,
+                };
+                Element::Text(TextElement {
+                    id: format!("t{i}"),
+                    bbox: bbox(),
+                    content: content.to_string(),
+                    font: font(),
+                    color: color(),
+                    lines: Some(vec![line]),
+                    runs: None,
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fragmented_page_gets_schema_1_9_and_is_regrouped_into_real_words() {
+        let elements = fragmented_hello_world_elements();
+        let glyph_count = elements.len();
+        assert_eq!(glyph_count, 10, "sanity: 10 single-glyph elements");
+
+        let extraction = base_extraction(elements);
+        let compact = extraction.with_granularity(Granularity::Element);
+        let value = serde_json::to_value(&compact).unwrap();
+
+        assert_eq!(
+            value["schema_version"], "1.9",
+            "element granularity must report the bumped schema version"
+        );
+
+        let page_elements = value["pages"][0]["elements"].as_array().unwrap();
+        assert!(
+            page_elements.len() < glyph_count,
+            "regrouping must collapse per-glyph elements into fewer, word-shaped elements; got {} elements from {} glyphs",
+            page_elements.len(),
+            glyph_count
+        );
+        assert_eq!(
+            page_elements.len(),
+            1,
+            "one shared baseline collapses to a single regrouped line"
+        );
+        assert_eq!(
+            page_elements[0]["text"], "hello world",
+            "regrouped text must contain real word boundaries (a space), not raw concatenated glyphs"
+        );
+    }
+
+    #[test]
+    fn normal_page_keeps_prechange_projection_with_only_version_bumped() {
+        let elements = normal_multi_word_elements(3);
+        // Below FRAGMENT_MIN_ELEMENTS and not single-glyph either way: this
+        // page must NOT be classified as fragmented.
+        assert!(!is_glyph_fragmented(&elements));
+
+        let expected_elements: Vec<serde_json::Value> = elements
+            .iter()
+            .map(|el| serde_json::to_value(compact_element(el, Granularity::Element)).unwrap())
+            .collect();
+
+        let extraction = base_extraction(elements);
+        let compact = extraction.with_granularity(Granularity::Element);
+        let value = serde_json::to_value(&compact).unwrap();
+
+        assert_eq!(
+            value["schema_version"], "1.9",
+            "non-fragmented pages still report the bumped element/word schema version"
+        );
+        assert_eq!(
+            value["pages"][0]["elements"],
+            serde_json::Value::Array(expected_elements),
+            "content for a non-fragmented page must be byte-identical to the pre-change \
+             per-element projection — only schema_version differs"
+        );
     }
 }

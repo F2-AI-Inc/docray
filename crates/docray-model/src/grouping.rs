@@ -1,4 +1,4 @@
-use docray_model::{BBox, Char, Line, Word};
+use crate::{BBox, Char, Line, Word};
 
 pub struct RawChar {
     pub content: String,

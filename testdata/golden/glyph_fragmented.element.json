@@ -1,0 +1,52 @@
+{
+  "granularity": "element",
+  "schema_version": "1.9",
+  "source": {
+    "format": "pdf",
+    "sha256": "ff7688b136040be811cd4abc328151ff9cb7e40286d35bf18c9f9f13e47f237a",
+    "size_bytes": 1519
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612.0,
+      "height": 792.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            80.7,
+            135.7,
+            94.7
+          ],
+          "text": "hello world",
+          "font": {
+            "name": "Helvetica",
+            "size": 12.0
+          }
+        },
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            100.7,
+            145.0,
+            114.7
+          ],
+          "text": "docray glyphs",
+          "font": {
+            "name": "Helvetica",
+            "size": 12.0
+          }
+        }
+      ]
+    }
+  ]
+}

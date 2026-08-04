@@ -85,7 +85,7 @@ fn lean_defaults_to_element_and_emits_fixed_header_lines() {
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
     let mut lines = stdout.lines();
-    assert_eq!(lines.next(), Some("#docray element v1.6 pages=1"));
+    assert_eq!(lines.next(), Some("#docray element v1.9 pages=1"));
     assert_eq!(
         lines.next(),
         Some(
@@ -213,7 +213,7 @@ fn pptx_explicit_element_and_lean_work() {
         .args(["--format", "lean"])
         .assert()
         .success()
-        .stdout(predicate::str::starts_with("#docray element v1.6 pages=1"));
+        .stdout(predicate::str::starts_with("#docray element v1.9 pages=1"));
 
     dps()
         .arg("extract")

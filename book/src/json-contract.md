@@ -108,8 +108,9 @@ Classification does not read or mutate the legacy `scanned` field. Omitting
 the option serializes the original schema `1.1` model directly, so no
 classification field or version change can leak into default bytes.
 
-Granularity-shaped schema `1.6` pages can also carry a `hidden` array. The
-field is omitted when empty and is copied unchanged across granularities:
+Granularity-shaped pages (schema `1.6` for explicit `char`, `1.9` for
+`element`/`word`) can also carry a `hidden` array. The field is omitted when
+empty and is copied unchanged across granularities:
 
 ```json
 "hidden": [
@@ -167,9 +168,9 @@ geometrically and deterministically; whitespace characters separate words and
 are not emitted as `chars`. Word order is content-stream order — reading
 order is not inferred.
 
-Schema `1.6` granularity-shaped text elements can additionally carry `runs`.
-Each run preserves its own content, resolved font, color, and optional external
-hyperlink target:
+Granularity-shaped text elements (schema `1.6` for explicit `char`, `1.9` for
+`element`/`word`) can additionally carry `runs`. Each run preserves its own
+content, resolved font, color, and optional external hyperlink target:
 
 ```json
 "runs": [
@@ -192,7 +193,8 @@ detail.
 
 ### table
 
-Schema `1.6` carries first-class table elements for PPTX:
+Granularity-shaped output (schema `1.6` for explicit `char`, `1.9` for
+`element`/`word`) carries first-class table elements for PPTX:
 
 ```json
 {
@@ -217,7 +219,8 @@ span and merged bounding box. Cell paragraphs are joined with `\n`, and cell
 
 ### chart
 
-Schema `1.6` carries first-class chart elements for PPTX:
+Granularity-shaped output (schema `1.6` for explicit `char`, `1.9` for
+`element`/`word`) carries first-class chart elements for PPTX:
 
 ```json
 {
@@ -256,7 +259,7 @@ itself is never embedded.
 ### path
 
 Bounding box plus paint: fill/stroke colors and stroke width. Path operator
-lists are not included. Schema `1.6` compact element/word paths retain the
+lists are not included. Schema `1.9` compact element/word paths retain the
 same optional `fill`, `stroke`, and `stroke_width` fields while rounding the
 bbox and stroke width to one decimal. An absent paint field is omitted;
 compact images remain bbox-only.
@@ -271,15 +274,20 @@ links.
 | Schema | Selected by |
 |---|---|
 | `1.1` | PDF JSON with no shaping parameters |
-| `1.6` | Explicit `element`, `word`, or `char` granularity for paged output |
+| `1.6` | Explicit `char` granularity for paged output |
 | `1.7` | DOCX/DOCM authored-flow output |
 | `1.8` | Opt-in classified paged output, with or without granularity |
+| `1.9` | Explicit `element` or `word` granularity for paged output |
 
 - The no-parameter response is frozen at schema `1.1` — new fields are only
-  ever additive, and granularity-shaped responses carry their own version
-  (`1.6`) and a `granularity` discriminator. Flow responses use schema `1.7`.
-  Opt-in classified paged responses use schema `1.8` and may also carry the
-  requested granularity discriminator.
+  ever additive. Explicit `char` granularity carries schema `1.6`; explicit
+  `element`/`word` granularity carries schema `1.9`, both with a
+  `granularity` discriminator. `element`/`word` additionally detect
+  glyph-fragmented pages (one text object per glyph, with no batched runs)
+  and regroup them into geometric lines and words before projecting —
+  `char` always reports the original per-glyph geometry, unregrouped. Flow
+  responses use schema `1.7`. Opt-in classified paged responses use schema
+  `1.8` and may also carry the requested granularity discriminator.
   PDF emits no hidden items, runs,
   tables, or charts, so its
   no-parameter `1.1` bytes remain unchanged.

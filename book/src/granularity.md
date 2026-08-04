@@ -70,7 +70,23 @@ Omit the parameter and you get the lossless v1.1 contract, byte-identical
 across versions: every text run with nested lines, words, and per-character
 boxes, full font/color detail on every element, image quads and content
 hashes, path stroke properties. This is the archival shape — see
-[the JSON contract](json-contract.md).
+[the JSON contract](json-contract.md). It never regroups anything, even on
+the glyph-fragmented pages described below: a PDF that places one glyph per
+text object still reports one `char` per text object, exactly as extracted.
+
+## Glyph-fragmented pages
+
+Some PDF producers (certain CAD/plotter exports, font-subsetted
+re-renderers) emit one text object per glyph instead of batching a run into
+a single show-text operator. Left alone, that would surface as dozens of
+single-character `element`/`word` entries per line instead of readable text.
+
+`element` and `word` detect this pattern per page and regroup the glyphs into
+geometric lines and words before projecting — so a glyph-fragmented page
+reads the same as a normally-authored one ("hello world" as one element, not
+eleven). Detection and regrouping only ever run on the `element`/`word`
+projection; normal pages (glyphs already batched into runs) are left
+untouched, and `char` always reports the original, ungrouped geometry.
 
 ## Rules shared by the compact levels
 
@@ -82,8 +98,10 @@ hashes, path stroke properties. This is the archival shape — see
 - **Never omitted:** page dimensions, element type, bbox, `scanned` flags, and
   any *non-empty* `warnings` array. Silent-failure freedom survives every
   granularity.
-- Compact responses report `"schema_version": "1.6"` and echo the
-  `"granularity"` you asked for.
+- `element`/`word` compact responses report `"schema_version": "1.9"`.
+  Requesting the explicit `char` granularity reports `"schema_version":
+  "1.6"` — distinct from the frozen `"1.1"` you get when the parameter is
+  omitted entirely. All three echo the `"granularity"` you asked for.
 - Every compact granularity carries each page's non-visible `hidden` items
   verbatim; granularity changes visible text detail, not supplemental context.
 
