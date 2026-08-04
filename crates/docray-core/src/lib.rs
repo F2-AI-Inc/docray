@@ -1,9 +1,11 @@
 mod error;
+pub mod selection;
 mod sniff;
 
 pub use docray_model::grouping;
 
 pub use error::ExtractError;
+pub use selection::PageSelection;
 pub use sniff::{sniff_format, Format};
 
 use docray_model::Granularity;
