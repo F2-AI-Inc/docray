@@ -461,6 +461,135 @@ mod tests {
         assert!(c.needs_ocr);
     }
 
+    /// Builds one single-glyph `Element::Text` per character of "hello world"
+    /// on a single baseline, mirroring `regroup.rs`'s `make_glyph_page`
+    /// fixture (8pt glyph width, touching within a word, 12pt gap between
+    /// words — comfortably past the 0.25*font_size word-split threshold).
+    /// Ten single-glyph elements clears `FRAGMENT_MIN_ELEMENTS` (8) at a
+    /// 100% single-glyph ratio, so `is_glyph_fragmented` sees this as
+    /// fragmented and `compact_page` regroups it into whole words/lines.
+    fn glyph_fragmented_hello_world_page() -> Page {
+        let baseline_y = 100.0;
+        let (y0, y1) = (88.0, 100.0);
+        let glyphs: [(char, f64); 10] = [
+            ('h', 0.0),
+            ('e', 8.0),
+            ('l', 16.0),
+            ('l', 24.0),
+            ('o', 32.0),
+            ('w', 52.0),
+            ('o', 60.0),
+            ('r', 68.0),
+            ('l', 76.0),
+            ('d', 84.0),
+        ];
+        let elements = glyphs
+            .iter()
+            .enumerate()
+            .map(|(i, &(ch, x0))| {
+                let bbox = BBox {
+                    x0,
+                    y0,
+                    x1: x0 + 8.0,
+                    y1,
+                };
+                let char = Char {
+                    content: ch.to_string(),
+                    bbox,
+                    unicode: ch as u32,
+                };
+                let word = Word {
+                    content: ch.to_string(),
+                    bbox,
+                    chars: vec![char],
+                };
+                let line = Line {
+                    bbox,
+                    baseline_y,
+                    words: vec![word],
+                };
+                Element::Text(TextElement {
+                    id: format!("g{i}"),
+                    bbox,
+                    content: ch.to_string(),
+                    font: Font {
+                        name: "Test".into(),
+                        size: 12.0,
+                        bold: false,
+                        italic: false,
+                    },
+                    color: TextColor {
+                        fill: Some([0, 0, 0]),
+                        stroke: None,
+                    },
+                    lines: Some(vec![line]),
+                    runs: None,
+                })
+            })
+            .collect();
+        Page {
+            page_number: 1,
+            width: PAGE_W,
+            height: PAGE_H,
+            rotation: 0,
+            scanned: false,
+            elements,
+            hidden: vec![],
+        }
+    }
+
+    #[test]
+    fn classify_compact_inherits_glyph_fragmented_regroup() {
+        // Proves the wiring at classification.rs:157 (`super::compact_page`)
+        // actually inherits the Task 5 fragmented regroup rather than
+        // bypassing it: without inheritance this would serialize 10
+        // single-glyph compact elements instead of one regrouped
+        // "hello world" line, and would fail.
+        let page = glyph_fragmented_hello_world_page();
+        assert!(
+            crate::regroup::is_glyph_fragmented(&page.elements),
+            "fixture must actually trigger the fragmented path"
+        );
+
+        let extraction = Extraction {
+            schema_version: "1.1".into(),
+            source: crate::Source {
+                format: "pdf".into(),
+                sha256: "deadbeef".into(),
+                size_bytes: 0,
+            },
+            document: crate::DocumentInfo {
+                page_count: 1,
+                metadata: crate::DocMetadata {
+                    title: None,
+                    author: None,
+                },
+            },
+            warnings: vec![],
+            pages: vec![page],
+        };
+
+        let classified = extraction.with_classification(Some(Granularity::Element));
+        let value = serde_json::to_value(&classified).expect("serialize classified extraction");
+
+        // Version sign-off: classify-compact stays schema 1.8. Classification
+        // shipped in #72 reusing the compact projection as an internal
+        // quality improvement; the fragmented regroup only changes bytes on
+        // pages that were previously mis-grouped (a bug), so it does not
+        // warrant a version bump.
+        assert_eq!(value["schema_version"], "1.8");
+
+        let elements = value["pages"][0]["elements"]
+            .as_array()
+            .expect("elements array");
+        assert_eq!(
+            elements.len(),
+            1,
+            "regrouped 'hello world' must collapse to a single line element, not 10 glyph elements"
+        );
+        assert_eq!(elements[0]["text"], "hello world");
+    }
+
     #[test]
     fn sparse_text_page_without_image_stays_text_and_no_ocr() {
         // 10 glyphs, no image. glyph_size chosen so coverage ≈ 0.005: between
