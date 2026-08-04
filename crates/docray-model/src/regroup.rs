@@ -75,9 +75,6 @@ fn href_of(t: &TextElement) -> Option<String> {
 /// so a later pass can reconstruct `TextRun`s with the correct font, color,
 /// and href per glyph. The map must only ever be looked up by key — never
 /// iterated — since `HashMap` iteration order is not deterministic.
-// Not yet called outside tests: a follow-up task wires this into the
-// regrouping pipeline. Remove this `allow` once that lands.
-#[allow(dead_code)]
 pub(crate) fn regroup_page_lines(elements: &[Element]) -> (Vec<Line>, StyleMap) {
     let mut style_map: StyleMap = HashMap::new();
     let mut raw_chars: Vec<RawChar> = Vec::new();
@@ -286,9 +283,6 @@ fn compact_element_bbox(element: &CompactElement) -> [f64; 4] {
 /// Ordering is a total order on `(scale(bbox.y0), scale(bbox.x0))` of the
 /// compact bbox, with a stable index tiebreak — never raw float comparison
 /// (see `scale`'s doc comment) and never `HashMap` iteration order.
-// Not yet called outside tests: a follow-up task wires this into the
-// compact-granularity pipeline. Remove this `allow` once that lands.
-#[allow(dead_code)]
 pub(crate) fn compact_fragmented_elements(
     elements: &[Element],
     granularity: Granularity,
@@ -322,9 +316,6 @@ pub(crate) fn compact_fragmented_elements(
 /// Returns true if `elements` looks like a glyph-fragmented text page: many
 /// `Element::Text` items each carrying exactly one glyph in their `lines`
 /// hierarchy, rather than whole words/lines.
-// Not yet called outside tests: a follow-up task wires this into the
-// regrouping pipeline. Remove this `allow` once that lands.
-#[allow(dead_code)]
 pub(crate) fn is_glyph_fragmented(elements: &[Element]) -> bool {
     let mut with_geometry = 0usize;
     let mut single_glyph = 0usize;
