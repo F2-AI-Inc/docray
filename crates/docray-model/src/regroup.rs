@@ -154,6 +154,10 @@ fn char_style(style_map: &StyleMap, ch: &Char) -> (Font, TextColor, Option<Strin
         .unwrap_or_else(fallback_style)
 }
 
+// Intentionally-uncovered defensive branch: no test triggers it, since doing
+// so would require an actual (bbox, content) collision inside `style_map`,
+// which `regroup_page_lines`'s own construction can't produce from realistic
+// input (see `char_style`'s doc comment).
 fn fallback_style() -> (Font, TextColor, Option<String>) {
     (
         Font {
@@ -170,25 +174,42 @@ fn fallback_style() -> (Font, TextColor, Option<String>) {
     )
 }
 
-/// Walks a regrouped line's chars in word order, grouping consecutive chars
-/// that share `(font, color, href)` into `TextRun`s. A line whose glyphs are
-/// all one style (the common case) collapses to a single run.
+/// Walks a regrouped line's words in reading order and builds the `TextRun`
+/// sequence over the line's TEXT exactly as `CompactTextContent::Element`
+/// renders it (words joined by a single `" "`): before every word except the
+/// first, a synthetic space is emitted — styled as the PRECEDING char's
+/// style, since that's whichever run it trails — followed by each of the
+/// word's chars in its own style. Consecutive entries sharing
+/// `(font, color, href)` are merged into one `TextRun`.
+///
+/// This upholds the same invariant enforced elsewhere in the model (e.g.
+/// docray-docx/docray-pptx's `merge_run`): concatenating every run's
+/// `content` in order reproduces the element's full text, spaces included.
 fn build_runs(line: &Line, style_map: &StyleMap) -> Vec<TextRun> {
     let mut runs: Vec<TextRun> = Vec::new();
-    for word in &line.words {
-        for ch in &word.chars {
-            let (font, color, href) = char_style(style_map, ch);
-            match runs.last_mut() {
-                Some(last) if last.font == font && last.color == color && last.href == href => {
-                    last.content.push_str(&ch.content);
-                }
-                _ => runs.push(TextRun {
-                    content: ch.content.clone(),
-                    font,
-                    color,
-                    href,
-                }),
+    let mut push =
+        |content: &str, (font, color, href): (Font, TextColor, Option<String>)| match runs
+            .last_mut()
+        {
+            Some(last) if last.font == font && last.color == color && last.href == href => {
+                last.content.push_str(content);
             }
+            _ => runs.push(TextRun {
+                content: content.to_string(),
+                font,
+                color,
+                href,
+            }),
+        };
+
+    for (i, word) in line.words.iter().enumerate() {
+        if i > 0 {
+            if let Some(prev_last_char) = line.words[i - 1].chars.last() {
+                push(" ", char_style(style_map, prev_last_char));
+            }
+        }
+        for ch in &word.chars {
+            push(&ch.content, char_style(style_map, ch));
         }
     }
     runs
@@ -196,7 +217,11 @@ fn build_runs(line: &Line, style_map: &StyleMap) -> Vec<TextRun> {
 
 /// Projects one regrouped `Line` to a `CompactElement::Text`: content shaped
 /// per `granularity`, font/color taken from the line's first char, and
-/// `runs` reconstructed by `build_runs`.
+/// `runs` reconstructed by `build_runs` — but only when the line actually has
+/// intra-line style variation. A line whose glyphs (and inserted spaces) are
+/// all one style collapses `build_runs` to a single run equal to the
+/// element-level font/color, so `runs` is elided to `None` there, matching
+/// how the existing compact path represents single-style text.
 fn compact_line(line: &Line, granularity: Granularity, style_map: &StyleMap) -> CompactElement {
     let content = match granularity {
         Granularity::Element => CompactTextContent::Element {
@@ -227,12 +252,15 @@ fn compact_line(line: &Line, granularity: Granularity, style_map: &StyleMap) -> 
         .map(|ch| char_style(style_map, ch))
         .unwrap_or_else(fallback_style);
 
+    let runs = build_runs(line, style_map);
+    let runs = if runs.len() > 1 { Some(runs) } else { None };
+
     CompactElement::Text(CompactTextElement {
         bbox: compact_bbox(&line.bbox),
         content,
         font: compact_font(&font),
         color: compact_color(&color),
-        runs: compact_runs(&Some(build_runs(line, style_map))),
+        runs: compact_runs(&runs),
     })
 }
 
@@ -613,13 +641,10 @@ mod tests {
             first.color.is_none(),
             "black fill is elided by compact_color"
         );
-        let runs = first
-            .runs
-            .as_ref()
-            .expect("regrouped line must carry reconstructed runs");
-        assert_eq!(runs.len(), 1, "single-style line collapses to one run");
-        assert_eq!(runs[0].content, "helloworld");
-        assert!(runs[0].href.is_none());
+        assert!(
+            first.runs.is_none(),
+            "a uniform-style line elides runs entirely (matches element-level font/color)"
+        );
 
         match &compact[1] {
             CompactElement::Image(image) => {
@@ -635,12 +660,10 @@ mod tests {
             CompactTextContent::Element { text } => assert_eq!(text, "foo bar"),
             CompactTextContent::Word { .. } => panic!("expected element-granularity content"),
         }
-        let runs = third
-            .runs
-            .as_ref()
-            .expect("regrouped line must carry reconstructed runs");
-        assert_eq!(runs.len(), 1, "single-style line collapses to one run");
-        assert_eq!(runs[0].content, "foobar");
+        assert!(
+            third.runs.is_none(),
+            "a uniform-style line elides runs entirely (matches element-level font/color)"
+        );
     }
 
     #[test]
@@ -685,5 +708,103 @@ mod tests {
             (words[1].1, words[1].2, words[1].3, words[1].4),
             (36.0, 108.0, 60.0, 120.0)
         );
+    }
+
+    /// Two single-glyph words on one baseline, "AB" then "CD", where the
+    /// first word's glyphs use `font_a` and the second's use `font_b` —
+    /// i.e. a glyph-fragmented line with real intra-line style variation
+    /// (unlike every other fixture in this file, which is deliberately
+    /// uniform-style). Glyph width 8pt, no gap within a word, 4pt gap
+    /// between words (exceeds the `0.25 * 12pt` = 3pt word-split
+    /// threshold), one shared baseline so both words land on one line.
+    fn make_mixed_style_line() -> Vec<Element> {
+        let font_a = Font {
+            name: "FontA".to_string(),
+            size: 12.0,
+            bold: false,
+            italic: false,
+        };
+        let font_b = Font {
+            name: "FontB".to_string(),
+            size: 12.0,
+            bold: true,
+            italic: false,
+        };
+        [
+            ('A', 0.0, font_a.clone()),
+            ('B', 8.0, font_a),
+            ('C', 20.0, font_b.clone()),
+            ('D', 28.0, font_b),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (ch, x0, font))| {
+            let bbox = BBox {
+                x0,
+                y0: 88.0,
+                x1: x0 + 8.0,
+                y1: 100.0,
+            };
+            let char = Char {
+                content: ch.to_string(),
+                bbox,
+                unicode: ch as u32,
+            };
+            let word = Word {
+                content: ch.to_string(),
+                bbox,
+                chars: vec![char],
+            };
+            let line = Line {
+                bbox,
+                baseline_y: 100.0,
+                words: vec![word],
+            };
+            Element::Text(TextElement {
+                id: format!("m{i}"),
+                bbox,
+                content: ch.to_string(),
+                font,
+                color: color(),
+                lines: Some(vec![line]),
+                runs: None,
+            })
+        })
+        .collect()
+    }
+
+    #[test]
+    fn compact_fragmented_elements_mixed_style_line_produces_text_reconstructing_runs() {
+        let elements = make_mixed_style_line();
+
+        let compact = compact_fragmented_elements(&elements, Granularity::Element);
+        assert_eq!(compact.len(), 1, "one physical line");
+
+        let CompactElement::Text(text) = &compact[0] else {
+            panic!("expected a text element")
+        };
+        let CompactTextContent::Element { text: full_text } = &text.content else {
+            panic!("expected element-granularity content")
+        };
+        assert_eq!(full_text, "AB CD");
+
+        let runs = text
+            .runs
+            .as_ref()
+            .expect("intra-line style variation must produce runs");
+        assert_eq!(runs.len(), 2, "run boundary at the font change");
+        assert_eq!(runs[0].content, "AB ");
+        assert_eq!(runs[0].font.name, "FontA");
+        assert!(!runs[0].font.bold);
+        assert_eq!(runs[1].content, "CD");
+        assert_eq!(runs[1].font.name, "FontB");
+        assert!(runs[1].font.bold);
+
+        // The core invariant this test exists to pin: concatenating every
+        // run's content in order reproduces the element's full text
+        // (spaces included), matching docray-docx/docray-pptx's
+        // `runs.iter().map(|r| &r.content).collect::<String>() == text`.
+        let reconstructed: String = runs.iter().map(|r| r.content.as_str()).collect();
+        assert_eq!(&reconstructed, full_text);
     }
 }
