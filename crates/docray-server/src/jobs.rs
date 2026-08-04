@@ -1,6 +1,8 @@
+use docray_core::PageSelection;
 use docray_model::{Granularity, OutputFormat};
 use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Mutex;
 
 pub struct JobStore {
@@ -23,6 +25,13 @@ pub struct ClaimedJob {
     pub granularity: Option<Granularity>,
     pub format: OutputFormat,
     pub classify: bool,
+    pub pages: Option<PageSelection>,
+}
+
+/// Canonical `"start-end"` persisted form, matching the CLI/query syntax
+/// `PageSelection::from_str` parses (see `docray-core::selection`).
+fn page_selection_to_string(pages: PageSelection) -> String {
+    format!("{}-{}", pages.start, pages.end)
 }
 
 fn now() -> i64 {
@@ -45,6 +54,7 @@ impl JobStore {
                 granularity TEXT,
                 format TEXT NOT NULL DEFAULT 'json',
                 classify INTEGER NOT NULL DEFAULT 0,
+                pages TEXT,
                 result_path TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -89,6 +99,16 @@ impl JobStore {
             )
             .expect("cannot migrate job schema");
         }
+        let has_pages = conn
+            .prepare("PRAGMA table_info(jobs)")
+            .expect("cannot inspect job schema")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("cannot read job schema")
+            .any(|column| column.expect("cannot read job schema column") == "pages");
+        if !has_pages {
+            conn.execute("ALTER TABLE jobs ADD COLUMN pages TEXT", [])
+                .expect("cannot migrate job schema");
+        }
         JobStore {
             conn: Mutex::new(conn),
         }
@@ -111,17 +131,19 @@ impl JobStore {
         granularity: Option<Granularity>,
         format: OutputFormat,
         classify: bool,
+        pages: Option<PageSelection>,
     ) -> Result<(), rusqlite::Error> {
         let t = now();
         self.conn().execute(
-            "INSERT INTO jobs (id, status, input_path, granularity, format, classify, created_at, updated_at)
-             VALUES (?1, 'queued', ?2, ?3, ?4, ?5, ?6, ?6)",
+            "INSERT INTO jobs (id, status, input_path, granularity, format, classify, pages, created_at, updated_at)
+             VALUES (?1, 'queued', ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
             rusqlite::params![
                 id,
                 input_path,
                 granularity.map(Granularity::as_str),
                 format.as_str(),
                 classify,
+                pages.map(page_selection_to_string),
                 t
             ],
         )?;
@@ -132,11 +154,19 @@ impl JobStore {
     /// empty; `Err` means the store failed (distinct so callers don't spin).
     pub fn claim_next(&self) -> Result<Option<ClaimedJob>, rusqlite::Error> {
         let conn = self.conn();
-        let claimed: Option<(String, String, Option<String>, String, bool)> = conn
+        #[allow(clippy::type_complexity)]
+        let claimed: Option<(
+            String,
+            String,
+            Option<String>,
+            String,
+            bool,
+            Option<String>,
+        )> = conn
             .query_row(
                 "UPDATE jobs SET status = 'running', updated_at = ?1
              WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1)
-             RETURNING id, input_path, granularity, format, classify",
+             RETURNING id, input_path, granularity, format, classify, pages",
                 rusqlite::params![now()],
                 |row| {
                     Ok((
@@ -145,27 +175,35 @@ impl JobStore {
                         row.get(2)?,
                         row.get(3)?,
                         row.get(4)?,
+                        row.get(5)?,
                     ))
                 },
             )
             .optional()?;
-        Ok(claimed.map(|(id, input_path, level, format, classify)| {
-            let granularity = level.map(|value| {
-                value
+        Ok(
+            claimed.map(|(id, input_path, level, format, classify, pages)| {
+                let granularity = level.map(|value| {
+                    value
+                        .parse()
+                        .expect("job granularity is validated before it reaches the store")
+                });
+                let format = format
                     .parse()
-                    .expect("job granularity is validated before it reaches the store")
-            });
-            let format = format
-                .parse()
-                .expect("job format is validated before it reaches the store");
-            ClaimedJob {
-                id,
-                input_path,
-                granularity,
-                format,
-                classify,
-            }
-        }))
+                    .expect("job format is validated before it reaches the store");
+                let pages = pages.map(|value| {
+                    PageSelection::from_str(&value)
+                        .expect("job page selection is validated before it reaches the store")
+                });
+                ClaimedJob {
+                    id,
+                    input_path,
+                    granularity,
+                    format,
+                    classify,
+                    pages,
+                }
+            }),
+        )
     }
 
     pub fn mark_succeeded(&self, id: &str, result_path: &str) -> Result<(), rusqlite::Error> {
@@ -274,6 +312,7 @@ mod tests {
                 None,
                 OutputFormat::Json,
                 false,
+                None,
             )
             .unwrap();
         store.mark_failed("old", "crash", "boom").unwrap();
@@ -284,6 +323,7 @@ mod tests {
                 None,
                 OutputFormat::Json,
                 false,
+                None,
             )
             .unwrap();
 
@@ -318,6 +358,7 @@ mod tests {
                     None,
                     OutputFormat::Json,
                     false,
+                    None,
                 )
                 .unwrap();
         }
@@ -365,6 +406,7 @@ mod tests {
                 Some(Granularity::Word),
                 OutputFormat::Lean,
                 false,
+                None,
             )
             .unwrap();
 
@@ -374,13 +416,47 @@ mod tests {
         assert_eq!(job.granularity, Some(Granularity::Word));
         assert_eq!(job.format, OutputFormat::Lean);
         assert!(!job.classify);
+        assert_eq!(job.pages, None);
 
         store
-            .create("classified", "in.pdf", None, OutputFormat::Json, true)
+            .create("classified", "in.pdf", None, OutputFormat::Json, true, None)
             .unwrap();
         let job = store.claim_next().unwrap().unwrap();
         assert_eq!(job.format, OutputFormat::Json);
         assert!(job.classify);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // Pins the "start-end" round-trip through the pages TEXT column: a page
+    // selection persisted at `create` must come back byte-for-byte equivalent
+    // (as a parsed `PageSelection`) from `claim_next`, and an absent selection
+    // must round-trip as `None` (today's full-document job behavior).
+    #[test]
+    fn claim_preserves_page_selection() {
+        let dir = std::env::temp_dir().join(format!("dps-pages-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = JobStore::new(&dir.join("t.sqlite"));
+        store
+            .create(
+                "ranged",
+                "in.pdf",
+                None,
+                OutputFormat::Json,
+                false,
+                Some(PageSelection { start: 2, end: 3 }),
+            )
+            .unwrap();
+        store
+            .create("full", "in.pdf", None, OutputFormat::Json, false, None)
+            .unwrap();
+
+        let job = store.claim_next().unwrap().unwrap();
+        assert_eq!(job.id, "ranged");
+        assert_eq!(job.pages, Some(PageSelection { start: 2, end: 3 }));
+
+        let job = store.claim_next().unwrap().unwrap();
+        assert_eq!(job.id, "full");
+        assert_eq!(job.pages, None);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

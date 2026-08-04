@@ -387,11 +387,9 @@ async fn create_job(
         Ok(value) => value,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
-    // jobs wiring: Task 9 persists `pages` on the job record and threads it into
-    // the async worker's CLI invocation. It is already validated here (via
-    // `requested_output`) so a bad `pages=` value fails fast at submit time even
-    // before that wiring lands.
-    let _ = pages;
+    // `pages` is validated above (via `requested_output`, same as sync) so a
+    // bad `pages=` value fails fast at submit time with `bad_pages`, before any
+    // upload streaming or job-store write happens.
     // Same rejection-to-JSON mapping the sync route uses (see `sync_extract`):
     // length/limit rejections -> 413 too_large, anything else -> 400.
     let mut multipart = match multipart {
@@ -430,6 +428,7 @@ async fn create_job(
         granularity,
         format,
         classify,
+        pages,
     ) {
         let _ = std::fs::remove_file(&input_path);
         return error_response(
