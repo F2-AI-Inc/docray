@@ -309,7 +309,7 @@ pub(crate) fn compact_fragmented_elements(
         next_index += 1;
     }
 
-    items.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    items.sort_by_key(|a| (a.0, a.1));
     items.into_iter().map(|(_, _, el)| el).collect()
 }
 
