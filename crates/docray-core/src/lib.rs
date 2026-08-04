@@ -1,9 +1,11 @@
 mod error;
+pub mod selection;
 mod sniff;
 
 pub use docray_model::grouping;
 
 pub use error::ExtractError;
+pub use selection::PageSelection;
 pub use sniff::{sniff_format, Format};
 
 use docray_model::Granularity;
@@ -28,7 +30,12 @@ pub trait Extractor {
 
     fn capabilities(&self) -> Capabilities;
 
-    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Self::Output, ExtractError>;
+    fn extract(
+        &self,
+        bytes: &[u8],
+        max_pages: Option<u32>,
+        pages: Option<PageSelection>,
+    ) -> Result<Self::Output, ExtractError>;
 }
 
 /// Rejects a request that needs a finer hierarchy than an extractor provides.
@@ -68,6 +75,7 @@ mod tests {
             &self,
             _bytes: &[u8],
             _max_pages: Option<u32>,
+            _pages: Option<PageSelection>,
         ) -> Result<docray_model::Extraction, ExtractError> {
             unreachable!("capability gate tests do not extract")
         }

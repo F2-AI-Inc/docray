@@ -252,20 +252,20 @@ fn extract_document(
         Some(Format::Pdf) => {
             let extractor = PdfExtractor;
             check_granularity(&extractor.capabilities(), requested)
-                .and_then(|()| extractor.extract(bytes, None))
+                .and_then(|()| extractor.extract(bytes, None, None))
                 .map(DocumentExtraction::Paged)
         }
         Some(Format::Zip) => match sniff_opc(bytes) {
             Ok(OpcKind::Pptx) => {
                 let extractor = PptxExtractor;
                 check_granularity(&extractor.capabilities(), requested)
-                    .and_then(|()| extractor.extract(bytes, None))
+                    .and_then(|()| extractor.extract(bytes, None, None))
                     .map(DocumentExtraction::Paged)
             }
             Ok(OpcKind::Docx) => {
                 let extractor = DocxExtractor;
                 check_granularity(&extractor.capabilities(), requested)
-                    .and_then(|()| extractor.extract(bytes, None))
+                    .and_then(|()| extractor.extract(bytes, None, None))
                     .map(DocumentExtraction::Flow)
             }
             Ok(OpcKind::OtherZip) => Err(ExtractError::UnsupportedFormatMessage(
@@ -274,7 +274,7 @@ fn extract_document(
             Err(error) => Err(error),
         },
         None if bytes.starts_with(CFB_MAGIC) => PptxExtractor
-            .extract(bytes, None)
+            .extract(bytes, None, None)
             .map(DocumentExtraction::Paged),
         None => Err(ExtractError::UnsupportedFormat),
     };

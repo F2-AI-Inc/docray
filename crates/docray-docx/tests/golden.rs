@@ -25,7 +25,7 @@ fn fixtures() -> Vec<PathBuf> {
 
 fn extract(path: impl AsRef<Path>) -> docray_model::FlowExtraction {
     DocxExtractor
-        .extract(&fs::read(path).unwrap(), None)
+        .extract(&fs::read(path).unwrap(), None, None)
         .unwrap()
 }
 
@@ -467,11 +467,11 @@ fn sections_stories_notes_breaks_and_docm_policy_are_explicit() {
 #[test]
 fn repeated_extraction_and_max_pages_policy_are_deterministic() {
     let bytes = fs::read(root().join("testdata/docx/breaks.docx")).unwrap();
-    let first = serde_json::to_vec(&DocxExtractor.extract(&bytes, None).unwrap()).unwrap();
-    let second = serde_json::to_vec(&DocxExtractor.extract(&bytes, None).unwrap()).unwrap();
+    let first = serde_json::to_vec(&DocxExtractor.extract(&bytes, None, None).unwrap()).unwrap();
+    let second = serde_json::to_vec(&DocxExtractor.extract(&bytes, None, None).unwrap()).unwrap();
     assert_eq!(first, second);
     assert!(matches!(
-        DocxExtractor.extract(&bytes, Some(1)),
+        DocxExtractor.extract(&bytes, Some(1), None),
         Err(docray_core::ExtractError::TooManyPages {
             limit: 1,
             actual: 3
@@ -479,7 +479,7 @@ fn repeated_extraction_and_max_pages_policy_are_deterministic() {
     ));
 
     let zero = fs::read(root().join("testdata/docx/zero-hints.docx")).unwrap();
-    let extraction = DocxExtractor.extract(&zero, Some(1)).unwrap();
+    let extraction = DocxExtractor.extract(&zero, Some(1), None).unwrap();
     assert!(extraction
         .warnings
         .iter()

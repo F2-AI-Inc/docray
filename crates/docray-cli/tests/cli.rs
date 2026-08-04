@@ -297,6 +297,88 @@ fn closed_stdout_pipe_is_quiet_success_not_a_panic() {
 }
 
 #[test]
+fn pages_selects_absolute_range_and_lean_header_counts_selected_blocks() {
+    let assert = dps()
+        .arg("extract")
+        .arg(testdata("multipage.pdf"))
+        .args(["--pages", "2-4", "--format", "lean"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let header = stdout
+        .lines()
+        .next()
+        .expect("lean output has a header line");
+    assert!(
+        header.contains("pages=3"),
+        "expected header to report 3 emitted blocks for a 2-4 selection, got: {header:?}"
+    );
+    assert!(
+        stdout.contains("#page 2 "),
+        "expected an absolute #page 2 block, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("#page 3 "),
+        "expected an absolute #page 3 block, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("#page 4 "),
+        "expected an absolute #page 4 block, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("#page 1 ")
+            && !stdout.contains("#page 5 ")
+            && !stdout.contains("#page 6 "),
+        "did not expect pages outside the 2-4 selection, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn pages_single_page_selection() {
+    let assert = dps()
+        .arg("extract")
+        .arg(testdata("multipage.pdf"))
+        .args(["--pages", "3-3", "--format", "lean"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let header = stdout
+        .lines()
+        .next()
+        .expect("lean output has a header line");
+    assert!(
+        header.contains("pages=1"),
+        "expected header to report 1 emitted block for a 3-3 selection, got: {header:?}"
+    );
+    assert!(
+        stdout.contains("#page 3 "),
+        "expected an absolute #page 3 block, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn pages_unparseable_value_exits_7_with_bad_pages_envelope() {
+    dps()
+        .arg("extract")
+        .arg(testdata("multipage.pdf"))
+        .args(["--pages", "abc"])
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("\"code\":\"bad_pages\""));
+}
+
+#[test]
+fn pages_out_of_range_exits_9_with_page_out_of_range_envelope() {
+    dps()
+        .arg("extract")
+        .arg(testdata("multipage.pdf"))
+        .args(["--pages", "99-100"])
+        .assert()
+        .code(9)
+        .stderr(predicate::str::contains("\"code\":\"page_out_of_range\""));
+}
+
+#[test]
 fn version_flag_reports_the_crate_version() {
     dps()
         .arg("--version")

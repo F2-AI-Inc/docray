@@ -35,6 +35,7 @@ async fn main() {
                     granularity,
                     format,
                     classify,
+                    pages,
                 } = match store.claim_next() {
                     Ok(Some(job)) => job,
                     Ok(None) => {
@@ -55,6 +56,7 @@ async fn main() {
                     granularity,
                     format,
                     classify,
+                    pages,
                 ));
                 if work.catch_unwind().await.is_err() {
                     if let Err(e) = store.mark_failed(&id, "crash", "worker task panicked") {
@@ -103,6 +105,7 @@ async fn main() {
 /// Run one claimed job to completion and record its outcome. Store errors while
 /// marking the result are logged (worst case the job is re-queued by startup
 /// running->queued recovery); they must not abort the worker loop.
+#[allow(clippy::too_many_arguments)]
 async fn process_job(
     cfg: &Config,
     store: &JobStore,
@@ -111,6 +114,7 @@ async fn process_job(
     granularity: Option<docray_model::Granularity>,
     format: docray_model::OutputFormat,
     classify: bool,
+    pages: Option<docray_core::PageSelection>,
 ) {
     let outcome = run_extraction(
         cfg,
@@ -119,6 +123,7 @@ async fn process_job(
         granularity,
         format,
         classify,
+        pages,
     )
     .await;
     let marked = match outcome {

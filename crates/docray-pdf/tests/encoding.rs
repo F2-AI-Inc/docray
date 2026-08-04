@@ -15,7 +15,7 @@ fn extract(fixture: &str) -> docray_model::Extraction {
     ensure_pdfium_dir();
     let path = format!("{}/../../testdata/{fixture}", env!("CARGO_MANIFEST_DIR"));
     let bytes = std::fs::read(path).unwrap();
-    PdfExtractor.extract(&bytes, None).unwrap()
+    PdfExtractor.extract(&bytes, None, None).unwrap()
 }
 
 #[test]

@@ -295,3 +295,153 @@ fn markdown_job_roundtrips_stored_format_and_content_type() {
     );
     assert!(r.text().unwrap().contains("# Bold Title"));
 }
+
+// `pages=2-3` on a job over the 6-page multipage.pdf must persist through the
+// job store and be forwarded to the worker's CLI invocation the same way sync
+// does: the result has exactly 2 pages, keeping their ORIGINAL absolute page
+// numbers (not renumbered to 1,2), and the LEAN header's `pages=` count
+// reflects the number of page blocks returned.
+#[test]
+fn job_pages_selects_sub_range_with_absolute_numbering() {
+    let server = TestServer::start();
+    let client = reqwest::blocking::Client::new();
+
+    let r = upload(&server.base, "/v1/jobs?pages=2-3", fixture("multipage.pdf"));
+    assert_eq!(r.status(), 202);
+    let id = r.json::<serde_json::Value>().unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut status = String::new();
+    for _ in 0..100 {
+        let v: serde_json::Value = client
+            .get(format!("{}/v1/jobs/{id}", server.base))
+            .send()
+            .unwrap()
+            .json()
+            .unwrap();
+        status = v["status"].as_str().unwrap().to_string();
+        if status == "succeeded" || status == "failed" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(status, "succeeded");
+
+    let r = client
+        .get(format!("{}/v1/jobs/{id}/result", server.base))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["pages"].as_array().unwrap().len(), 2);
+    assert_eq!(v["pages"][0]["page_number"], 2);
+    assert_eq!(v["pages"][1]["page_number"], 3);
+
+    // Same selection, LEAN format: header `pages=` count is 2 (selected page
+    // blocks), and only pages 2 and 3 appear as `#page` markers.
+    let r = upload(
+        &server.base,
+        "/v1/jobs?pages=2-3&format=lean",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 202);
+    let id = r.json::<serde_json::Value>().unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut status = String::new();
+    for _ in 0..100 {
+        let v: serde_json::Value = client
+            .get(format!("{}/v1/jobs/{id}", server.base))
+            .send()
+            .unwrap()
+            .json()
+            .unwrap();
+        status = v["status"].as_str().unwrap().to_string();
+        if status == "succeeded" || status == "failed" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(status, "succeeded");
+
+    let r = client
+        .get(format!("{}/v1/jobs/{id}/result", server.base))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body = r.text().unwrap();
+    assert!(body.contains("pages=2\n"), "body: {body}");
+    assert!(body.contains("#page 2 "), "body: {body}");
+    assert!(body.contains("#page 3 "), "body: {body}");
+    assert!(!body.contains("#page 1 "), "body: {body}");
+    assert!(!body.contains("#page 4 "), "body: {body}");
+}
+
+// A malformed `pages=` value is rejected at submit time (400 bad_pages,
+// shared `requested_output` validation), before a job is ever created — no
+// job_id is issued and nothing reaches the queue or the worker.
+#[test]
+fn job_pages_bad_selection_returns_400_bad_pages_at_submit() {
+    let server = TestServer::start();
+
+    let r = upload(&server.base, "/v1/jobs?pages=abc", fixture("multipage.pdf"));
+    assert_eq!(r.status(), 400, "expected 400, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "bad_pages");
+
+    let r = upload(
+        &server.base,
+        "/v1/jobs?pages=200-1",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 400, "expected 400, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "bad_pages");
+}
+
+// Sanity: a full-document job (no `pages=` at all) is unaffected by the new
+// wiring — every page of the multi-page fixture comes back, in order.
+#[test]
+fn job_without_pages_returns_full_document_unchanged() {
+    let server = TestServer::start();
+    let client = reqwest::blocking::Client::new();
+
+    let r = upload(&server.base, "/v1/jobs", fixture("multipage.pdf"));
+    assert_eq!(r.status(), 202);
+    let id = r.json::<serde_json::Value>().unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut status = String::new();
+    for _ in 0..100 {
+        let v: serde_json::Value = client
+            .get(format!("{}/v1/jobs/{id}", server.base))
+            .send()
+            .unwrap()
+            .json()
+            .unwrap();
+        status = v["status"].as_str().unwrap().to_string();
+        if status == "succeeded" || status == "failed" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(status, "succeeded");
+
+    let r = client
+        .get(format!("{}/v1/jobs/{id}/result", server.base))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: serde_json::Value = r.json().unwrap();
+    let pages = v["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 6);
+    for (i, page) in pages.iter().enumerate() {
+        assert_eq!(page["page_number"], (i + 1) as i64);
+    }
+}

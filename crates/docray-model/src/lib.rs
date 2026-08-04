@@ -537,7 +537,9 @@ impl CompactExtraction {
         write!(
             output,
             "#docray {} v{} pages={}",
-            self.granularity, self.schema_version, self.document.page_count
+            self.granularity,
+            self.schema_version,
+            self.pages.len()
         )?;
         if !self.warnings.is_empty() {
             write!(output, " warnings={}", self.warnings.len())?;
@@ -1243,6 +1245,72 @@ mod compact_page_regroup_tests {
             serde_json::Value::Array(expected_elements),
             "content for a non-fragmented page must be byte-identical to the pre-change \
              per-element projection — only schema_version differs"
+        );
+    }
+}
+
+#[cfg(test)]
+mod lean_header_page_count_tests {
+    use super::*;
+
+    fn compact_page(page_number: u32) -> CompactPage {
+        CompactPage {
+            page_number,
+            width: 612.0,
+            height: 792.0,
+            rotation: 0,
+            scanned: false,
+            elements: vec![],
+            hidden: vec![],
+        }
+    }
+
+    /// A `CompactExtraction` whose `pages` vec (3 entries) is shorter than
+    /// `document.page_count` (10) — the shape a page selection produces:
+    /// the document has 10 pages total, but only 3 `#page` blocks were
+    /// emitted for the requested selection.
+    fn selected_pages_extraction() -> CompactExtraction {
+        CompactExtraction {
+            granularity: Granularity::Element,
+            schema_version: "1.9",
+            source: Source {
+                format: "pdf".into(),
+                sha256: "abc".into(),
+                size_bytes: 10,
+            },
+            document: CompactDocumentInfo {
+                page_count: 10,
+                metadata: CompactDocMetadata {
+                    title: None,
+                    author: None,
+                },
+            },
+            warnings: vec![],
+            pages: vec![compact_page(3), compact_page(5), compact_page(7)],
+        }
+    }
+
+    #[test]
+    fn lean_header_pages_reports_emitted_block_count_not_document_total() {
+        let compact = selected_pages_extraction();
+        assert_eq!(compact.pages.len(), 3, "sanity: 3 page blocks emitted");
+        assert_eq!(
+            compact.document.page_count, 10,
+            "sanity: document has 10 pages total"
+        );
+
+        let lean = compact.to_lean();
+        let header = lean.lines().next().expect("lean output has a header line");
+
+        assert!(
+            header.contains("pages=3"),
+            "LEAN header must report the number of #page blocks actually emitted \
+             (3), not the document's total page count (10); got: {header:?}"
+        );
+        assert!(
+            !header.contains("pages=10"),
+            "LEAN header must not report the document total page count under a \
+             page selection; got: {header:?}"
         );
     }
 }

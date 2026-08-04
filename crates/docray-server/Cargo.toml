@@ -6,6 +6,7 @@ version.workspace = true
 
 [dependencies]
 docray-model = { path = "../docray-model" }
+docray-core = { path = "../docray-core" }
 axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"

@@ -578,6 +578,161 @@ fn too_many_pages_returns_413() {
     assert_eq!(v["error"]["code"], "too_many_pages");
 }
 
+// `pages=2-3` on the 6-page multipage.pdf must return exactly pages 2 and 3,
+// with their ORIGINAL absolute page numbers (not renumbered to 1,2). The LEAN
+// header's `pages=` count reflects the number of page blocks returned, i.e. 2.
+#[test]
+fn pages_selects_sub_range_with_absolute_numbering() {
+    let server = TestServer::start();
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=2-3",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 200, "expected 200, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["pages"].as_array().unwrap().len(), 2);
+    assert_eq!(v["pages"][0]["page_number"], 2);
+    assert_eq!(v["pages"][1]["page_number"], 3);
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=2-3&format=lean",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 200, "expected 200, got {}", r.status());
+    let body = r.text().unwrap();
+    assert!(body.contains("pages=2\n"), "body: {body}");
+    assert!(body.contains("#page 2 "), "body: {body}");
+    assert!(body.contains("#page 3 "), "body: {body}");
+    assert!(!body.contains("#page 1 "), "body: {body}");
+    assert!(!body.contains("#page 4 "), "body: {body}");
+}
+
+// A single-page selection (`pages=1-1`, the CLI's/worker's canonical
+// `start-end` rendering of "page 1 only") returns exactly page 1.
+#[test]
+fn pages_single_page_selection() {
+    let server = TestServer::start();
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=1-1",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 200, "expected 200, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["pages"].as_array().unwrap().len(), 1);
+    assert_eq!(v["pages"][0]["page_number"], 1);
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=1-1&format=lean",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 200, "expected 200, got {}", r.status());
+    let body = r.text().unwrap();
+    assert!(body.contains("pages=1\n"), "body: {body}");
+    assert!(body.contains("#page 1 "), "body: {body}");
+}
+
+// Malformed `pages=` values are rejected at the query layer as 400 bad_pages,
+// before any extraction is attempted: non-numeric, and reversed range.
+#[test]
+fn pages_bad_selection_returns_400_bad_pages() {
+    let server = TestServer::start();
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=abc",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 400, "expected 400, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "bad_pages");
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=200-1",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 400, "expected 400, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "bad_pages");
+}
+
+// A syntactically valid but out-of-range selection (beyond the document's
+// actual page count) is a distinct error from a malformed selection string:
+// 400 page_out_of_range, not bad_pages. multipage.pdf has 6 pages.
+#[test]
+fn pages_out_of_range_returns_400_page_out_of_range() {
+    let server = TestServer::start();
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=99-100",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 400, "expected 400, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "page_out_of_range");
+}
+
+// PPTX doesn't support page selection at all (no physical "pages" concept the
+// way PDF does): any `pages=` value is rejected as 400 page_selection_unsupported.
+#[test]
+fn pages_unsupported_format_returns_400_page_selection_unsupported() {
+    let server = TestServer::start();
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=1",
+        fixture("pptx/basic.pptx"),
+    );
+    assert_eq!(r.status(), 400, "expected 400, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "page_selection_unsupported");
+}
+
+// Cap-on-selected: the sync max-pages cap applies to the SELECTED range's
+// page count, not the whole document. With DOCRAY_SYNC_MAX_PAGES=2 on the
+// 6-page multipage.pdf, a 2-page selection fits but a 3-page one doesn't.
+#[test]
+fn pages_cap_applies_to_selected_range_not_whole_document() {
+    let server = TestServer::start_with(&[("DOCRAY_SYNC_MAX_PAGES", "2")]);
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=1-2",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 200, "expected 200, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["pages"].as_array().unwrap().len(), 2);
+
+    let r = upload(
+        &server.base,
+        "/v1/extract?pages=1-3",
+        fixture("multipage.pdf"),
+    );
+    assert_eq!(r.status(), 413, "expected 413, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["error"]["code"], "too_many_pages");
+}
+
+// Sanity: omitting `pages` entirely must still extract the full document
+// unchanged (byte-identical schema-1.1 path is covered elsewhere; this checks
+// the page count specifically now that a `pages` param exists to omit).
+#[test]
+fn pages_omitted_extracts_full_document() {
+    let server = TestServer::start();
+    let r = upload(&server.base, "/v1/extract", fixture("multipage.pdf"));
+    assert_eq!(r.status(), 200, "expected 200, got {}", r.status());
+    let v: serde_json::Value = r.json().unwrap();
+    assert_eq!(v["pages"].as_array().unwrap().len(), 6);
+    assert_eq!(v["pages"][0]["page_number"], 1);
+    assert_eq!(v["pages"][5]["page_number"], 6);
+}
+
 // Writes a `#!/bin/sh` script to a unique temp path, chmod 755, returns the path.
 fn write_script(tag: &str, body: &str) -> String {
     use std::os::unix::fs::PermissionsExt;

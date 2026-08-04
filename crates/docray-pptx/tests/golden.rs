@@ -27,7 +27,7 @@ fn element_and_lean_goldens_are_byte_exact_on_every_platform() {
     for fixture in fixtures() {
         let name = fixture.file_stem().unwrap().to_str().unwrap();
         let bytes = fs::read(&fixture).unwrap();
-        let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+        let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
         let json = serde_json::to_string_pretty(&extraction.with_granularity(Granularity::Element))
             .unwrap();
         let lean = match extraction.with_granularity(Granularity::Element) {
@@ -57,7 +57,10 @@ fn markdown_goldens_are_byte_exact() {
     let golden_dir = root().join("testdata/golden/pptx");
     for name in ["styled-text", "table"] {
         let bytes = fs::read(root().join(format!("testdata/pptx/{name}.pptx"))).unwrap();
-        let markdown = PptxExtractor.extract(&bytes, None).unwrap().to_markdown();
+        let markdown = PptxExtractor
+            .extract(&bytes, None, None)
+            .unwrap()
+            .to_markdown();
         let path = golden_dir.join(format!("{name}.md"));
         if std::env::var_os("UPDATE_GOLDEN").is_some() {
             fs::write(&path, &markdown).unwrap();
@@ -72,7 +75,7 @@ fn markdown_goldens_are_byte_exact() {
 #[test]
 fn group_fixture_geometry_matches_hand_math() {
     let bytes = fs::read(root().join("testdata/pptx/groups.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     let Element::Text(text) = &extraction.pages[0].elements[0] else {
         panic!("group fixture must emit text");
     };
@@ -88,7 +91,7 @@ fn group_fixture_geometry_matches_hand_math() {
 #[test]
 fn inherited_shapes_use_template_order_relationships_and_provenance() {
     let bytes = fs::read(root().join("testdata/pptx/inherited-shapes.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert!(extraction.warnings.is_empty());
     let page = &extraction.pages[0];
     assert_eq!(page.elements.len(), 5);
@@ -168,7 +171,7 @@ fn inherited_shapes_use_template_order_relationships_and_provenance() {
 #[test]
 fn show_master_sp_gates_master_and_layout_shapes_independently() {
     let bytes = fs::read(root().join("testdata/pptx/layout-hides-master-shapes.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     let page = &extraction.pages[0];
     let contents = page
         .elements
@@ -189,7 +192,7 @@ fn show_master_sp_gates_master_and_layout_shapes_independently() {
     );
 
     let bytes = fs::read(root().join("testdata/pptx/slide-hides-template-shapes.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     let page = &extraction.pages[0];
     let Element::Text(slide) = &page.elements[0] else {
         panic!("slide-owned shape must remain visible");
@@ -202,7 +205,7 @@ fn show_master_sp_gates_master_and_layout_shapes_independently() {
 #[test]
 fn table_fixture_geometry_matches_prefix_sum_math() {
     let bytes = fs::read(root().join("testdata/pptx/table.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert_eq!(extraction.pages[0].elements.len(), 1);
     let Element::Table(table) = &extraction.pages[0].elements[0] else {
         panic!("table fixture must emit one first-class table");
@@ -270,7 +273,7 @@ fn chart_values_render_with_their_percent_format() {
     // Regression: values stored as fractions (0.41) with a "0%" format must
     // render as percentages, not raw/scientific-notation floats.
     let bytes = fs::read(root().join("testdata/pptx/percent-chart.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     let Element::Chart(chart) = &extraction.pages[0].elements[0] else {
         panic!("percent chart must emit a first-class chart");
     };
@@ -299,7 +302,7 @@ fn hidden_shapes_are_skipped_without_warnings() {
     // hidden OLE data objects — must be skipped silently, not extracted and not
     // warned about (this deck class produced a warning per slide before).
     let bytes = fs::read(root().join("testdata/pptx/hidden-shapes.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert!(
         extraction.warnings.is_empty(),
         "hidden shapes must not warn: {:?}",
@@ -328,7 +331,7 @@ fn autoheight_rows_are_extracted_not_dropped() {
     // Regression: PowerPoint writes h="0" for auto-height rows. The extractor
     // must derive heights from the frame extent and emit the table, not skip it.
     let bytes = fs::read(root().join("testdata/pptx/autoheight-table.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert!(
         extraction.warnings.is_empty(),
         "a sized frame with auto-height rows needs no warning: {:?}",
@@ -356,7 +359,7 @@ fn autoheight_rows_are_extracted_not_dropped() {
 #[test]
 fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
     let bytes = fs::read(root().join("testdata/pptx/chart.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert!(extraction.warnings.is_empty());
     let Element::Chart(chart) = &extraction.pages[0].elements[0] else {
         panic!("chart fixture must emit a first-class chart");
@@ -392,7 +395,7 @@ fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
     );
 
     let bytes = fs::read(root().join("testdata/pptx/smartart.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert!(extraction.warnings.is_empty());
     let Element::Text(diagram) = &extraction.pages[0].elements[0] else {
         panic!("SmartArt fixture must emit synthesized text");
@@ -411,7 +414,7 @@ fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
     assert_eq!(diagram.runs, None);
 
     let bytes = fs::read(root().join("testdata/pptx/graphic-picture.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert!(extraction.warnings.is_empty());
     let Element::Image(image) = &extraction.pages[0].elements[0] else {
         panic!("picture graphicFrame must emit an image");
@@ -435,7 +438,7 @@ fn graphic_frame_fixtures_preserve_chart_smartart_and_picture_content() {
 #[test]
 fn missing_chart_part_warns_and_the_rest_of_the_slide_survives() {
     let bytes = fs::read(root().join("testdata/pptx/missing-chart.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     assert_eq!(extraction.pages[0].elements.len(), 1);
     let Element::Text(text) = &extraction.pages[0].elements[0] else {
         panic!("shape after missing chart must still extract");
@@ -456,7 +459,7 @@ fn missing_chart_part_warns_and_the_rest_of_the_slide_survives() {
 #[test]
 fn styled_text_fixture_preserves_each_run_style_and_external_href() {
     let bytes = fs::read(root().join("testdata/pptx/styled-text.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     let Element::Text(text) = &extraction.pages[0].elements[0] else {
         panic!("styled-text fixture must begin with text");
     };
@@ -499,7 +502,7 @@ fn pptx_is_element_only_and_text_has_runs_but_no_lines() {
     );
 
     let bytes = fs::read(root().join("testdata/pptx/basic.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&bytes, None).unwrap();
+    let extraction = PptxExtractor.extract(&bytes, None, None).unwrap();
     for element in &extraction.pages[0].elements {
         if let Element::Text(text) = element {
             assert!(text.lines.is_none());
@@ -511,15 +514,15 @@ fn pptx_is_element_only_and_text_has_runs_but_no_lines() {
 #[test]
 fn repeated_extraction_is_byte_identical() {
     let bytes = fs::read(root().join("testdata/pptx/styled-text.pptx")).unwrap();
-    let first = serde_json::to_vec(&PptxExtractor.extract(&bytes, None).unwrap()).unwrap();
-    let second = serde_json::to_vec(&PptxExtractor.extract(&bytes, None).unwrap()).unwrap();
+    let first = serde_json::to_vec(&PptxExtractor.extract(&bytes, None, None).unwrap()).unwrap();
+    let second = serde_json::to_vec(&PptxExtractor.extract(&bytes, None, None).unwrap()).unwrap();
     assert_eq!(first, second);
 }
 
 #[test]
 fn pptx_emits_notes_alt_text_roles_and_hidden_slide_markers() {
     let hidden_context = fs::read(root().join("testdata/pptx/hidden-context.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&hidden_context, None).unwrap();
+    let extraction = PptxExtractor.extract(&hidden_context, None, None).unwrap();
     assert_eq!(
         extraction.pages[0].hidden,
         vec![
@@ -556,7 +559,7 @@ fn pptx_emits_notes_alt_text_roles_and_hidden_slide_markers() {
         .any(|item| item.content.contains("IGNORE")));
 
     let placeholders = fs::read(root().join("testdata/pptx/placeholders.pptx")).unwrap();
-    let extraction = PptxExtractor.extract(&placeholders, None).unwrap();
+    let extraction = PptxExtractor.extract(&placeholders, None, None).unwrap();
     assert_eq!(
         extraction.pages[0].hidden,
         vec![

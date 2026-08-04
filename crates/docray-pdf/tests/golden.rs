@@ -105,7 +105,7 @@ fn goldens_match() {
         }
         let name = path.file_stem().unwrap().to_str().unwrap().to_string();
         let bytes = fs::read(&path).unwrap();
-        let out = PdfExtractor.extract(&bytes, None).unwrap();
+        let out = PdfExtractor.extract(&bytes, None, None).unwrap();
         let json = serde_json::to_string_pretty(&out).unwrap();
         let golden_path = testdata().join("golden").join(format!("{name}.json"));
         if update {
@@ -134,7 +134,7 @@ fn compact_simple_goldens_match() {
     // "docray glyphs" lines, unlike `simple`'s already-well-formed text.
     for name in ["simple", "glyph_fragmented"] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
-        let out = PdfExtractor.extract(&bytes, None).unwrap();
+        let out = PdfExtractor.extract(&bytes, None, None).unwrap();
         for (level, suffix) in [
             (Granularity::Word, "word"),
             (Granularity::Element, "element"),
@@ -161,7 +161,7 @@ fn classified_goldens_match() {
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
     for name in ["simple", "scan", "image", "mixed", "broken-encoding"] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
-        let out = PdfExtractor.extract(&bytes, None).unwrap();
+        let out = PdfExtractor.extract(&bytes, None, None).unwrap();
         let json = serde_json::to_string_pretty(&out.with_classification(None)).unwrap();
         let golden_path = testdata()
             .join("golden")
@@ -188,7 +188,7 @@ fn lean_simple_goldens_match_on_linux() {
     ensure_pdfium_dir();
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
     let bytes = fs::read(testdata().join("simple.pdf")).unwrap();
-    let out = PdfExtractor.extract(&bytes, None).unwrap();
+    let out = PdfExtractor.extract(&bytes, None, None).unwrap();
     for (level, suffix) in [
         (Granularity::Word, "word"),
         (Granularity::Element, "element"),
@@ -237,7 +237,10 @@ fn markdown_goldens_match_on_linux() {
         "three-column-prose",
     ] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
-        let markdown = PdfExtractor.extract(&bytes, None).unwrap().to_markdown();
+        let markdown = PdfExtractor
+            .extract(&bytes, None, None)
+            .unwrap()
+            .to_markdown();
         let golden_path = testdata().join("golden").join(format!("{name}.md"));
         if update {
             fs::write(&golden_path, markdown).unwrap();
@@ -253,7 +256,7 @@ fn markdown_goldens_match_on_linux() {
 fn compact_styles_omit_defaults_but_keep_bold() {
     ensure_pdfium_dir();
     let bytes = fs::read(testdata().join("simple.pdf")).unwrap();
-    let out = PdfExtractor.extract(&bytes, None).unwrap();
+    let out = PdfExtractor.extract(&bytes, None, None).unwrap();
     let value = serde_json::to_value(out.with_granularity(Granularity::Element)).unwrap();
     let elements = value["pages"][0]["elements"].as_array().unwrap();
     let hello = elements
@@ -280,7 +283,7 @@ fn compact_styles_omit_defaults_but_keep_bold() {
 fn rotated_page_dims_and_coords_are_post_rotation() {
     ensure_pdfium_dir();
     let bytes = fs::read(testdata().join("rotated.pdf")).unwrap();
-    let out = PdfExtractor.extract(&bytes, None).unwrap();
+    let out = PdfExtractor.extract(&bytes, None, None).unwrap();
     let page = &out.pages[0];
     // Rotated visible dims: a 612x792 media box with /Rotate 90 is 792x612.
     assert_eq!(
@@ -332,7 +335,7 @@ fn rotated_page_dims_and_coords_are_post_rotation() {
 fn extraction_is_deterministic() {
     ensure_pdfium_dir();
     let bytes = fs::read(testdata().join("simple.pdf")).unwrap();
-    let a = serde_json::to_string(&PdfExtractor.extract(&bytes, None).unwrap()).unwrap();
-    let b = serde_json::to_string(&PdfExtractor.extract(&bytes, None).unwrap()).unwrap();
+    let a = serde_json::to_string(&PdfExtractor.extract(&bytes, None, None).unwrap()).unwrap();
+    let b = serde_json::to_string(&PdfExtractor.extract(&bytes, None, None).unwrap()).unwrap();
     assert_eq!(a, b, "same input must produce byte-identical output");
 }

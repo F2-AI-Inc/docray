@@ -1,4 +1,5 @@
 use crate::config::Config;
+use docray_core::PageSelection;
 use docray_model::{Granularity, OutputFormat};
 use serde_json::Value;
 use std::path::Path;
@@ -21,6 +22,7 @@ pub async fn run_extraction(
     granularity: Option<Granularity>,
     format: OutputFormat,
     classify: bool,
+    pages: Option<PageSelection>,
 ) -> WorkerOutcome {
     let mut cmd = Command::new(&cfg.cli_path);
     cmd.arg("extract").arg(input);
@@ -35,6 +37,9 @@ pub async fn run_extraction(
     }
     if classify {
         cmd.arg("--classify");
+    }
+    if let Some(sel) = pages {
+        cmd.args(["--pages", &format!("{}-{}", sel.start, sel.end)]);
     }
     if let Some(dir) = &cfg.pdfium_dir {
         cmd.env("DOCRAY_PDFIUM_DIR", dir);
@@ -190,7 +195,7 @@ pub async fn run_extraction(
 }
 
 fn is_structured_error_exit(code: i32) -> bool {
-    (2..=8).contains(&code)
+    (2..=10).contains(&code)
 }
 
 #[cfg(test)]
@@ -200,6 +205,16 @@ mod tests {
     #[test]
     fn stable_worker_error_exit_range_includes_granularity_unavailable() {
         assert!(is_structured_error_exit(8));
-        assert!(!is_structured_error_exit(9));
+        assert!(!is_structured_error_exit(1));
+    }
+
+    // page_out_of_range (exit 9) and page_selection_unsupported (exit 10) must
+    // be recognized as structured errors too, or the worker mislabels them
+    // Crashed instead of surfacing their real code/message from stderr.
+    #[test]
+    fn structured_error_exit_range_includes_page_selection_errors() {
+        assert!(is_structured_error_exit(9));
+        assert!(is_structured_error_exit(10));
+        assert!(!is_structured_error_exit(11));
     }
 }

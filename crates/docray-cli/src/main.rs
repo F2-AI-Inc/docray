@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use docray_core::{check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format};
+use docray_core::{
+    check_granularity, sniff_format, Capabilities, ExtractError, Extractor, Format, PageSelection,
+};
 use docray_docx::DocxExtractor;
 use docray_model::{Extraction, FlowExtraction, GranularExtraction, Granularity, OutputFormat};
 use docray_ooxml::{sniff_opc, OpcKind};
@@ -32,16 +34,17 @@ impl Backend {
         &self,
         bytes: &[u8],
         max_pages: Option<u32>,
+        pages: Option<PageSelection>,
     ) -> Result<DocumentExtraction, ExtractError> {
         match self {
             Backend::Pdf => PdfExtractor
-                .extract(bytes, max_pages)
+                .extract(bytes, max_pages, pages)
                 .map(DocumentExtraction::Paged),
             Backend::Pptx => PptxExtractor
-                .extract(bytes, max_pages)
+                .extract(bytes, max_pages, pages)
                 .map(DocumentExtraction::Paged),
             Backend::Docx => DocxExtractor
-                .extract(bytes, max_pages)
+                .extract(bytes, max_pages, pages)
                 .map(DocumentExtraction::Flow),
         }
     }
@@ -81,6 +84,9 @@ enum Cmd {
         /// Add deterministic per-page classification (schema 1.8 JSON only).
         #[arg(long)]
         classify: bool,
+        /// Select a sub-range of pages by absolute page number (e.g. "2-4").
+        #[arg(long)]
+        pages: Option<String>,
     },
 }
 
@@ -94,7 +100,16 @@ fn main() -> ExitCode {
             granularity,
             format,
             classify,
-        } => run_extract(&file, max_pages, pretty, granularity, &format, classify),
+            pages,
+        } => run_extract(
+            &file,
+            max_pages,
+            pretty,
+            granularity,
+            &format,
+            classify,
+            pages,
+        ),
     }
 }
 
@@ -109,6 +124,7 @@ fn run_extract(
     granularity: Option<Granularity>,
     format: &str,
     classify: bool,
+    pages: Option<String>,
 ) -> ExitCode {
     let format = match OutputFormat::from_str(format) {
         Ok(format) => format,
@@ -153,8 +169,13 @@ fn run_extract(
         }
         other => other,
     };
+    let pages: Option<PageSelection> = match pages.map(|s| s.parse::<PageSelection>()) {
+        Some(Err(message)) => return fail_bad_pages(&message),
+        Some(Ok(sel)) => Some(sel),
+        None => None,
+    };
     let result = check_granularity(&capabilities, granularity)
-        .and_then(|()| backend.extract(&bytes, max_pages));
+        .and_then(|()| backend.extract(&bytes, max_pages, pages));
     match result {
         Ok(extraction) => {
             let output = match format {
@@ -274,6 +295,14 @@ fn fail_bad_format(message: &str) -> ExitCode {
     ExitCode::from(7)
 }
 
+fn fail_bad_pages(message: &str) -> ExitCode {
+    eprintln!(
+        "{}",
+        serde_json::json!({ "error": { "code": "bad_pages", "message": message } })
+    );
+    ExitCode::from(7)
+}
+
 fn fail(e: &ExtractError) -> ExitCode {
     eprintln!(
         "{}",
@@ -290,6 +319,8 @@ fn extract_error_exit_code(e: &ExtractError) -> u8 {
         ExtractError::Io(_) => 5,
         ExtractError::TooManyPages { .. } => 6,
         ExtractError::GranularityUnavailable { .. } => 8,
+        ExtractError::PageOutOfRange { .. } => 9,
+        ExtractError::PageSelectionUnsupported { .. } => 10,
     }
 }
 

@@ -998,6 +998,56 @@ fn three_pages() -> Document {
     doc
 }
 
+/// A 6-page document exercising page selection: every page carries exactly
+/// one text line ("Page one" … "Page six") at the identical PDF-space
+/// baseline (72, 720) on a 612x792 page, so only the words differ between
+/// pages — selection/equivalence tests can identify a page by its distinct
+/// text or by its `#page <n>` position. No images.
+fn multipage() -> Document {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica",
+    });
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! { "F1" => font_id },
+    });
+    let labels = [
+        "Page one",
+        "Page two",
+        "Page three",
+        "Page four",
+        "Page five",
+        "Page six",
+    ];
+    let mut kids = Vec::new();
+    for label in labels {
+        let content = Content {
+            operations: vec![
+                op("BT", vec![]),
+                op("Tf", vec!["F1".into(), 12.into()]),
+                op("Td", vec![72.into(), 720.into()]),
+                op("Tj", vec![Object::string_literal(label)]),
+                op("ET", vec![]),
+            ],
+        };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        kids.push(page_id.into());
+    }
+    let pages = dictionary! {
+        "Type" => "Pages", "Kids" => kids, "Count" => 6,
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
 /// Byte-patches a saved PDF in place, overwriting the *data* of the stream
 /// object containing `marker` with `X` bytes while preserving the stream's
 /// exact byte length (so no offsets elsewhere in the file need to shift).
@@ -1090,6 +1140,7 @@ fn main() {
     glyph_fragmented()
         .save("testdata/glyph_fragmented.pdf")
         .unwrap();
+    multipage().save("testdata/multipage.pdf").unwrap();
 
     // Malformed corpus — all deterministic.
     let good = fs::read("testdata/simple.pdf").unwrap();

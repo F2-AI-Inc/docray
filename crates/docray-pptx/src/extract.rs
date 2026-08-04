@@ -1,4 +1,4 @@
-use docray_core::{Capabilities, ExtractError, Extractor, GeometryKind};
+use docray_core::{Capabilities, ExtractError, Extractor, GeometryKind, PageSelection};
 use docray_model::{
     round3, AnnotationElement, BBox, ChartElement, ChartPoint, ChartSeries, DocMetadata,
     DocumentInfo, Element, Extraction, Font, Granularity, HiddenItem, ImageElement, Page,
@@ -29,7 +29,15 @@ impl Extractor for PptxExtractor {
         }
     }
 
-    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Extraction, ExtractError> {
+    fn extract(
+        &self,
+        bytes: &[u8],
+        max_pages: Option<u32>,
+        pages: Option<PageSelection>,
+    ) -> Result<Extraction, ExtractError> {
+        if pages.is_some() {
+            return Err(ExtractError::PageSelectionUnsupported { format: "pptx" });
+        }
         if bytes.starts_with(CFB_MAGIC) {
             return Err(ExtractError::UnsupportedFormatMessage(
                 "legacy or encrypted Office documents are not supported".into(),

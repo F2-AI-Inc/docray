@@ -5,7 +5,9 @@
 // per document, so a worker abort surfaces as a 'crash' error by architecture
 // rather than taking down the service.
 use crate::{bind::pdfium, coords::PageSpace};
-use docray_core::{sniff_format, Capabilities, ExtractError, Extractor, Format, GeometryKind};
+use docray_core::{
+    sniff_format, Capabilities, ExtractError, Extractor, Format, GeometryKind, PageSelection,
+};
 use docray_model::grouping::{group_into_lines, RawChar};
 use docray_model::*;
 use pdfium_render::prelude::*;
@@ -56,7 +58,12 @@ impl Extractor for PdfExtractor {
         }
     }
 
-    fn extract(&self, bytes: &[u8], max_pages: Option<u32>) -> Result<Extraction, ExtractError> {
+    fn extract(
+        &self,
+        bytes: &[u8],
+        max_pages: Option<u32>,
+        pages: Option<PageSelection>,
+    ) -> Result<Extraction, ExtractError> {
         if sniff_format(bytes) != Some(Format::Pdf) {
             return Err(ExtractError::UnsupportedFormat);
         }
@@ -66,43 +73,60 @@ impl Extractor for PdfExtractor {
             .map_err(map_load_err)?;
 
         let page_count = doc.pages().len() as u32;
+        // Resolve the selected 0-based index range (absolute over the whole
+        // document); `None` selects the whole document.
+        let (first_idx, last_idx, selected_count) = match pages {
+            Some(sel) => {
+                if sel.end > page_count {
+                    return Err(ExtractError::PageOutOfRange {
+                        requested_end: sel.end,
+                        page_count,
+                    });
+                }
+                (sel.start - 1, sel.end - 1, sel.count())
+            }
+            None => (0, page_count.saturating_sub(1), page_count),
+        };
         if let Some(limit) = max_pages {
-            if page_count > limit {
+            if selected_count > limit {
                 return Err(ExtractError::TooManyPages {
                     limit,
-                    actual: page_count,
+                    actual: selected_count,
                 });
             }
         }
 
         let mut warnings = Vec::new();
-        let mut pages = Vec::with_capacity(page_count as usize);
+        let mut out_pages = Vec::with_capacity(selected_count as usize);
         // Index-based access rather than `pages().iter()`: a fused iterator would
         // silently terminate on the first page that fails to load, truncating the
-        // document. Every page 1..=page_count must appear in the output.
-        for idx in 0..page_count {
-            let page_number = idx + 1;
-            match doc.pages().get(idx as u16) {
-                Ok(page) => match extract_page(&page, page_number, &mut warnings) {
-                    Ok(p) => pages.push(p),
+        // document. Every selected page must appear in the output, numbered by
+        // its ABSOLUTE position in the document.
+        if page_count > 0 {
+            for idx in first_idx..=last_idx {
+                let page_number = idx + 1;
+                match doc.pages().get(idx as u16) {
+                    Ok(page) => match extract_page(&page, page_number, &mut warnings) {
+                        Ok(p) => out_pages.push(p),
+                        Err(e) => {
+                            warnings.push(format!("page {page_number} failed to parse: {e}"));
+                            out_pages.push(empty_page(&page, page_number));
+                        }
+                    },
                     Err(e) => {
-                        warnings.push(format!("page {page_number} failed to parse: {e}"));
-                        pages.push(empty_page(&page, page_number));
+                        // The page object itself could not be loaded; dimensions are
+                        // unreadable, so emit a placeholder page with 0.0 geometry.
+                        warnings.push(format!("page {page_number} failed to parse: {e:?}"));
+                        out_pages.push(Page {
+                            page_number,
+                            width: 0.0,
+                            height: 0.0,
+                            rotation: 0,
+                            scanned: false,
+                            elements: vec![],
+                            hidden: vec![],
+                        });
                     }
-                },
-                Err(e) => {
-                    // The page object itself could not be loaded; dimensions are
-                    // unreadable, so emit a placeholder page with 0.0 geometry.
-                    warnings.push(format!("page {page_number} failed to parse: {e:?}"));
-                    pages.push(Page {
-                        page_number,
-                        width: 0.0,
-                        height: 0.0,
-                        rotation: 0,
-                        scanned: false,
-                        elements: vec![],
-                        hidden: vec![],
-                    });
                 }
             }
         }
@@ -122,7 +146,7 @@ impl Extractor for PdfExtractor {
                 },
             },
             warnings,
-            pages,
+            pages: out_pages,
         })
     }
 }
