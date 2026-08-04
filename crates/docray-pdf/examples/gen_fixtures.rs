@@ -461,6 +461,75 @@ fn key_value_form() -> Document {
     base_doc(ops, vec![])
 }
 
+/// Emits ONE `BT / Tf / Tm / Tj / ET` sequence per glyph — the pathological
+/// per-glyph-text-object construct this fixture exists to exercise (some PDF
+/// producers, notably certain CAD/plotter exports and font-subsetted
+/// re-renderers, place every glyph in its own text object instead of
+/// batching a run into a single `Tj`). `words` are placed left-to-right on
+/// one baseline at `y`, starting at `x`; each glyph advances the cursor by
+/// `char_advance`, and each inter-word gap advances it by `word_gap`
+/// (replacing, not adding to, a glyph advance) so the word-boundary jump is
+/// distinguishably larger than intra-word glyph spacing — the signal the
+/// regroup pass keys on to recover words and lines from glyph fragments.
+/// Each glyph's origin is authored directly via `Tm` (not accumulated via
+/// `Td`), so positions are exact regardless of real font metrics.
+fn glyph_run(
+    ops: &mut Vec<Operation>,
+    words: &[&str],
+    start_x: f64,
+    y: f64,
+    char_advance: f64,
+    word_gap: f64,
+) {
+    let mut x = start_x;
+    for (i, word) in words.iter().enumerate() {
+        if i > 0 {
+            x += word_gap;
+        }
+        for ch in word.chars() {
+            ops.push(op("BT", vec![]));
+            ops.push(op("Tf", vec!["F1".into(), 12.into()]));
+            ops.push(op(
+                "Tm",
+                vec![
+                    Object::Real(1.0),
+                    Object::Real(0.0),
+                    Object::Real(0.0),
+                    Object::Real(1.0),
+                    Object::Real(x as f32),
+                    Object::Real(y as f32),
+                ],
+            ));
+            ops.push(op("Tj", vec![Object::string_literal(ch.to_string())]));
+            ops.push(op("ET", vec![]));
+            x += char_advance;
+        }
+    }
+}
+
+/// The pathological glyph-fragmented construct this whole feature fixes: two
+/// short lines, each glyph its own text object (`BT/Tf/Tm/Tj/ET`), no
+/// images. Baselines at PDF-space y=700 ("hello world") and y=680 ("docray
+/// glyphs"), 20pt apart (single-spaced for 12pt Helvetica). Both lines start
+/// at x=72 and advance 7.2pt per glyph (a fixed, deliberately-chosen
+/// advance, not derived from real Helvetica AFM widths — each glyph's `Tm`
+/// origin is authored directly rather than accumulated). Inter-word gaps use
+/// 10.8pt (1.5x the glyph advance) in place of one glyph advance, so the
+/// word-boundary jump (10.8pt) is clearly larger than intra-word spacing
+/// (7.2pt).
+///
+/// Line 1 ("hello world", 10 glyphs, y=700): h=72.0 e=79.2 l=86.4 l=93.6
+/// o=100.8 [+10.8 gap] w=118.8 o=126.0 r=133.2 l=140.4 d=147.6.
+/// Line 2 ("docray glyphs", 12 glyphs, y=680): d=72.0 o=79.2 c=86.4 r=93.6
+/// a=100.8 y=108.0 [+10.8 gap] g=126.0 l=133.2 y=140.4 p=147.6 h=154.8
+/// s=162.0.
+fn glyph_fragmented() -> Document {
+    let mut ops = Vec::new();
+    glyph_run(&mut ops, &["hello", "world"], 72.0, 700.0, 7.2, 10.8);
+    glyph_run(&mut ops, &["docray", "glyphs"], 72.0, 680.0, 7.2, 10.8);
+    base_doc(ops, vec![])
+}
+
 fn gray_image() -> Stream {
     Stream::new(
         dictionary! {
@@ -1007,6 +1076,9 @@ fn main() {
         .unwrap();
     three_column_prose()
         .save("testdata/three-column-prose.pdf")
+        .unwrap();
+    glyph_fragmented()
+        .save("testdata/glyph_fragmented.pdf")
         .unwrap();
 
     // Malformed corpus — all deterministic.
