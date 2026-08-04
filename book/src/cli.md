@@ -11,6 +11,8 @@ Options:
   --classify                         Add per-page classification (schema 1.8;
                                      JSON only).
   --max-pages <N>                    Refuse documents over the page/flow cap.
+  --pages <spec>                     Extract only a sub-range of pages, e.g.
+                                     "7" or "1-200". PDF only.
   --pretty                           Pretty-print the JSON.
 ```
 
@@ -37,7 +39,10 @@ with a stable exit code:
 | 5 | `io_error` | file unreadable / missing |
 | 6 | `too_many_pages` | over the `--max-pages` cap |
 | 7 | `bad_format` | invalid format, or lean/Markdown requested with `char` granularity |
+| 7 | `bad_pages` | `--pages` value is unparseable, reversed (start > end), zero, or negative |
 | 8 | `granularity_unavailable` | the requested granularity is finer than this source provides |
+| 9 | `page_out_of_range` | `--pages` range extends beyond the document's last page |
+| 10 | `page_selection_unsupported` | `--pages` was given for a non-PDF format (PPTX, DOCX, DOCM) |
 
 Anything else (e.g. 101, or death by signal) means the parser crashed —
 treat it as `crash`. The server does exactly this mapping.
@@ -83,6 +88,16 @@ recommended setting.
 use schema `1.8` and add a `classification` object to each page. With no flag,
 PDF output remains the byte-identical schema `1.1` contract and the legacy
 `scanned` field is unchanged.
+
+`--pages` selects a 1-based sub-range of a PDF: `--pages 7` for a single
+page, `--pages 1-200` for an inclusive range. Page numbers stay absolute
+over the whole document — `--pages 201-287` on a 287-page PDF emits pages
+numbered `201` through `287`, not renumbered from `1`. `--max-pages`
+compares against the *selected* page count, so `--pages 1-200 --max-pages
+200` succeeds on a document with far more than 200 pages. Omitting
+`--pages` extracts the whole document, unchanged. `--pages` is PDF-only;
+requesting it on PPTX or DOCX/DOCM fails with exit 10 and
+`page_selection_unsupported`.
 
 PPTX supports element granularity. An omitted `--granularity` defaults to
 `element` for PPTX (so `docray extract deck.pptx` just works), and lean also
