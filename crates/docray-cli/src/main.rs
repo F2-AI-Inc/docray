@@ -84,6 +84,9 @@ enum Cmd {
         /// Add deterministic per-page classification (schema 1.8 JSON only).
         #[arg(long)]
         classify: bool,
+        /// Select a sub-range of pages by absolute page number (e.g. "2-4").
+        #[arg(long)]
+        pages: Option<String>,
     },
 }
 
@@ -97,7 +100,16 @@ fn main() -> ExitCode {
             granularity,
             format,
             classify,
-        } => run_extract(&file, max_pages, pretty, granularity, &format, classify),
+            pages,
+        } => run_extract(
+            &file,
+            max_pages,
+            pretty,
+            granularity,
+            &format,
+            classify,
+            pages,
+        ),
     }
 }
 
@@ -112,6 +124,7 @@ fn run_extract(
     granularity: Option<Granularity>,
     format: &str,
     classify: bool,
+    pages: Option<String>,
 ) -> ExitCode {
     let format = match OutputFormat::from_str(format) {
         Ok(format) => format,
@@ -156,10 +169,11 @@ fn run_extract(
         }
         other => other,
     };
-    // `--pages` is not yet a CLI flag; the plumbing param is threaded through
-    // so the CLI compiles against the trait's pages parameter without a way to
-    // supply it yet (deliberate, not a silent-ignore: there is no flag to set).
-    let pages: Option<PageSelection> = None;
+    let pages: Option<PageSelection> = match pages.map(|s| s.parse::<PageSelection>()) {
+        Some(Err(message)) => return fail_bad_pages(&message),
+        Some(Ok(sel)) => Some(sel),
+        None => None,
+    };
     let result = check_granularity(&capabilities, granularity)
         .and_then(|()| backend.extract(&bytes, max_pages, pages));
     match result {
@@ -277,6 +291,14 @@ fn fail_bad_format(message: &str) -> ExitCode {
     eprintln!(
         "{}",
         serde_json::json!({ "error": { "code": "bad_format", "message": message } })
+    );
+    ExitCode::from(7)
+}
+
+fn fail_bad_pages(message: &str) -> ExitCode {
+    eprintln!(
+        "{}",
+        serde_json::json!({ "error": { "code": "bad_pages", "message": message } })
     );
     ExitCode::from(7)
 }
