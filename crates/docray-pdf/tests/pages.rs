@@ -106,3 +106,23 @@ fn document_page_count_stays_the_document_total_when_selecting() {
         .unwrap();
     assert_eq!(extraction.document.page_count, 6);
 }
+
+#[test]
+fn just_under_cap_passes() {
+    let bytes = multipage_bytes();
+    let extraction = PdfExtractor
+        .extract(&bytes, Some(5), Some(sel("1-5")))
+        .unwrap();
+    let page_numbers: Vec<u32> = extraction.pages.iter().map(|p| p.page_number).collect();
+    assert_eq!(page_numbers, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn single_page_selection_through_extractor() {
+    let bytes = multipage_bytes();
+    let extraction = PdfExtractor
+        .extract(&bytes, None, Some(sel("3-3")))
+        .unwrap();
+    assert_eq!(extraction.pages.len(), 1);
+    assert_eq!(extraction.pages[0].page_number, 3);
+}
