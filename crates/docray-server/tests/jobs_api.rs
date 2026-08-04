@@ -254,7 +254,7 @@ fn lean_job_roundtrips_stored_format_and_content_type() {
     assert!(r
         .text()
         .unwrap()
-        .starts_with("#docray word v1.6 pages=1\n#legend "));
+        .starts_with("#docray word v1.9 pages=1\n#legend "));
 }
 
 #[test]

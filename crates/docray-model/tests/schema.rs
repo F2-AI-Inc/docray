@@ -246,7 +246,7 @@ fn charts_serialize_with_stable_shapes_roundtrip_and_compact_bbox() {
     let mut extraction = sample();
     extraction.pages[0].elements = vec![chart];
     let compact = serde_json::to_value(extraction.with_granularity(Granularity::Element)).unwrap();
-    assert_eq!(compact["schema_version"], "1.6");
+    assert_eq!(compact["schema_version"], "1.9");
     assert_eq!(
         compact["pages"][0]["elements"][0],
         serde_json::json!({
@@ -381,7 +381,7 @@ fn compact_paths_keep_paint_while_images_remain_bbox_only() {
     ];
 
     let value = serde_json::to_value(extraction.with_granularity(Granularity::Element)).unwrap();
-    assert_eq!(value["schema_version"], "1.6");
+    assert_eq!(value["schema_version"], "1.9");
     assert_eq!(
         value["pages"][0]["elements"][0],
         serde_json::json!({
@@ -435,7 +435,11 @@ fn explicit_granularities_keep_nonempty_warnings() {
     extraction.warnings = vec!["page 1 recovered with omissions".into()];
     for level in [Granularity::Char, Granularity::Word, Granularity::Element] {
         let value = serde_json::to_value(extraction.with_granularity(level)).unwrap();
-        assert_eq!(value["schema_version"], "1.6");
+        let expected_version = match level {
+            Granularity::Char => "1.6",
+            Granularity::Word | Granularity::Element => "1.9",
+        };
+        assert_eq!(value["schema_version"], expected_version);
         assert_eq!(value["granularity"], level.as_str());
         assert_eq!(
             value["warnings"],

@@ -129,23 +129,28 @@ fn goldens_match() {
 fn compact_simple_goldens_match() {
     ensure_pdfium_dir();
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
-    let bytes = fs::read(testdata().join("simple.pdf")).unwrap();
-    let out = PdfExtractor.extract(&bytes, None).unwrap();
-    for (level, suffix) in [
-        (Granularity::Word, "word"),
-        (Granularity::Element, "element"),
-    ] {
-        let json = serde_json::to_string_pretty(&out.with_granularity(level)).unwrap();
-        let golden_path = testdata()
-            .join("golden")
-            .join(format!("simple.{suffix}.json"));
-        if update {
-            fs::write(&golden_path, json).unwrap();
-        } else {
-            let expected = fs::read_to_string(&golden_path).unwrap_or_else(|_| {
-                panic!("missing golden {golden_path:?} - run with UPDATE_GOLDEN=1")
-            });
-            assert_matches_golden(&json, &expected, &format!("simple.{suffix}"));
+    // `glyph_fragmented` exercises the page-level regroup path (schema 1.9):
+    // its element/word goldens must show recovered "hello world" /
+    // "docray glyphs" lines, unlike `simple`'s already-well-formed text.
+    for name in ["simple", "glyph_fragmented"] {
+        let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
+        let out = PdfExtractor.extract(&bytes, None).unwrap();
+        for (level, suffix) in [
+            (Granularity::Word, "word"),
+            (Granularity::Element, "element"),
+        ] {
+            let json = serde_json::to_string_pretty(&out.with_granularity(level)).unwrap();
+            let golden_path = testdata()
+                .join("golden")
+                .join(format!("{name}.{suffix}.json"));
+            if update {
+                fs::write(&golden_path, json).unwrap();
+            } else {
+                let expected = fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+                    panic!("missing golden {golden_path:?} - run with UPDATE_GOLDEN=1")
+                });
+                assert_matches_golden(&json, &expected, &format!("{name}.{suffix}"));
+            }
         }
     }
 }
@@ -154,7 +159,14 @@ fn compact_simple_goldens_match() {
 fn classified_goldens_match() {
     ensure_pdfium_dir();
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
-    for name in ["simple", "scan", "image", "mixed", "broken-encoding"] {
+    for name in [
+        "simple",
+        "scan",
+        "image",
+        "mixed",
+        "broken-encoding",
+        "glyph_fragmented",
+    ] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
         let out = PdfExtractor.extract(&bytes, None).unwrap();
         let json = serde_json::to_string_pretty(&out.with_classification(None)).unwrap();
