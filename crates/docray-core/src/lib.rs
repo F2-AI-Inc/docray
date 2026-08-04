@@ -1,6 +1,7 @@
 mod error;
-pub mod grouping;
 mod sniff;
+
+pub use docray_model::grouping;
 
 pub use error::ExtractError;
 pub use sniff::{sniff_format, Format};

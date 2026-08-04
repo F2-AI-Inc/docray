@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 mod classification;
 mod flow;
+pub mod grouping;
 mod markdown;
 
 pub use classification::*;
