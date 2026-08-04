@@ -510,23 +510,33 @@ fn glyph_run(
 /// The pathological glyph-fragmented construct this whole feature fixes: two
 /// short lines, each glyph its own text object (`BT/Tf/Tm/Tj/ET`), no
 /// images. Baselines at PDF-space y=700 ("hello world") and y=680 ("docray
-/// glyphs"), 20pt apart (single-spaced for 12pt Helvetica). Both lines start
-/// at x=72 and advance 7.2pt per glyph (a fixed, deliberately-chosen
-/// advance, not derived from real Helvetica AFM widths — each glyph's `Tm`
-/// origin is authored directly rather than accumulated). Inter-word gaps use
-/// 10.8pt (1.5x the glyph advance) in place of one glyph advance, so the
-/// word-boundary jump (10.8pt) is clearly larger than intra-word spacing
-/// (7.2pt).
+/// glyphs"), 20pt apart (single-spaced for 12pt Helvetica).
 ///
-/// Line 1 ("hello world", 10 glyphs, y=700): h=72.0 e=79.2 l=86.4 l=93.6
-/// o=100.8 [+10.8 gap] w=118.8 o=126.0 r=133.2 l=140.4 d=147.6.
-/// Line 2 ("docray glyphs", 12 glyphs, y=680): d=72.0 o=79.2 c=86.4 r=93.6
-/// a=100.8 y=108.0 [+10.8 gap] g=126.0 l=133.2 y=140.4 p=147.6 h=154.8
-/// s=162.0.
+/// The intra-word advance (5.0pt) and inter-word gap (12.0pt) are tuned
+/// against the word-split threshold the regroup pass applies —
+/// `0.25 * font_size` = 3pt at this fixture's 12pt font
+/// (`crates/docray-model/src/grouping.rs`), measured between *ink* bboxes,
+/// not `Tm` origins. A real glyph-fragmented producer places each glyph at
+/// its true advance width, so intra-word ink gaps are near zero; 5.0pt
+/// keeps every intra-word gap (advance minus the narrowest real Helvetica
+/// glyph ink width in this text, `l` at ~2.7pt @ 12pt) comfortably under
+/// the 3pt threshold, while wider glyphs (e.g. `w` at ~8.7pt) simply
+/// overlap slightly — harmless, since only *positive* gaps can trigger a
+/// split. 12.0pt at a word boundary clears the threshold even against the
+/// widest adjacent glyph. Verified empirically via
+/// `docray extract testdata/glyph_fragmented.pdf --granularity element`,
+/// which must read exactly `"hello world"` / `"docray glyphs"` with no
+/// intra-word breaks and no merged words.
+///
+/// Line 1 ("hello world", 10 glyphs, y=700): h=72.0 e=77.0 l=82.0 l=87.0
+/// o=92.0 [+12.0 gap] w=109.0 o=114.0 r=119.0 l=124.0 d=129.0.
+/// Line 2 ("docray glyphs", 12 glyphs, y=680): d=72.0 o=77.0 c=82.0 r=87.0
+/// a=92.0 y=97.0 [+12.0 gap] g=114.0 l=119.0 y=124.0 p=129.0 h=134.0
+/// s=139.0.
 fn glyph_fragmented() -> Document {
     let mut ops = Vec::new();
-    glyph_run(&mut ops, &["hello", "world"], 72.0, 700.0, 7.2, 10.8);
-    glyph_run(&mut ops, &["docray", "glyphs"], 72.0, 680.0, 7.2, 10.8);
+    glyph_run(&mut ops, &["hello", "world"], 72.0, 700.0, 5.0, 12.0);
+    glyph_run(&mut ops, &["docray", "glyphs"], 72.0, 680.0, 5.0, 12.0);
     base_doc(ops, vec![])
 }
 
