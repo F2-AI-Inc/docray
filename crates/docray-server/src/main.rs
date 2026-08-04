@@ -119,6 +119,10 @@ async fn process_job(
         granularity,
         format,
         classify,
+        // Async jobs don't yet persist a page selection (Task 9 wires that
+        // through JobStore + this worker); sync's `/v1/extract` already
+        // threads `pages` end to end.
+        None,
     )
     .await;
     let marked = match outcome {

@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use docray_core::PageSelection;
 use docray_model::{Granularity, OutputFormat};
 use serde::Deserialize;
 use std::path::Path;
@@ -91,6 +92,7 @@ struct OutputQuery {
     format: Option<String>,
     #[serde(default)]
     classify: bool,
+    pages: Option<String>,
 }
 
 #[derive(Debug)]
@@ -101,7 +103,15 @@ struct OutputQueryError {
 
 fn requested_output(
     query: Result<Query<OutputQuery>, QueryRejection>,
-) -> Result<(Option<Granularity>, OutputFormat, bool), OutputQueryError> {
+) -> Result<
+    (
+        Option<Granularity>,
+        OutputFormat,
+        bool,
+        Option<PageSelection>,
+    ),
+    OutputQueryError,
+> {
     let query = query.map_err(|error| OutputQueryError {
         code: "bad_granularity",
         message: error.to_string(),
@@ -130,9 +140,20 @@ fn requested_output(
             message: "classify=true is available only with JSON output".into(),
         });
     }
+    let pages = match query.0.pages {
+        Some(value) => {
+            Some(
+                PageSelection::from_str(&value).map_err(|message| OutputQueryError {
+                    code: "bad_pages",
+                    message,
+                })?,
+            )
+        }
+        None => None,
+    };
     match (format, granularity) {
         (OutputFormat::Lean | OutputFormat::Markdown, None) => {
-            Ok((Some(Granularity::Element), format, false))
+            Ok((Some(Granularity::Element), format, false, pages))
         }
         (OutputFormat::Lean | OutputFormat::Markdown, Some(Granularity::Char)) => {
             Err(OutputQueryError {
@@ -140,7 +161,7 @@ fn requested_output(
                 message: format!("{format} format requires element or word granularity"),
             })
         }
-        _ => Ok((granularity, format, query.0.classify)),
+        _ => Ok((granularity, format, query.0.classify, pages)),
     }
 }
 
@@ -190,6 +211,8 @@ pub fn outcome_to_response(outcome: WorkerOutcome, format: OutputFormat) -> Resp
         WorkerOutcome::Failed { code, message } => {
             let status = match code.as_str() {
                 "granularity_unavailable" => StatusCode::BAD_REQUEST,
+                "page_out_of_range" => StatusCode::BAD_REQUEST,
+                "page_selection_unsupported" => StatusCode::BAD_REQUEST,
                 "unsupported_format" => StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "encrypted_pdf" | "parse_failure" => StatusCode::UNPROCESSABLE_ENTITY,
                 "too_many_pages" => StatusCode::PAYLOAD_TOO_LARGE,
@@ -220,7 +243,7 @@ async fn sync_extract(
     query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let (granularity, format, classify) = match requested_output(query) {
+    let (granularity, format, classify, pages) = match requested_output(query) {
         Ok(value) => value,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
@@ -284,6 +307,7 @@ async fn sync_extract(
         granularity,
         format,
         classify,
+        pages,
     )
     .await;
     outcome_to_response(outcome, format)
@@ -359,10 +383,15 @@ async fn create_job(
     query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let (granularity, format, classify) = match requested_output(query) {
+    let (granularity, format, classify, pages) = match requested_output(query) {
         Ok(value) => value,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
     };
+    // jobs wiring: Task 9 persists `pages` on the job record and threads it into
+    // the async worker's CLI invocation. It is already validated here (via
+    // `requested_output`) so a bad `pages=` value fails fast at submit time even
+    // before that wiring lands.
+    let _ = pages;
     // Same rejection-to-JSON mapping the sync route uses (see `sync_extract`):
     // length/limit rejections -> 413 too_large, anything else -> 400.
     let mut multipart = match multipart {
@@ -484,6 +513,7 @@ mod tests {
             granularity: granularity.map(str::to_string),
             format: format.map(str::to_string),
             classify: false,
+            pages: None,
         })
     }
 
@@ -491,7 +521,7 @@ mod tests {
     fn lean_query_implies_element_and_rejects_char() {
         assert_eq!(
             requested_output(Ok(query(None, Some("lean")))).unwrap(),
-            (Some(Granularity::Element), OutputFormat::Lean, false)
+            (Some(Granularity::Element), OutputFormat::Lean, false, None)
         );
 
         let error = requested_output(Ok(query(Some("char"), Some("lean")))).unwrap_err();
@@ -499,10 +529,40 @@ mod tests {
 
         assert_eq!(
             requested_output(Ok(query(None, Some("md")))).unwrap(),
-            (Some(Granularity::Element), OutputFormat::Markdown, false)
+            (
+                Some(Granularity::Element),
+                OutputFormat::Markdown,
+                false,
+                None
+            )
         );
         let error = requested_output(Ok(query(Some("char"), Some("md")))).unwrap_err();
         assert_eq!(error.code, "bad_format");
+    }
+
+    #[test]
+    fn pages_query_parses_and_rejects_bad_selection() {
+        let mut q = query(None, None);
+        q.0.pages = Some("2-3".to_string());
+        assert_eq!(
+            requested_output(Ok(q)).unwrap(),
+            (
+                None,
+                OutputFormat::Json,
+                false,
+                Some(PageSelection { start: 2, end: 3 })
+            )
+        );
+
+        let mut q = query(None, None);
+        q.0.pages = Some("abc".to_string());
+        let error = requested_output(Ok(q)).unwrap_err();
+        assert_eq!(error.code, "bad_pages");
+
+        let mut q = query(None, None);
+        q.0.pages = Some("200-1".to_string());
+        let error = requested_output(Ok(q)).unwrap_err();
+        assert_eq!(error.code, "bad_pages");
     }
 
     #[test]
