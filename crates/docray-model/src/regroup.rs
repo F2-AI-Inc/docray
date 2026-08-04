@@ -14,10 +14,20 @@ const FRAGMENT_SINGLE_GLYPH_RATIO: f64 = 0.6;
 use std::collections::HashMap;
 
 use crate::grouping::{group_into_lines, RawChar};
-use crate::{round3, BBox, Element, Font, Line, TextColor, TextElement};
+use crate::{BBox, Element, Font, Line, TextColor, TextElement};
+
+/// Scales a coordinate by 1000 and rounds to the nearest integer, for use as
+/// a hashable/orderable proxy for an `f64`. Rounding must happen *after*
+/// scaling: rounding first (e.g. via `round3`) and then multiplying can
+/// leave a value like `1.005` as `1004.999...`, which truncates to `1004`
+/// instead of `1005` under `as i64`. `f64::round` handles the
+/// half-away-from-zero case correctly before the truncating cast.
+fn scale(v: f64) -> i64 {
+    (v * 1000.0).round() as i64
+}
 
 /// Deterministic, hashable identity for a single glyph: its bbox scaled by
-/// 1000 and rounded (via `round3`) plus its content. Two glyphs never share
+/// 1000 and rounded (via `scale`) plus its content. Two glyphs never share
 /// this key on a real page, so it's safe to use as a style lookup — but it
 /// must never be iterated for output, only looked up, since map iteration
 /// order is not deterministic.
@@ -29,7 +39,6 @@ pub(crate) type StyleKey = ([i64; 4], String);
 pub(crate) type StyleMap = HashMap<StyleKey, (Font, TextColor, Option<String>)>;
 
 fn style_key(bbox: &BBox, content: &str) -> StyleKey {
-    let scale = |v: f64| (round3(v) * 1000.0) as i64;
     (
         [
             scale(bbox.x0),
@@ -95,17 +104,17 @@ pub(crate) fn regroup_page_lines(elements: &[Element]) -> (Vec<Line>, StyleMap) 
     }
 
     // Total order: baseline (top to bottom), then x0 (left to right), then
-    // content and original index as stable tiebreaks. Scaling through
-    // `round3` and truncating to `i64` avoids float comparison pitfalls
-    // (NaN, unstable partial_cmp) while keeping the order fully deterministic.
+    // content and original index as stable tiebreaks. Scaling via `scale`
+    // (round-then-truncate) avoids float comparison pitfalls (NaN, unstable
+    // partial_cmp) while keeping the order fully deterministic.
     let mut indices: Vec<usize> = (0..raw_chars.len()).collect();
     indices.sort_by(|&a, &b| {
         let ka = &raw_chars[a];
         let kb = &raw_chars[b];
         let sort_tuple = |c: &RawChar, idx: usize| {
             (
-                (round3(c.baseline_y) * 1000.0) as i64,
-                (round3(c.bbox.x0) * 1000.0) as i64,
+                scale(c.baseline_y),
+                scale(c.bbox.x0),
                 c.content.clone(),
                 idx,
             )
@@ -161,7 +170,7 @@ pub(crate) fn is_glyph_fragmented(elements: &[Element]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{round3, BBox, Char, Font, Line, TextColor, TextElement, Word};
+    use crate::{BBox, Char, Font, Line, TextColor, TextElement, Word};
 
     fn bbox() -> BBox {
         BBox {
@@ -316,17 +325,15 @@ mod tests {
             .collect()
     }
 
-    fn test_style_key(bbox: &BBox, content: &str) -> StyleKey {
-        let scale = |v: f64| (round3(v) * 1000.0) as i64;
-        (
-            [
-                scale(bbox.x0),
-                scale(bbox.y0),
-                scale(bbox.x1),
-                scale(bbox.y1),
-            ],
-            content.to_string(),
-        )
+    #[test]
+    fn scale_rounds_instead_of_truncating() {
+        // Regression test: the old `(round3(v) * 1000.0) as i64` truncated
+        // after scaling, so e.g. `round3(1.005) * 1000.0 == 1004.999...`
+        // cast (truncated) to 1004, not 1005 — and `round3(2.03) * 1000.0
+        // == 2029.999...` truncated to 2029, not 2030. `scale` must round
+        // *after* multiplying by 1000, giving the exact values.
+        assert_eq!(scale(1.005), 1005);
+        assert_eq!(scale(2.03), 2030);
     }
 
     #[test]
@@ -373,7 +380,7 @@ mod tests {
             let Element::Text(t) = el else { unreachable!() };
             let src_line = t.lines.as_ref().unwrap().first().unwrap();
             let ch = &src_line.words[0].chars[0];
-            let key = test_style_key(&ch.bbox, &ch.content);
+            let key = style_key(&ch.bbox, &ch.content);
             let (stored_font, stored_color, stored_href) = style_map
                 .get(&key)
                 .unwrap_or_else(|| panic!("missing style_map entry for glyph {:?}", ch.content));
