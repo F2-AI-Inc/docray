@@ -290,6 +290,8 @@ fn extract_error_exit_code(e: &ExtractError) -> u8 {
         ExtractError::Io(_) => 5,
         ExtractError::TooManyPages { .. } => 6,
         ExtractError::GranularityUnavailable { .. } => 8,
+        ExtractError::PageOutOfRange { .. } => 9,
+        ExtractError::PageSelectionUnsupported { .. } => 10,
     }
 }
 
