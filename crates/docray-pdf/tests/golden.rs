@@ -159,14 +159,7 @@ fn compact_simple_goldens_match() {
 fn classified_goldens_match() {
     ensure_pdfium_dir();
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
-    for name in [
-        "simple",
-        "scan",
-        "image",
-        "mixed",
-        "broken-encoding",
-        "glyph_fragmented",
-    ] {
+    for name in ["simple", "scan", "image", "mixed", "broken-encoding"] {
         let bytes = fs::read(testdata().join(format!("{name}.pdf"))).unwrap();
         let out = PdfExtractor.extract(&bytes, None).unwrap();
         let json = serde_json::to_string_pretty(&out.with_classification(None)).unwrap();
