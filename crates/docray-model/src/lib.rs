@@ -844,7 +844,11 @@ fn round1(value: f64) -> f64 {
     }
 }
 
-fn compact_bbox(bbox: &BBox) -> [f64; 4] {
+// `pub(crate)`: also called from `regroup::compact_fragmented_elements` when
+// projecting regrouped lines / passthrough non-text elements to the compact
+// shape. Widening from module-private is a visibility-only change — no
+// behavior differs on the existing call sites in this file.
+pub(crate) fn compact_bbox(bbox: &BBox) -> [f64; 4] {
     [
         round1(bbox.x0),
         round1(bbox.y0),
@@ -853,7 +857,7 @@ fn compact_bbox(bbox: &BBox) -> [f64; 4] {
     ]
 }
 
-fn compact_font(font: &Font) -> CompactFont {
+pub(crate) fn compact_font(font: &Font) -> CompactFont {
     CompactFont {
         name: font.name.clone(),
         size: font.size,
@@ -862,7 +866,7 @@ fn compact_font(font: &Font) -> CompactFont {
     }
 }
 
-fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
+pub(crate) fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
     let fill = color.fill.filter(|value| *value != [0, 0, 0]);
     let stroke = color.stroke.filter(|value| *value != [0, 0, 0]);
     if fill.is_none() && stroke.is_none() {
@@ -872,7 +876,7 @@ fn compact_color(color: &TextColor) -> Option<CompactTextColor> {
     }
 }
 
-fn compact_runs(runs: &Option<Vec<TextRun>>) -> Option<Vec<CompactTextRun>> {
+pub(crate) fn compact_runs(runs: &Option<Vec<TextRun>>) -> Option<Vec<CompactTextRun>> {
     runs.as_ref().map(|runs| {
         runs.iter()
             .map(|run| CompactTextRun {
@@ -938,7 +942,7 @@ fn compact_page(page: &Page, granularity: Granularity) -> CompactPage {
     }
 }
 
-fn compact_element(element: &Element, granularity: Granularity) -> CompactElement {
+pub(crate) fn compact_element(element: &Element, granularity: Granularity) -> CompactElement {
     match element {
         Element::Text(text) => {
             let content = match granularity {

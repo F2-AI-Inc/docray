@@ -14,7 +14,11 @@ const FRAGMENT_SINGLE_GLYPH_RATIO: f64 = 0.6;
 use std::collections::HashMap;
 
 use crate::grouping::{group_into_lines, RawChar};
-use crate::{BBox, Element, Font, Line, TextColor, TextElement};
+use crate::{
+    compact_bbox, compact_color, compact_element, compact_font, compact_runs, BBox, Char,
+    CompactElement, CompactTextContent, CompactTextElement, CompactWord, Element, Font,
+    Granularity, Line, TextColor, TextElement, TextRun,
+};
 
 /// Scales a coordinate by 1000 and rounds to the nearest integer, for use as
 /// a hashable/orderable proxy for an `f64`. Rounding must happen *after*
@@ -136,6 +140,157 @@ pub(crate) fn regroup_page_lines(elements: &[Element]) -> (Vec<Line>, StyleMap) 
     (lines, style_map)
 }
 
+/// A glyph's font/color/href, looked up by its geometric identity in
+/// `style_map`. Falls back to a neutral default rather than panicking if the
+/// key is ever absent — see the `StyleKey` doc comment on why a genuine miss
+/// shouldn't happen (every char reaching here was inserted into the same
+/// `style_map` by the `regroup_page_lines` call that produced it) but must
+/// never be allowed to panic if a pathological (bbox, content) collision
+/// ever overwrote it.
+fn char_style(style_map: &StyleMap, ch: &Char) -> (Font, TextColor, Option<String>) {
+    style_map
+        .get(&style_key(&ch.bbox, &ch.content))
+        .cloned()
+        .unwrap_or_else(fallback_style)
+}
+
+fn fallback_style() -> (Font, TextColor, Option<String>) {
+    (
+        Font {
+            name: String::new(),
+            size: 0.0,
+            bold: false,
+            italic: false,
+        },
+        TextColor {
+            fill: None,
+            stroke: None,
+        },
+        None,
+    )
+}
+
+/// Walks a regrouped line's chars in word order, grouping consecutive chars
+/// that share `(font, color, href)` into `TextRun`s. A line whose glyphs are
+/// all one style (the common case) collapses to a single run.
+fn build_runs(line: &Line, style_map: &StyleMap) -> Vec<TextRun> {
+    let mut runs: Vec<TextRun> = Vec::new();
+    for word in &line.words {
+        for ch in &word.chars {
+            let (font, color, href) = char_style(style_map, ch);
+            match runs.last_mut() {
+                Some(last) if last.font == font && last.color == color && last.href == href => {
+                    last.content.push_str(&ch.content);
+                }
+                _ => runs.push(TextRun {
+                    content: ch.content.clone(),
+                    font,
+                    color,
+                    href,
+                }),
+            }
+        }
+    }
+    runs
+}
+
+/// Projects one regrouped `Line` to a `CompactElement::Text`: content shaped
+/// per `granularity`, font/color taken from the line's first char, and
+/// `runs` reconstructed by `build_runs`.
+fn compact_line(line: &Line, granularity: Granularity, style_map: &StyleMap) -> CompactElement {
+    let content = match granularity {
+        Granularity::Element => CompactTextContent::Element {
+            text: line
+                .words
+                .iter()
+                .map(|w| w.content.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+        },
+        Granularity::Word => CompactTextContent::Word {
+            words: line
+                .words
+                .iter()
+                .map(|w| {
+                    let [x0, y0, x1, y1] = compact_bbox(&w.bbox);
+                    CompactWord(w.content.clone(), x0, y0, x1, y1)
+                })
+                .collect(),
+        },
+        Granularity::Char => unreachable!("char granularity does not use compact elements"),
+    };
+
+    let (font, color, _href) = line
+        .words
+        .first()
+        .and_then(|w| w.chars.first())
+        .map(|ch| char_style(style_map, ch))
+        .unwrap_or_else(fallback_style);
+
+    CompactElement::Text(CompactTextElement {
+        bbox: compact_bbox(&line.bbox),
+        content,
+        font: compact_font(&font),
+        color: compact_color(&color),
+        runs: compact_runs(&Some(build_runs(line, style_map))),
+    })
+}
+
+/// The compact bbox of any `CompactElement` variant, for reading-order sort.
+fn compact_element_bbox(element: &CompactElement) -> [f64; 4] {
+    match element {
+        CompactElement::Text(t) => t.bbox,
+        CompactElement::Table(t) => t.bbox,
+        CompactElement::Chart(t) => t.bbox,
+        CompactElement::Image(t) => t.bbox,
+        CompactElement::Path(t) => t.bbox,
+        CompactElement::Annotation(t) => t.bbox,
+    }
+}
+
+/// Builds the compact (element/word granularity) projection of a
+/// glyph-fragmented page: text is pooled and regrouped into `Line`s via
+/// `regroup_page_lines` and rendered as one `CompactElement::Text` per line
+/// (with reconstructed style runs); every non-text element passes through
+/// the existing `compact_element` unchanged. The result is a single list in
+/// reading order, mixing both kinds.
+///
+/// Ordering is a total order on `(scale(bbox.y0), scale(bbox.x0))` of the
+/// compact bbox, with a stable index tiebreak — never raw float comparison
+/// (see `scale`'s doc comment) and never `HashMap` iteration order.
+// Not yet called outside tests: a follow-up task wires this into the
+// compact-granularity pipeline. Remove this `allow` once that lands.
+#[allow(dead_code)]
+pub(crate) fn compact_fragmented_elements(
+    elements: &[Element],
+    granularity: Granularity,
+) -> Vec<CompactElement> {
+    let (lines, style_map) = regroup_page_lines(elements);
+
+    let mut items: Vec<((i64, i64), usize, CompactElement)> = Vec::new();
+    let mut next_index = 0usize;
+
+    for line in &lines {
+        let compact = compact_line(line, granularity, &style_map);
+        let bbox = compact_element_bbox(&compact);
+        items.push(((scale(bbox[1]), scale(bbox[0])), next_index, compact));
+        next_index += 1;
+    }
+
+    for el in elements {
+        if matches!(el, Element::Text(_)) {
+            continue;
+        }
+        let compact = compact_element(el, granularity);
+        let bbox = compact_element_bbox(&compact);
+        items.push(((scale(bbox[1]), scale(bbox[0])), next_index, compact));
+        next_index += 1;
+    }
+
+    items.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    items.into_iter().map(|(_, _, el)| el).collect()
+}
+
 /// Returns true if `elements` looks like a glyph-fragmented text page: many
 /// `Element::Text` items each carrying exactly one glyph in their `lines`
 /// hierarchy, rather than whole words/lines.
@@ -170,7 +325,7 @@ pub(crate) fn is_glyph_fragmented(elements: &[Element]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BBox, Char, Font, Line, TextColor, TextElement, Word};
+    use crate::{BBox, Char, Font, ImageElement, Line, TextColor, TextElement, Word};
 
     fn bbox() -> BBox {
         BBox {
@@ -393,6 +548,142 @@ mod tests {
         assert_eq!(
             lines, lines_again,
             "regroup_page_lines must be deterministic"
+        );
+    }
+
+    /// Same shuffled "hello world" / "foo bar" glyph soup as
+    /// `regroups_shuffled_glyphs_into_two_lines_with_style_map`, plus one
+    /// `Image` element sitting between the two text baselines (y0=104,
+    /// between line0's y1=100 and line1's y0=108) so the reading-order sort
+    /// must interleave a non-text element between two regrouped text lines
+    /// — not just place all text before all non-text.
+    fn fragmented_page_with_image() -> Vec<Element> {
+        let mut elements = make_glyph_page(&[
+            ('w', 100.0, 52.0),
+            ('f', 120.0, 0.0),
+            ('l', 100.0, 24.0),
+            ('o', 120.0, 16.0),
+            ('h', 100.0, 0.0),
+            ('r', 120.0, 52.0),
+            ('l', 100.0, 16.0),
+            ('d', 100.0, 84.0),
+            ('a', 120.0, 44.0),
+            ('o', 100.0, 60.0),
+            ('e', 100.0, 8.0),
+            ('b', 120.0, 36.0),
+            ('r', 100.0, 68.0),
+            ('o', 120.0, 8.0),
+            ('l', 100.0, 76.0),
+            ('o', 100.0, 32.0),
+        ]);
+        elements.push(Element::Image(ImageElement {
+            id: "img0".to_string(),
+            bbox: BBox {
+                x0: 0.0,
+                y0: 104.0,
+                x1: 20.0,
+                y1: 106.0,
+            },
+            quad: [[0.0, 104.0], [20.0, 104.0], [20.0, 106.0], [0.0, 106.0]],
+            pixel_width: Some(10),
+            pixel_height: Some(10),
+            colorspace: None,
+            content_hash: None,
+        }));
+        elements
+    }
+
+    #[test]
+    fn compact_fragmented_elements_element_granularity_orders_text_and_image() {
+        let elements = fragmented_page_with_image();
+
+        let compact = compact_fragmented_elements(&elements, Granularity::Element);
+        assert_eq!(compact.len(), 3, "two text lines + one image");
+
+        let CompactElement::Text(first) = &compact[0] else {
+            panic!("expected first (topmost) element to be text")
+        };
+        match &first.content {
+            CompactTextContent::Element { text } => assert_eq!(text, "hello world"),
+            CompactTextContent::Word { .. } => panic!("expected element-granularity content"),
+        }
+        assert_eq!(first.font.name, "Test");
+        assert_eq!(first.font.size, 12.0);
+        assert!(
+            first.color.is_none(),
+            "black fill is elided by compact_color"
+        );
+        let runs = first
+            .runs
+            .as_ref()
+            .expect("regrouped line must carry reconstructed runs");
+        assert_eq!(runs.len(), 1, "single-style line collapses to one run");
+        assert_eq!(runs[0].content, "helloworld");
+        assert!(runs[0].href.is_none());
+
+        match &compact[1] {
+            CompactElement::Image(image) => {
+                assert_eq!(image.bbox, [0.0, 104.0, 20.0, 106.0]);
+            }
+            _ => panic!("expected the image between the two text lines"),
+        }
+
+        let CompactElement::Text(third) = &compact[2] else {
+            panic!("expected third (bottommost) element to be text")
+        };
+        match &third.content {
+            CompactTextContent::Element { text } => assert_eq!(text, "foo bar"),
+            CompactTextContent::Word { .. } => panic!("expected element-granularity content"),
+        }
+        let runs = third
+            .runs
+            .as_ref()
+            .expect("regrouped line must carry reconstructed runs");
+        assert_eq!(runs.len(), 1, "single-style line collapses to one run");
+        assert_eq!(runs[0].content, "foobar");
+    }
+
+    #[test]
+    fn compact_fragmented_elements_word_granularity_emits_compact_words() {
+        let elements = fragmented_page_with_image();
+
+        let compact = compact_fragmented_elements(&elements, Granularity::Word);
+        assert_eq!(compact.len(), 3, "two text lines + one image");
+
+        let CompactElement::Text(first) = &compact[0] else {
+            panic!("expected first (topmost) element to be text")
+        };
+        let CompactTextContent::Word { words } = &first.content else {
+            panic!("expected word-granularity content")
+        };
+        assert_eq!(words.len(), 2, "hello, world");
+        assert_eq!(words[0].0, "hello");
+        assert_eq!(
+            (words[0].1, words[0].2, words[0].3, words[0].4),
+            (0.0, 88.0, 40.0, 100.0)
+        );
+        assert_eq!(words[1].0, "world");
+        assert_eq!(
+            (words[1].1, words[1].2, words[1].3, words[1].4),
+            (52.0, 88.0, 92.0, 100.0)
+        );
+
+        let CompactElement::Text(third) = &compact[2] else {
+            panic!("expected third (bottommost) element to be text")
+        };
+        let CompactTextContent::Word { words } = &third.content else {
+            panic!("expected word-granularity content")
+        };
+        assert_eq!(words.len(), 2, "foo, bar");
+        assert_eq!(words[0].0, "foo");
+        assert_eq!(
+            (words[0].1, words[0].2, words[0].3, words[0].4),
+            (0.0, 108.0, 24.0, 120.0)
+        );
+        assert_eq!(words[1].0, "bar");
+        assert_eq!(
+            (words[1].1, words[1].2, words[1].3, words[1].4),
+            (36.0, 108.0, 60.0, 120.0)
         );
     }
 }
