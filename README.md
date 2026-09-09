@@ -249,6 +249,10 @@ an invisible OCR text layer has text elements and is therefore
 Telemetry is opt-in and vendor-neutral. Enable structured JSON events, OTLP
 metrics, or both:
 
+See [`TELEMETRY.md`](TELEMETRY.md) for the full metric catalog, dimensions,
+privacy contract, dashboard guidance, known coverage gaps, and verification
+steps.
+
 ```bash
 # Single-line JSON events on stdout; suitable for any log collector.
 DOCRAY_TELEMETRY_LOGS=json docray-server
