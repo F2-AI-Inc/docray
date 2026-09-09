@@ -241,6 +241,53 @@ an invisible OCR text layer has text elements and is therefore
 | `DOCRAY_MEM_LIMIT_BYTES`   | `2147483648` (2 GiB)                    | Per-worker memory rlimit (Linux only) |
 | `DOCRAY_WORKERS`           | number of CPU cores (min 1)             | Size of the async job worker pool; also bounds concurrent `/v1/extract` extractions. The sync path and the job pool share this knob but keep independent concurrency counts |
 | `DOCRAY_RESULT_TTL_SECS`   | `86400` (24 h)                          | Age at which succeeded/failed jobs and their results are swept |
+| `DOCRAY_TELEMETRY_LOGS`    | `off`                                    | Set to `json` to emit one bounded structured event for each completed extraction |
+| `OTEL_METRICS_EXPORTER`    | `none`                                   | Set to `otlp` to export service metrics over OTLP/HTTP protobuf |
+
+### Telemetry
+
+Telemetry is opt-in and vendor-neutral. Enable structured JSON events, OTLP
+metrics, or both:
+
+See [`TELEMETRY.md`](TELEMETRY.md) for the full metric catalog, dimensions,
+privacy contract, dashboard guidance, known coverage gaps, and verification
+steps.
+
+```bash
+# Single-line JSON events on stdout; suitable for any log collector.
+DOCRAY_TELEMETRY_LOGS=json docray-server
+
+# OpenTelemetry metrics sent to an OTLP-compatible collector.
+OTEL_METRICS_EXPORTER=otlp \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
+OTEL_SERVICE_NAME=docray-server \
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production \
+docray-server
+```
+
+The OTLP exporter uses HTTP/protobuf and honors the standard
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`,
+`OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`,
+`OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`,
+`OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_SERVICE_NAME`, and
+`OTEL_RESOURCE_ATTRIBUTES` variables. This works with an OpenTelemetry
+Collector and OTLP-capable systems such as Prometheus, Grafana, Datadog,
+Honeycomb, and New Relic without vendor SDKs in docray.
+
+The service exports:
+
+- completed requests, errors, and timeouts,
+- end-to-end, queue, and worker duration histograms,
+- active extraction count,
+- input and output size histograms,
+- for LEAN responses, page, warning, textless-page, and element-record counts.
+
+Metric attributes are deliberately bounded to route, format, granularity,
+classification mode, outcome, stable error type, record type, and output
+schema version. Structured events contain the same operational fields plus
+HTTP status and the observed in-flight count. Neither path emits filenames,
+job IDs, source hashes, document text, tenant identifiers, or extracted
+content.
 
 ## Known limitations (v1)
 
@@ -261,6 +308,11 @@ an invisible OCR text layer has text elements and is therefore
   result files live on the task's local disk, so job IDs are only meaningful
   to the instance that created them and do not survive a task replacement.
   See the Deploy section for why v1 is single-task only.
+- **The route-level body limit runs before extraction telemetry.** A request
+  rejected by Axum because its entire HTTP body exceeds the configured route
+  ceiling does not reach the extraction handler and therefore is not counted
+  by the application metrics. Preserve proxy/load-balancer 413 metrics for
+  complete ingress accounting.
 
 ## Testing
 

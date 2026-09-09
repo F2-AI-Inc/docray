@@ -1,6 +1,7 @@
 mod config;
 mod http;
 mod jobs;
+mod telemetry;
 mod worker;
 
 use config::Config;
@@ -10,11 +11,16 @@ use jobs::{ClaimedJob, JobStore};
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::sync::Arc;
+use telemetry::{ExtractionMetric, Telemetry};
 use worker::{run_extraction, WorkerOutcome};
 
 #[tokio::main]
 async fn main() {
     let cfg = Arc::new(Config::from_env());
+    let telemetry = Telemetry::from_env().unwrap_or_else(|error| {
+        eprintln!("cannot initialize telemetry: {error}");
+        std::process::exit(1);
+    });
     std::fs::create_dir_all(cfg.data_dir.join("uploads")).expect("cannot create data dir");
     std::fs::create_dir_all(cfg.data_dir.join("results")).expect("cannot create data dir");
     let store = Arc::new(JobStore::new(&cfg.data_dir.join("jobs.sqlite")));
@@ -23,6 +29,7 @@ async fn main() {
     for _ in 0..cfg.workers {
         let cfg = cfg.clone();
         let store = store.clone();
+        let telemetry = telemetry.clone();
         tokio::spawn(async move {
             // The worker loop must never exit: a claim error backs off (no tight
             // error spin) and a panic in the per-job work is caught so the job is
@@ -57,6 +64,7 @@ async fn main() {
                     format,
                     classify,
                     pages,
+                    &telemetry,
                 ));
                 if work.catch_unwind().await.is_err() {
                     if let Err(e) = store.mark_failed(&id, "crash", "worker task panicked") {
@@ -83,7 +91,7 @@ async fn main() {
         });
     }
 
-    let state = AppState::new(cfg.clone(), store);
+    let state = AppState::new(cfg.clone(), store, telemetry.clone());
     let app = http::router(state);
     let addr = format!("0.0.0.0:{}", cfg.port);
     let listener = match tokio::net::TcpListener::bind(&addr).await {
@@ -99,7 +107,36 @@ async fn main() {
         "playground UI:        http://localhost:{}/playground",
         cfg.port
     );
-    axum::serve(listener, app).await.expect("server error");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("server error");
+    if let Err(error) = telemetry.shutdown() {
+        eprintln!("cannot flush telemetry during shutdown: {error}");
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("cannot install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("cannot install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
 }
 
 /// Run one claimed job to completion and record its outcome. Store errors while
@@ -115,7 +152,11 @@ async fn process_job(
     format: docray_model::OutputFormat,
     classify: bool,
     pages: Option<docray_core::PageSelection>,
+    telemetry: &Telemetry,
 ) {
+    let started = std::time::Instant::now();
+    let input_bytes = std::fs::metadata(input_path).map(|meta| meta.len()).ok();
+    let active = telemetry.begin_extraction("job");
     let outcome = run_extraction(
         cfg,
         Path::new(input_path),
@@ -126,6 +167,17 @@ async fn process_job(
         pages,
     )
     .await;
+    let mut metric = ExtractionMetric::new("job");
+    metric.format = format.as_str();
+    metric.granularity = granularity.map(|value| value.as_str()).unwrap_or("default");
+    metric.classify = classify;
+    metric.input_bytes = input_bytes;
+    metric.extraction_duration = Some(started.elapsed());
+    metric.request_duration = started.elapsed();
+    metric.in_flight = Some(active.current());
+    metric.observe_outcome(&outcome, format);
+    telemetry.record(&metric);
+    drop(active);
     let marked = match outcome {
         WorkerOutcome::Success(bytes) => {
             let extension = match format {
