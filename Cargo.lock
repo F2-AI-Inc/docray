@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "docray-cli"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "docray-core"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "docray-model",
  "serde",
@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "docray-docx"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "docray-core",
  "docray-model",
@@ -642,7 +642,7 @@ dependencies = [
 
 [[package]]
 name = "docray-model"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "docray-ooxml"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "docray-core",
  "quick-xml",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "docray-pdf"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "docray-core",
  "docray-model",
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "docray-pptx"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "docray-core",
  "docray-model",
@@ -683,7 +683,7 @@ dependencies = [
 
 [[package]]
 name = "docray-server"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "axum",
  "docray-core",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "docray-wasm"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "docray-core",
  "docray-docx",
