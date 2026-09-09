@@ -172,28 +172,36 @@ fn requested_output(
 async fn read_upload(
     multipart: &mut Multipart,
     max_bytes: u64,
-) -> Result<Vec<u8>, (&'static str, Response)> {
+) -> Result<Vec<u8>, (&'static str, Box<Response>)> {
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         (
             "bad_multipart",
-            error_response(StatusCode::BAD_REQUEST, "bad_multipart", &e.to_string()),
+            Box::new(error_response(
+                StatusCode::BAD_REQUEST,
+                "bad_multipart",
+                &e.to_string(),
+            )),
         )
     })? {
         if field.name() == Some("file") {
             let bytes = field.bytes().await.map_err(|e| {
                 (
                     "too_large",
-                    error_response(StatusCode::PAYLOAD_TOO_LARGE, "too_large", &e.to_string()),
+                    Box::new(error_response(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "too_large",
+                        &e.to_string(),
+                    )),
                 )
             })?;
             if bytes.len() as u64 > max_bytes {
                 return Err((
                     "too_large",
-                    error_response(
+                    Box::new(error_response(
                         StatusCode::PAYLOAD_TOO_LARGE,
                         "too_large",
                         "request exceeds sync size cap; use POST /v1/jobs",
-                    ),
+                    )),
                 ));
             }
             return Ok(bytes.to_vec());
@@ -201,11 +209,11 @@ async fn read_upload(
     }
     Err((
         "missing_file",
-        error_response(
+        Box::new(error_response(
             StatusCode::BAD_REQUEST,
             "missing_file",
             "multipart field 'file' required",
-        ),
+        )),
     ))
 }
 
@@ -312,7 +320,7 @@ async fn sync_extract(
         Ok(b) => b,
         Err((code, resp)) => {
             metric.fail(code);
-            return finish_response(&state.telemetry, started, metric, resp);
+            return finish_response(&state.telemetry, started, metric, *resp);
         }
     };
     metric.input_bytes = Some(bytes.len() as u64);
@@ -396,61 +404,63 @@ async fn stream_upload_to_file(
     multipart: &mut Multipart,
     path: &Path,
     max_bytes: u64,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     use std::io::Write;
-    while let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| error_response(StatusCode::BAD_REQUEST, "bad_multipart", &e.to_string()))?
-    {
+    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
+        Box::new(error_response(
+            StatusCode::BAD_REQUEST,
+            "bad_multipart",
+            &e.to_string(),
+        ))
+    })? {
         if field.name() != Some("file") {
             continue;
         }
         let mut file = std::fs::File::create(path).map_err(|e| {
-            error_response(
+            Box::new(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "io_error",
                 &e.to_string(),
-            )
+            ))
         })?;
         let mut written: u64 = 0;
         while let Some(chunk) = field.chunk().await.map_err(|e| {
-            error_response(
+            Box::new(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "io_error",
                 &e.to_string(),
-            )
+            ))
         })? {
             written += chunk.len() as u64;
             if written > max_bytes {
-                return Err(error_response(
+                return Err(Box::new(error_response(
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "too_large",
                     "request exceeds job size cap",
-                ));
+                )));
             }
             file.write_all(&chunk).map_err(|e| {
-                error_response(
+                Box::new(error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "io_error",
                     &e.to_string(),
-                )
+                ))
             })?;
         }
         file.flush().map_err(|e| {
-            error_response(
+            Box::new(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "io_error",
                 &e.to_string(),
-            )
+            ))
         })?;
         return Ok(());
     }
-    Err(error_response(
+    Err(Box::new(error_response(
         StatusCode::BAD_REQUEST,
         "missing_file",
         "multipart field 'file' required",
-    ))
+    )))
 }
 
 async fn create_job(
@@ -494,7 +504,7 @@ async fn create_job(
         stream_upload_to_file(&mut multipart, &input_path, state.cfg.jobs_max_bytes).await
     {
         let _ = std::fs::remove_file(&input_path);
-        return resp;
+        return *resp;
     }
 
     if let Err(e) = state.jobs.create(
