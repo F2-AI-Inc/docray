@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::jobs::JobStore;
+use crate::telemetry::{ExtractionMetric, Telemetry};
 use crate::worker::{run_extraction, WorkerOutcome};
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::rejection::QueryRejection;
@@ -14,6 +15,7 @@ use serde::Deserialize;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Semaphore;
 
 #[derive(Clone)]
@@ -25,15 +27,17 @@ pub struct AppState {
     /// `cfg.workers` — the sync path and the async job pool share the machine but
     /// keep independent concurrency counts, which is acceptable for v1.
     pub sync_slots: Arc<Semaphore>,
+    pub telemetry: Telemetry,
 }
 
 impl AppState {
-    pub fn new(cfg: Arc<Config>, jobs: Arc<JobStore>) -> AppState {
+    pub fn new(cfg: Arc<Config>, jobs: Arc<JobStore>, telemetry: Telemetry) -> AppState {
         let sync_slots = Arc::new(Semaphore::new(cfg.workers));
         AppState {
             cfg,
             jobs,
             sync_slots,
+            telemetry,
         }
     }
 }
@@ -165,30 +169,43 @@ fn requested_output(
     }
 }
 
-pub async fn read_upload(multipart: &mut Multipart, max_bytes: u64) -> Result<Vec<u8>, Response> {
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| error_response(StatusCode::BAD_REQUEST, "bad_multipart", &e.to_string()))?
-    {
+async fn read_upload(
+    multipart: &mut Multipart,
+    max_bytes: u64,
+) -> Result<Vec<u8>, (&'static str, Response)> {
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        (
+            "bad_multipart",
+            error_response(StatusCode::BAD_REQUEST, "bad_multipart", &e.to_string()),
+        )
+    })? {
         if field.name() == Some("file") {
             let bytes = field.bytes().await.map_err(|e| {
-                error_response(StatusCode::PAYLOAD_TOO_LARGE, "too_large", &e.to_string())
+                (
+                    "too_large",
+                    error_response(StatusCode::PAYLOAD_TOO_LARGE, "too_large", &e.to_string()),
+                )
             })?;
             if bytes.len() as u64 > max_bytes {
-                return Err(error_response(
-                    StatusCode::PAYLOAD_TOO_LARGE,
+                return Err((
                     "too_large",
-                    "request exceeds sync size cap; use POST /v1/jobs",
+                    error_response(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "too_large",
+                        "request exceeds sync size cap; use POST /v1/jobs",
+                    ),
                 ));
             }
             return Ok(bytes.to_vec());
         }
     }
-    Err(error_response(
-        StatusCode::BAD_REQUEST,
+    Err((
         "missing_file",
-        "multipart field 'file' required",
+        error_response(
+            StatusCode::BAD_REQUEST,
+            "missing_file",
+            "multipart field 'file' required",
+        ),
     ))
 }
 
@@ -243,10 +260,23 @@ async fn sync_extract(
     query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
+    let started = Instant::now();
+    let mut metric = ExtractionMetric::new("sync");
     let (granularity, format, classify, pages) = match requested_output(query) {
         Ok(value) => value,
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
+        Err(error) => {
+            metric.fail(error.code);
+            return finish_response(
+                &state.telemetry,
+                started,
+                metric,
+                error_response(StatusCode::BAD_REQUEST, error.code, &error.message),
+            );
+        }
     };
+    metric.format = format.as_str();
+    metric.granularity = granularity.map(|value| value.as_str()).unwrap_or("default");
+    metric.classify = classify;
     // axum rejects a malformed multipart request (e.g. bad/missing boundary)
     // before the handler body runs, with a plaintext body. Taking the extractor
     // as a `Result` lets us re-map that rejection into the always-JSON error
@@ -263,43 +293,72 @@ async fn sync_extract(
     let mut multipart = match multipart {
         Ok(m) => m,
         Err(rej) => {
-            return if rej.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                error_response(StatusCode::PAYLOAD_TOO_LARGE, "too_large", &rej.body_text())
+            let (code, response) = if rej.status() == StatusCode::PAYLOAD_TOO_LARGE {
+                (
+                    "too_large",
+                    error_response(StatusCode::PAYLOAD_TOO_LARGE, "too_large", &rej.body_text()),
+                )
             } else {
-                error_response(StatusCode::BAD_REQUEST, "bad_multipart", &rej.body_text())
+                (
+                    "bad_multipart",
+                    error_response(StatusCode::BAD_REQUEST, "bad_multipart", &rej.body_text()),
+                )
             };
+            metric.fail(code);
+            return finish_response(&state.telemetry, started, metric, response);
         }
     };
     let bytes = match read_upload(&mut multipart, state.cfg.sync_max_bytes).await {
         Ok(b) => b,
-        Err(resp) => return resp,
+        Err((code, resp)) => {
+            metric.fail(code);
+            return finish_response(&state.telemetry, started, metric, resp);
+        }
     };
+    metric.input_bytes = Some(bytes.len() as u64);
     let tmp = match tempfile::NamedTempFile::new() {
         Ok(t) => t,
         Err(e) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "io_error",
-                &e.to_string(),
-            )
+            metric.fail("io_error");
+            return finish_response(
+                &state.telemetry,
+                started,
+                metric,
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "io_error",
+                    &e.to_string(),
+                ),
+            );
         }
     };
     if let Err(e) = std::fs::write(tmp.path(), &bytes) {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "io_error",
-            &e.to_string(),
+        metric.fail("io_error");
+        return finish_response(
+            &state.telemetry,
+            started,
+            metric,
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "io_error",
+                &e.to_string(),
+            ),
         );
     }
     // Bound concurrent sync extractions. We await the permit (bounded queueing)
     // rather than 503-ing on contention: a brief queue is preferable to shedding
     // load, and the request already has the client waiting synchronously. The
     // semaphore is never closed, so acquire() cannot error.
+    let queued = Instant::now();
     let _permit = state
         .sync_slots
         .acquire()
         .await
         .expect("semaphore not closed");
+    metric.queue_duration = Some(queued.elapsed());
+    let active = state.telemetry.begin_extraction("sync");
+    metric.in_flight = Some(active.current());
+    let extraction_started = Instant::now();
     let outcome = run_extraction(
         &state.cfg,
         tmp.path(),
@@ -310,7 +369,23 @@ async fn sync_extract(
         pages,
     )
     .await;
-    outcome_to_response(outcome, format)
+    metric.extraction_duration = Some(extraction_started.elapsed());
+    metric.observe_outcome(&outcome, format);
+    let response = outcome_to_response(outcome, format);
+    drop(active);
+    finish_response(&state.telemetry, started, metric, response)
+}
+
+fn finish_response(
+    telemetry: &Telemetry,
+    started: Instant,
+    mut metric: ExtractionMetric,
+    response: Response,
+) -> Response {
+    metric.request_duration = started.elapsed();
+    metric.status_code = Some(response.status().as_u16());
+    telemetry.record(&metric);
+    response
 }
 
 /// Stream the multipart `file` field straight to `path`, chunk by chunk, so a

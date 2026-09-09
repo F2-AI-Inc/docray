@@ -33,8 +33,27 @@ health check, and CloudWatch logging. Before registering it:
   One instance is the supported topology; horizontal scaling would require an
   external job store.
 - On restart, jobs that were mid-flight are automatically re-queued.
-- The server needs **no outbound network** — only the playground's browser
-  assets (pdf.js, fonts) load from CDNs, client-side.
+- With telemetry disabled (the default), the server needs **no outbound
+  network** — only the playground's browser assets (pdf.js, fonts) load from
+  CDNs, client-side. Enabling the OTLP exporter requires outbound access to
+  the configured collector.
 - Responses are not compressed at the HTTP layer yet; if you front docray
   with a reverse proxy, enabling gzip/brotli there shrinks `char`-level
   responses dramatically.
+
+## OpenTelemetry
+
+For production, send metrics to an OpenTelemetry Collector rather than
+configuring a vendor SDK in the docray container:
+
+```bash
+OTEL_METRICS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=docray-server
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production
+```
+
+The collector can fan metrics out to CloudWatch, Prometheus, Grafana,
+Datadog, Honeycomb, New Relic, or multiple destinations. Set
+`DOCRAY_TELEMETRY_LOGS=json` when the deployment also wants per-request
+structured events in its existing log pipeline.

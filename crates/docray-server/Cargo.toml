@@ -17,6 +17,9 @@ uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 libc = "0.2"
 num_cpus = "1"
+opentelemetry = { version = "0.32", default-features = false, features = ["metrics"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["metrics"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["metrics", "http-proto", "reqwest-blocking-client", "tls-webpki-roots"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13", features = ["multipart", "json", "blocking"] }
