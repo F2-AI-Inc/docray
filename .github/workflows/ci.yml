@@ -15,6 +15,19 @@ env:
   PDFIUM_VERSION: chromium/7934
 
 jobs:
+  release-version:
+    name: release version gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test release version validation
+        run: python3 -m unittest discover -s scripts -p 'test_verify_release_version.py'
+      - name: Validate the current workspace version
+        run: |
+          VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          python3 scripts/verify_release_version.py "v${VERSION}"
+
   test:
     name: test · clippy · fmt · determinism
     runs-on: ubuntu-latest

@@ -13,8 +13,20 @@ env:
   PDFIUM_VERSION: chromium/7934
 
 jobs:
+  verify-version:
+    name: verify release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require tag to match Cargo workspace version
+        run: python3 scripts/verify_release_version.py "$GITHUB_REF_NAME"
+
   binaries:
     name: binaries · ${{ matrix.target }}
+    needs: verify-version
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -76,6 +88,7 @@ jobs:
 
   image:
     name: ghcr image · ${{ matrix.arch }}
+    needs: verify-version
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
