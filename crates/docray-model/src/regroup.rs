@@ -17,7 +17,7 @@ use crate::grouping::{group_into_lines, RawChar};
 use crate::{
     compact_bbox, compact_color, compact_element, compact_font, compact_runs, BBox, Char,
     CompactElement, CompactTextContent, CompactTextElement, CompactWord, Element, Font,
-    Granularity, Line, TextColor, TextElement, TextRun,
+    Granularity, Line, TextColor, TextElement, TextRun, Word,
 };
 
 /// Scales a coordinate by 1000 and rounds to the nearest integer, for use as
@@ -64,9 +64,36 @@ fn href_of(t: &TextElement) -> Option<String> {
     }
 }
 
+/// Whitespace glyph standing in for a word boundary the source element had
+/// already resolved. The hierarchy keeps no record of what split two words --
+/// whitespace is a separator there, never a word character -- and the ink gap
+/// left behind is usually narrower than the word threshold `group_into_lines`
+/// applies (1.3pt between 6pt words, against 1.5pt), so pooling bare glyphs
+/// re-fuses words the page separates.
+///
+/// The box spans the gap, since `x0` has to sort between the two words'
+/// glyphs; `min` keeps that true for ink boxes that overlap.
+fn word_separator(previous: &Word, next: &Word, baseline_y: f64, font_size: f64) -> RawChar {
+    let x0 = previous.bbox.x1.min(next.bbox.x0);
+    RawChar {
+        content: " ".to_string(),
+        bbox: BBox {
+            x0,
+            y0: next.bbox.y0,
+            x1: next.bbox.x0.max(x0),
+            y1: next.bbox.y1,
+        },
+        unicode: u32::from(' '),
+        font_size,
+        baseline_y,
+    }
+}
+
 /// Collects every glyph from all `Element::Text` items with glyph geometry
 /// on a page, sorts them into a deterministic reading order, and regroups
-/// them into `Line`s via `group_into_lines`. This is the fix for
+/// them into `Line`s via `group_into_lines`. Word boundaries the source
+/// elements already resolved are carried across as `word_separator`
+/// whitespace; everything else is re-derived geometrically. This is the fix for
 /// glyph-fragmented pages (see `is_glyph_fragmented`): instead of trusting
 /// each element's own single-glyph `lines`, every glyph on the page is
 /// pooled and re-grouped together.
@@ -86,7 +113,15 @@ pub(crate) fn regroup_page_lines(elements: &[Element]) -> (Vec<Line>, StyleMap) 
         };
         let href = href_of(t);
         for source_line in source_lines {
-            for word in &source_line.words {
+            for (i, word) in source_line.words.iter().enumerate() {
+                if i > 0 {
+                    raw_chars.push(word_separator(
+                        &source_line.words[i - 1],
+                        word,
+                        source_line.baseline_y,
+                        t.font.size,
+                    ));
+                }
                 for ch in &word.chars {
                     style_map.insert(
                         style_key(&ch.bbox, &ch.content),
@@ -797,5 +832,119 @@ mod tests {
         // `runs.iter().map(|r| &r.content).collect::<String>() == text`.
         let reconstructed: String = runs.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(&reconstructed, full_text);
+    }
+
+    /// The glyph-fragmented soup plus ONE properly-batched element whose two
+    /// words the producer separated with a real space glyph: "Gross Profit" at
+    /// 6pt on baseline 140, words at x 16.2–36.6 and 37.9–55.2. The space is
+    /// gone from the hierarchy (whitespace is a separator, never a word char),
+    /// and the 1.284pt ink gap it left behind is under the word threshold
+    /// (`0.25 * 6pt` = 1.5pt) — the geometry of a real datapack header, and
+    /// unrecoverable from glyph positions alone.
+    fn fragmented_page_with_spaced_element() -> Vec<Element> {
+        let mut elements = make_glyph_page(&[
+            ('h', 100.0, 0.0),
+            ('e', 100.0, 8.0),
+            ('l', 100.0, 16.0),
+            ('l', 100.0, 24.0),
+            ('o', 100.0, 32.0),
+            ('w', 100.0, 52.0),
+            ('o', 100.0, 60.0),
+            ('r', 100.0, 68.0),
+            ('l', 100.0, 76.0),
+            ('d', 100.0, 84.0),
+        ]);
+
+        let small = Font {
+            name: "Test".to_string(),
+            size: 6.0,
+            bold: false,
+            italic: false,
+        };
+        let word = |text: &str, x0: f64, x1: f64| {
+            let advance = (x1 - x0) / text.chars().count() as f64;
+            Word {
+                content: text.to_string(),
+                bbox: BBox {
+                    x0,
+                    y0: 134.0,
+                    x1,
+                    y1: 140.0,
+                },
+                chars: text
+                    .chars()
+                    .enumerate()
+                    .map(|(i, c)| Char {
+                        content: c.to_string(),
+                        bbox: BBox {
+                            x0: x0 + advance * i as f64,
+                            y0: 134.0,
+                            x1: x0 + advance * (i + 1) as f64,
+                            y1: 140.0,
+                        },
+                        unicode: c as u32,
+                    })
+                    .collect(),
+            }
+        };
+        let words = vec![word("Gross", 16.2, 36.6), word("Profit", 37.896, 55.194)];
+        let bbox = BBox {
+            x0: 16.2,
+            y0: 134.0,
+            x1: 55.194,
+            y1: 140.0,
+        };
+        elements.push(Element::Text(TextElement {
+            id: "batched".to_string(),
+            bbox,
+            content: "Gross Profit".to_string(),
+            font: small,
+            color: color(),
+            lines: Some(vec![Line {
+                bbox,
+                baseline_y: 140.0,
+                words,
+            }]),
+            runs: None,
+        }));
+        elements
+    }
+
+    #[test]
+    fn regroup_keeps_word_boundaries_the_source_element_already_resolved() {
+        let elements = fragmented_page_with_spaced_element();
+        assert!(
+            is_glyph_fragmented(&elements),
+            "sanity: the page must take the regroup path"
+        );
+
+        let (lines, _) = regroup_page_lines(&elements);
+        let spaced = lines
+            .iter()
+            .find(|line| line.baseline_y == 140.0)
+            .expect("the batched element's line survives regrouping");
+        let words: Vec<&str> = spaced.words.iter().map(|w| w.content.as_str()).collect();
+        assert_eq!(
+            words,
+            vec!["Gross", "Profit"],
+            "a boundary the source element resolved must not be re-derived from \
+             the ink gap it left behind"
+        );
+
+        let compact = compact_fragmented_elements(&elements, Granularity::Element);
+        let texts: Vec<String> = compact
+            .iter()
+            .filter_map(|el| match el {
+                CompactElement::Text(t) => match &t.content {
+                    CompactTextContent::Element { text } => Some(text.clone()),
+                    CompactTextContent::Word { .. } => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert!(
+            texts.contains(&"Gross Profit".to_string()),
+            "element content must keep the space; got {texts:?}"
+        );
     }
 }
