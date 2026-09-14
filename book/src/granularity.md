@@ -84,7 +84,9 @@ single-character `element`/`word` entries per line instead of readable text.
 `element` and `word` detect this pattern per page and regroup the glyphs into
 geometric lines and words before projecting — so a glyph-fragmented page
 reads the same as a normally-authored one ("hello world" as one element, not
-eleven). Detection and regrouping only ever run on the `element`/`word`
+eleven). Word boundaries that a batched run on the same page had already
+resolved are carried through the regrouping rather than re-derived from glyph
+positions, which at small font sizes cannot recover them. Detection and regrouping only ever run on the `element`/`word`
 projection; normal pages (glyphs already batched into runs) are left
 untouched, and `char` always reports the original, ungrouped geometry.
 
