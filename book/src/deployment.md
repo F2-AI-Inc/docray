@@ -15,13 +15,29 @@ docker run -d --rm -p 41619:41619 \
 The image runs as a non-root user with the data directory at `/data`; mount
 a volume there if you want job results to survive restarts.
 
+The runtime stage is [distroless](https://github.com/GoogleContainerTools/distroless)
+(`gcr.io/distroless/cc-debian13`): it contains the two docray binaries, the
+PDFium shared library, glibc/libstdc++, CA certificates and tzdata — no shell,
+package manager, curl, perl or openssl. `docker exec ... sh` does not work in
+this image, and health checks cannot shell out to `curl`. Use the built-in
+probe instead:
+
+```bash
+docray-server --healthcheck   # exit 0 when GET /healthz on DOCRAY_PORT returns 200, else 1
+```
+
+The image declares a Docker `HEALTHCHECK` with this command; ECS task
+definitions must use the exec form (`"CMD"`, not `"CMD-SHELL"`) as in the
+example below.
+
 ## AWS ECS Fargate
 
 A validated task-definition example lives at
 [`deploy/ecs-task-def.example.json`](https://github.com/F2-AI-Inc/docray/blob/main/deploy/ecs-task-def.example.json):
 1 vCPU / 5 GB memory with 2 workers (see the
-[sizing guidance](configuration.md#sizing-guidance)), a `/healthz` container
-health check, and CloudWatch logging. Before registering it:
+[sizing guidance](configuration.md#sizing-guidance)), a container health
+check via `docray-server --healthcheck`, and CloudWatch logging. Before
+registering it:
 
 - push the image to ECR and fill in the image URI,
 - create the CloudWatch log group (`/ecs/docray`),

@@ -16,6 +16,14 @@ use worker::{run_extraction, WorkerOutcome};
 
 #[tokio::main]
 async fn main() {
+    // `docray-server --healthcheck` probes a running server on this host and
+    // exits 0/1. It exists so the container image needs neither a shell nor
+    // curl: Docker HEALTHCHECK and ECS `CMD` health checks exec this binary.
+    if std::env::args().nth(1).as_deref() == Some("--healthcheck") {
+        let port = Config::from_env().port;
+        std::process::exit(if healthcheck(port) { 0 } else { 1 });
+    }
+
     let cfg = Arc::new(Config::from_env());
     let telemetry = Telemetry::from_env().unwrap_or_else(|error| {
         eprintln!("cannot initialize telemetry: {error}");
@@ -114,6 +122,38 @@ async fn main() {
     if let Err(error) = telemetry.shutdown() {
         eprintln!("cannot flush telemetry during shutdown: {error}");
     }
+}
+
+/// GET `/healthz` on 127.0.0.1:`port` over plain std networking and report
+/// whether the server answered 200. Deliberately dependency-free (no reqwest,
+/// no tokio) so the probe stays a few hundred KiB of already-loaded code and
+/// cannot hang: every socket operation is bounded by a 3s timeout.
+fn healthcheck(port: u16) -> bool {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    let timeout = Duration::from_secs(3);
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
+        return false;
+    };
+    if stream.set_read_timeout(Some(timeout)).is_err()
+        || stream.set_write_timeout(Some(timeout)).is_err()
+    {
+        return false;
+    }
+    if stream
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    // `Connection: close` makes the server end the stream after one response,
+    // so read_to_end terminates; the status line is all we need.
+    let mut response = Vec::new();
+    let _ = stream.take(4096).read_to_end(&mut response);
+    response.starts_with(b"HTTP/1.1 200 ")
 }
 
 async fn shutdown_signal() {

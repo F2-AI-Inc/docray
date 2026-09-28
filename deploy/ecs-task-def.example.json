@@ -15,7 +15,7 @@
         { "name": "DOCRAY_MEM_LIMIT_BYTES", "value": "2147483648" }
       ],
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -sf http://localhost:41619/healthz || exit 1"],
+        "command": ["CMD", "/usr/local/bin/docray-server", "--healthcheck"],
         "interval": 30,
         "timeout": 5,
         "retries": 3
