@@ -338,8 +338,13 @@ CI-equivalent gate for this repo is `cargo test --workspace && cargo clippy
 ## Docker
 
 The image is a two-stage build: `rust:1.88-slim` compiles `docray` and
-`docray-server` (release), and `debian:bookworm-slim` runs them alongside the
-fetched PDFium shared library. (`rust:1.79-slim`, the initial target, cannot
+`docray-server` (release), and distroless `gcr.io/distroless/cc-debian13`
+runs them alongside the fetched PDFium shared library. The runtime image has
+no shell, package manager, or curl — only glibc/libstdc++, CA certificates
+and tzdata beyond docray itself — which keeps the ECR/Trivy vulnerability
+surface to packages with no upstream fix. Health checks use the built-in
+`docray-server --healthcheck` probe (exit 0 on a 200 from `/healthz`); the
+image declares it as its Docker `HEALTHCHECK`. (`rust:1.79-slim`, the initial target, cannot
 build this workspace's dependency graph — `clap_lex` requires the
 `edition2024` Cargo feature, stabilized in 1.85, and `image`/`libloading`
 require rustc 1.88; 1.88 is the lowest verified-working tag.)
@@ -378,7 +383,10 @@ v1 targets a single ECS Fargate task (see
 3. Register the task definition (fill in `<account>`/`<region>`) and run it
    as an ECS service with a single task behind an ALB target group (health
    check `GET /healthz`) or plain service discovery — either way, route all
-   traffic to that one task/service. Note the Fargate `cpu`/`memory` pair
+   traffic to that one task/service. The container health check must be the
+   exec form `["CMD", "/usr/local/bin/docray-server", "--healthcheck"]` (as
+   in the example): the distroless image has no `sh` or `curl`, so a
+   `CMD-SHELL curl ...` check fails permanently. Note the Fargate `cpu`/`memory` pair
    must be valid: the example uses `cpu: "1024"` (1 vCPU) with
    `memory: "5120"` (5 GiB); `cpu: "512"` does not permit 5 GiB.
 

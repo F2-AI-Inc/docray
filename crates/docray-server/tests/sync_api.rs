@@ -390,6 +390,37 @@ fn healthz_and_sync_extract_and_errors() {
     );
 }
 
+// `docray-server --healthcheck` is what the distroless container image uses
+// for Docker HEALTHCHECK / ECS `CMD` health checks (no shell, no curl). Pin
+// its exit-code contract: 0 for a live server on DOCRAY_PORT, 1 otherwise.
+#[test]
+fn healthcheck_flag_reports_server_liveness_via_exit_code() {
+    let server = TestServer::start();
+    let port = server.base.rsplit(':').next().unwrap().to_string();
+
+    let ok = std::process::Command::new(env!("CARGO_BIN_EXE_docray-server"))
+        .arg("--healthcheck")
+        .env("DOCRAY_PORT", &port)
+        .status()
+        .unwrap();
+    assert_eq!(ok.code(), Some(0), "live server must probe healthy");
+
+    // A port nothing listens on: connection refused must map to exit 1, not
+    // a panic or a hang.
+    let dead_port = free_port();
+    let dead = std::process::Command::new(env!("CARGO_BIN_EXE_docray-server"))
+        .arg("--healthcheck")
+        .env("DOCRAY_PORT", dead_port.to_string())
+        .status()
+        .unwrap();
+    assert_eq!(dead.code(), Some(1), "dead port must probe unhealthy");
+
+    // The probe must not have touched the data dir or otherwise acted as a
+    // server: the real server is still the one answering.
+    let r = reqwest::blocking::get(format!("{}/healthz", server.base)).unwrap();
+    assert_eq!(r.status(), 200);
+}
+
 #[test]
 fn extract_granularity_element_and_invalid_value() {
     let server = TestServer::start();
