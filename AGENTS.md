@@ -70,8 +70,12 @@ Docker build/smoke test.
    worker/pipe/process lifecycle need adversarial review (deadlocks,
    orphaned children, unbounded buffering are the historical bugs here).
 7. **Pinned native dependency.** `pdfium-render` is pinned with `=` and the
-   pdfium binary build is pinned in `scripts/fetch-pdfium.sh` — bump both
-   together, deliberately, with the full suite + corpus spot-checks.
+   pdfium binary build is pinned in `scripts/fetch-pdfium.sh` by version
+   **and** per-asset SHA-256 (a release tag is mutable; the checksum is the
+   pin) — bump both together, deliberately, with the full suite + corpus
+   spot-checks. The `PDFIUM_VERSION` env in `ci.yml`, `release.yml` and
+   `docs.yml` must match the script (CI enforces this). Never fetch pdfium
+   any other way than through that script.
 
 ## Testing philosophy
 

@@ -9,7 +9,7 @@ permissions:
   packages: write
 
 env:
-  # Must match scripts/fetch-pdfium.sh.
+  # Must match scripts/fetch-pdfium.sh (enforced by the script and CI `pins`).
   PDFIUM_VERSION: chromium/7934
 
 jobs:
@@ -44,11 +44,12 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@a45951ff880207c249adf57334cf2e9bd81d6e1e # v2
-      - name: Fetch pdfium
-        run: |
-          mkdir -p .pdfium
-          curl -fL "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION/\//%2F}/${{ matrix.pdfium }}.tgz" \
-            | tar -xz -C .pdfium
+      # The script verifies the archive against its pinned SHA-256 before
+      # extracting; the .sha256 files below are only as good as this step.
+      - name: Fetch + verify pdfium
+        env:
+          PDFIUM_ASSET: ${{ matrix.pdfium }}.tgz
+        run: ./scripts/fetch-pdfium.sh
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p docray-cli -p docray-server
       - name: Smoke test the archive layout
