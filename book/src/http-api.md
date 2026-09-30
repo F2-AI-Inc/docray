@@ -68,8 +68,13 @@ GET  /v1/jobs/{id}/result         → 200 stored JSON, lean, or Markdown bytes
 
 `status` walks `queued → running → succeeded | failed`. The result endpoint
 returns `404` with code `not_ready` until the job succeeds and `not_found`
-for unknown ids. Jobs and results are retained for 24 h (configurable), then
-swept. The requested format, classification option, and page selection are
+for unknown ids. The upload is deleted as soon as extraction finishes. Jobs
+and results are retained for 24 h (configurable), then swept; a job still
+queued or running after that period fails with error code `expired`.
+Submissions are refused with `503 queue_full` while the configured number of
+jobs is pending, and with `507 insufficient_storage` when the data volume is
+below its free-space floor; both are safe to retry later. A job whose result
+cannot be stored for the same reason fails with `insufficient_storage`. The requested format, classification option, and page selection are
 persisted on the job, and the result endpoint uses them to return the
 corresponding JSON, lean, or Markdown content type against the same page
 range that was requested at submit time. Job
@@ -87,13 +92,19 @@ state is instance-local — see
 | 400 | `bad_pages` | `pages` value is unparseable, reversed (start > end), zero, or negative |
 | 400 | `page_out_of_range` | `pages` range extends beyond the document's last page |
 | 400 | `page_selection_unsupported` | `pages` was given for a non-PDF format (PPTX, DOCX, DOCM) |
+| 408 | `upload_timeout` | the upload body was not received within the upload deadline |
 | 413 | `too_large` / `too_many_pages` | over sync caps — use jobs; `too_many_pages` is evaluated against the selected page count when `pages` is set |
 | 415 | `unsupported_format` | not supported PDF/PPTX/DOCX/DOCM, or legacy/encrypted Office |
 | 422 | `encrypted_pdf` / `parse_failure` | unprocessable document |
 | 500 | `crash` | worker died (hostile/malformed input — contained) |
 | 500 | `output_too_large` | extraction JSON exceeded the output cap |
 | 500 | `store_error` / `io_error` | server-side storage trouble |
+| 503 | `queue_full` | too many jobs pending (jobs only); retry later |
 | 504 | `timeout` | extraction exceeded the wall-clock limit |
+| 507 | `insufficient_storage` | data volume below its free-space floor (jobs only); retry later |
+
+Job status `error.code` uses the codes above, plus `expired` for a job that
+did not finish within the retention period.
 
 ## Health
 

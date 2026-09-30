@@ -62,7 +62,8 @@ Docker build/smoke test.
    code strings (`unsupported_format`, `encrypted_pdf`, `parse_failure`,
    `io_error`, `too_many_pages`, `bad_format`, `timeout`, `crash`,
    `output_too_large`, `granularity_unavailable`, `bad_pages`,
-   `page_out_of_range`, `page_selection_unsupported`) are
+   `page_out_of_range`, `page_selection_unsupported`, `queue_full`,
+   `insufficient_storage`, `upload_timeout`, `expired`) are
    parsed by machines. Do not change them; add new ones deliberately.
 6. **Hostile input is the norm.** The server must never parse a PDF
    in-process — extraction happens in the spawned CLI worker under a

@@ -34,6 +34,9 @@ The latest release and `main`. We do not backport fixes to older releases.
 docray ships with no authentication and is intended to run behind your own
 access controls. Do not expose `docray-server` directly to the public
 internet; see the deployment documentation for resource-limit configuration.
+The server enforces aggregate limits (pending jobs, free disk space, upload
+deadline) but not per-client ones: rate-limit callers at your proxy or load
+balancer.
 
 ## No warranty
 

@@ -16,7 +16,10 @@ to keep hostile or pathological documents from taking the service down.
 | `DOCRAY_OUTPUT_CAP_BYTES` | `536870912` (512 MB) | Max JSON a worker may produce |
 | `DOCRAY_MEM_LIMIT_BYTES` | `2147483648` (2 GiB) | Per-worker memory rlimit (enforced on Linux) |
 | `DOCRAY_WORKERS` | CPU cores (min 1) | Job worker pool size; also bounds concurrent sync extractions |
-| `DOCRAY_RESULT_TTL_SECS` | `86400` (24 h) | How long finished jobs and results are kept |
+| `DOCRAY_RESULT_TTL_SECS` | `86400` (24 h) | How long finished jobs and results are kept; jobs still queued or running after this are failed as `expired` |
+| `DOCRAY_MAX_PENDING_JOBS` | `64` (min 1) | Max queued + running jobs plus job uploads in progress; further submissions get `503 queue_full` |
+| `DOCRAY_MIN_FREE_BYTES` | `1073741824` (1 GiB) | Free space the data volume must keep after an upload or result write (`507 insufficient_storage`); `0` disables the check |
+| `DOCRAY_UPLOAD_TIMEOUT_SECS` | `600` (min 1) | Wall-clock deadline for receiving an upload body, sync and jobs (`408 upload_timeout`) |
 | `DOCRAY_TELEMETRY_LOGS` | `off` | `json` emits a bounded extraction-completed event to stdout |
 | `OTEL_METRICS_EXPORTER` | `none` | `otlp` enables OpenTelemetry metrics over OTLP/HTTP protobuf |
 
@@ -68,6 +71,13 @@ modes fail startup so an explicitly requested exporter is never silently
 disabled.
 
 ## Sizing guidance
+
+Job uploads are deleted as soon as extraction finishes; results are kept for
+`DOCRAY_RESULT_TTL_SECS`. Upload disk held by jobs is therefore bounded by
+`DOCRAY_MAX_PENDING_JOBS × DOCRAY_JOBS_MAX_BYTES`, and `DOCRAY_MIN_FREE_BYTES`
+keeps headroom on the volume for results and the SQLite job store. These are
+aggregate limits; per-client rate limiting belongs in the proxy or load
+balancer in front of docray.
 
 Task/container memory should exceed
 `DOCRAY_WORKERS × DOCRAY_MEM_LIMIT_BYTES` **plus headroom** for the server
