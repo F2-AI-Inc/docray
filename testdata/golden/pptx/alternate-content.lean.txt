@@ -1,0 +1,7 @@
+#docray element v1.6 pages=1 warnings=1
+#legend T x0 y0 x1 y1 font size style text | r font size style [href#<uri>] text | TB x0 y0 x1 y1 rows cols | c row col rowspan colspan x0 y0 x1 y1 font size style text | CH x0 y0 x1 y1 type [title] | s series-name | p [category] value | I/P x0 y0 x1 y1 | A x0 y0 x1 y1 subtype uri | pt, top-left origin
+#warning page 1: AlternateContent without a Fallback, content skipped
+#page 1 720x540
+T 72 72 288 144 Fixture_Sans 18 -#112233 Before wrapper
+T 72 180 288 252 Fixture_Sans 18 - Fallback shape
+T 360 72 576 144 Fixture_Sans 18 -#112233 After wrapper
