@@ -15,10 +15,13 @@ docker run -d --rm -p 41619:41619 \
 The image runs as a non-root user with the data directory at `/data`; mount
 a volume there if you want job results to survive restarts.
 
-The runtime stage is [distroless](https://github.com/GoogleContainerTools/distroless)
-(`gcr.io/distroless/cc-debian13`): it contains the two docray binaries, the
-PDFium shared library, glibc/libstdc++, CA certificates and tzdata — no shell,
-package manager, curl, perl or openssl. `docker exec ... sh` does not work in
+The runtime stage is Chainguard's
+[`glibc-dynamic`](https://images.chainguard.dev/directory/image/glibc-dynamic/overview)
+(`cgr.dev/chainguard/glibc-dynamic:latest`, Wolfi-based): it contains the two
+docray binaries, the PDFium shared library, glibc/libgcc/libstdc++ and CA
+certificates — no shell, package manager, curl, zlib, tzdata or openssl.
+Timestamps are UTC; nothing in docray reads the local time zone.
+`docker exec ... sh` does not work in
 this image, and health checks cannot shell out to `curl`. Use the built-in
 probe instead:
 

@@ -10,12 +10,15 @@ RUN cargo build --release -p docray-cli -p docray-server
 RUN mkdir -p /data && chown 10001:10001 /data
 
 # ---- runtime stage ----
-# Distroless: glibc, libgcc/libstdc++, CA certificates and tzdata — nothing
-# else. No shell, package manager, perl, util-linux, zlib, pcre2, openssl or
-# curl: those packages were the source of every CRITICAL/HIGH finding in ECR
-# image scans of the previous debian-slim runtime, and the server needs none of
-# them (TLS is rustls; the health check is `docray-server --healthcheck`).
-FROM gcr.io/distroless/cc-debian13
+# Chainguard glibc-dynamic (Wolfi): glibc, libgcc/libstdc++ and CA
+# certificates — nothing else. No shell, package manager, zlib, libgomp,
+# openssl or curl. The binaries and libpdfium.so need only libc, libm,
+# libpthread and libgcc_s (TLS is rustls, SQLite is bundled, the health check
+# is `docray-server --healthcheck`). Debian-based runtimes, including
+# distroless cc-debian13, carry glibc/gcc/zlib findings with no Debian fix
+# available; Wolfi ships those fixes as rebuilt packages, so the tag is left
+# floating to pick them up on every build.
+FROM cgr.dev/chainguard/glibc-dynamic:latest
 COPY --from=build /src/target/release/docray /usr/local/bin/docray
 COPY --from=build /src/target/release/docray-server /usr/local/bin/docray-server
 COPY --from=build /src/.pdfium/lib /opt/pdfium
