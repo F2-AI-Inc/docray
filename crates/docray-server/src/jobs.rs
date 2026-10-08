@@ -206,20 +206,119 @@ impl JobStore {
         )
     }
 
-    pub fn mark_succeeded(&self, id: &str, result_path: &str) -> Result<(), rusqlite::Error> {
-        self.conn().execute(
-            "UPDATE jobs SET status='succeeded', result_path=?2, updated_at=?3 WHERE id=?1",
-            rusqlite::params![id, result_path, now()],
-        )?;
-        Ok(())
+    /// Queued plus running jobs: each one holds an upload on disk.
+    pub fn count_pending(&self) -> Result<usize, rusqlite::Error> {
+        self.conn().query_row(
+            "SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')",
+            [],
+            |row| row.get(0),
+        )
     }
 
-    pub fn mark_failed(&self, id: &str, code: &str, message: &str) -> Result<(), rusqlite::Error> {
-        self.conn().execute(
-            "UPDATE jobs SET status='failed', error_code=?2, error_message=?3, updated_at=?4 WHERE id=?1",
+    /// Records success for a running job. `Ok(false)` means the job is no
+    /// longer running (expired by the sweeper meanwhile), so nothing now
+    /// references `result_path` and the caller must delete it.
+    pub fn mark_succeeded(&self, id: &str, result_path: &str) -> Result<bool, rusqlite::Error> {
+        let updated = self.conn().execute(
+            "UPDATE jobs SET status='succeeded', result_path=?2, updated_at=?3 WHERE id=?1 AND status='running'",
+            rusqlite::params![id, result_path, now()],
+        )?;
+        Ok(updated == 1)
+    }
+
+    /// Records failure for a running job; `Ok(false)` if it is no longer
+    /// running, in which case its existing terminal state is kept.
+    pub fn mark_failed(
+        &self,
+        id: &str,
+        code: &str,
+        message: &str,
+    ) -> Result<bool, rusqlite::Error> {
+        let updated = self.conn().execute(
+            "UPDATE jobs SET status='failed', error_code=?2, error_message=?3, updated_at=?4 WHERE id=?1 AND status='running'",
             rusqlite::params![id, code, message, now()],
         )?;
-        Ok(())
+        Ok(updated == 1)
+    }
+
+    /// Fails jobs stuck non-terminal past the TTL (`expired`) and deletes
+    /// their uploads, so a wedged queue or a stranded `running` row cannot pin
+    /// its input forever. Running jobs are only considered stale after
+    /// `min_running_secs` as well, which callers set beyond the extraction
+    /// timeout so a live extraction is never expired. The rows themselves are
+    /// removed by `sweep_expired` one TTL later, so clients can still read the
+    /// `expired` outcome. Returns jobs expired.
+    pub fn expire_stale(
+        &self,
+        ttl_secs: u64,
+        min_running_secs: u64,
+    ) -> Result<usize, rusqlite::Error> {
+        let t = now();
+        let queued_cutoff = t - ttl_secs as i64;
+        let running_cutoff = t - ttl_secs.max(min_running_secs) as i64;
+        let inputs: Vec<String> = {
+            let conn = self.conn();
+            let mut stmt = conn.prepare(
+                "UPDATE jobs SET status='failed', error_code='expired', error_message=?3, updated_at=?4
+                 WHERE (status='queued' AND updated_at < ?1) OR (status='running' AND updated_at < ?2)
+                 RETURNING input_path",
+            )?;
+            let rows = stmt.query_map(
+                rusqlite::params![
+                    queued_cutoff,
+                    running_cutoff,
+                    "job did not finish within the retention period",
+                    t
+                ],
+                |row| row.get(0),
+            )?;
+            rows.collect::<Result<_, _>>()?
+        };
+        // Lock released. A file that cannot be removed now is retried by
+        // `sweep_expired` when the (now terminal) row itself expires.
+        for input in &inputs {
+            remove_ok(input);
+        }
+        Ok(inputs.len())
+    }
+
+    /// Deletes files in `uploads_dir` older than `min_age_secs` that no job
+    /// row references. A server killed mid-upload leaves such files behind,
+    /// and no row would ever sweep them. Uploads still being received have no
+    /// row yet, so callers set `min_age_secs` beyond the upload deadline.
+    pub fn sweep_orphan_uploads(
+        &self,
+        uploads_dir: &Path,
+        min_age_secs: u64,
+    ) -> std::io::Result<usize> {
+        let cutoff = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(min_age_secs))
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let mut removed = 0;
+        for entry in std::fs::read_dir(uploads_dir)? {
+            let entry = entry?;
+            let meta = entry.metadata()?;
+            if !meta.is_file() || meta.modified()? >= cutoff {
+                continue;
+            }
+            let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let referenced = self
+                .conn()
+                .query_row(
+                    "SELECT 1 FROM jobs WHERE id=?1",
+                    rusqlite::params![id],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(std::io::Error::other)?
+                .is_some();
+            if !referenced && remove_ok(entry.path().to_str().unwrap_or_default()) {
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 
     /// `Ok(None)` means no such job; `Err` means the store failed. Kept distinct
@@ -285,7 +384,7 @@ impl JobStore {
 }
 
 /// Remove a file, treating an already-absent file as success.
-fn remove_ok(path: &str) -> bool {
+pub fn remove_ok(path: &str) -> bool {
     match std::fs::remove_file(path) {
         Ok(()) => true,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
@@ -315,7 +414,8 @@ mod tests {
                 None,
             )
             .unwrap();
-        store.mark_failed("old", "crash", "boom").unwrap();
+        assert_eq!(store.claim_next().unwrap().unwrap().id, "old");
+        assert!(store.mark_failed("old", "crash", "boom").unwrap());
         store
             .create(
                 "fresh",
@@ -340,6 +440,113 @@ mod tests {
         assert_eq!(swept, 1);
         assert!(store.get("old").unwrap().is_none());
         assert!(store.get("fresh").unwrap().is_some()); // queued jobs never swept
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn backdate(store: &JobStore, id: &str, secs: i64) {
+        store
+            .conn()
+            .execute(
+                "UPDATE jobs SET updated_at = updated_at - ?2 WHERE id=?1",
+                rusqlite::params![id, secs],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn expire_stale_fails_stuck_jobs_and_deletes_their_uploads() {
+        let dir = std::env::temp_dir().join(format!("docray-expire-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = JobStore::new(&dir.join("t.sqlite"));
+        let input = |id: &str| {
+            let path = dir.join(id);
+            std::fs::write(&path, b"x").unwrap();
+            path.to_str().unwrap().to_string()
+        };
+        // Claimed in creation order: live-running, stuck-running, slow-running.
+        for id in ["live-running", "stuck-running", "slow-running"] {
+            store
+                .create(id, &input(id), None, OutputFormat::Json, false, None)
+                .unwrap();
+            assert_eq!(store.claim_next().unwrap().unwrap().id, id);
+        }
+        for id in ["stuck-queued", "fresh-queued"] {
+            store
+                .create(id, &input(id), None, OutputFormat::Json, false, None)
+                .unwrap();
+        }
+        // TTL 100s, running grace 1000s.
+        backdate(&store, "stuck-queued", 200);
+        backdate(&store, "stuck-running", 2000);
+        // Past the TTL but inside the running grace: may still be extracting.
+        backdate(&store, "slow-running", 200);
+
+        assert_eq!(store.expire_stale(100, 1000).unwrap(), 2);
+        for id in ["stuck-queued", "stuck-running"] {
+            let job = store.get(id).unwrap().unwrap();
+            assert_eq!(job.status, "failed", "{id}");
+            assert_eq!(job.error_code.as_deref(), Some("expired"), "{id}");
+            assert!(!dir.join(id).exists(), "{id} upload must be deleted");
+        }
+        assert_eq!(
+            store.get("live-running").unwrap().unwrap().status,
+            "running"
+        );
+        assert_eq!(
+            store.get("slow-running").unwrap().unwrap().status,
+            "running"
+        );
+        assert_eq!(store.get("fresh-queued").unwrap().unwrap().status, "queued");
+        for id in ["live-running", "slow-running", "fresh-queued"] {
+            assert!(dir.join(id).exists(), "{id} upload must be kept");
+        }
+        assert_eq!(store.count_pending().unwrap(), 3);
+
+        // A worker finishing an expired job must not resurrect it; the caller
+        // is told so it can delete the orphaned result.
+        assert!(!store
+            .mark_succeeded("stuck-running", "result.json")
+            .unwrap());
+        assert!(!store.mark_failed("stuck-running", "crash", "late").unwrap());
+        let job = store.get("stuck-running").unwrap().unwrap();
+        assert_eq!(job.error_code.as_deref(), Some("expired"));
+        assert_eq!(job.result_path, None);
+        assert!(store.mark_succeeded("live-running", "result.json").unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn orphan_upload_sweep_removes_only_old_unreferenced_files() {
+        let dir = std::env::temp_dir().join(format!("docray-orphan-test-{}", std::process::id()));
+        let uploads = dir.join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let store = JobStore::new(&dir.join("t.sqlite"));
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(2000);
+        for name in ["referenced", "orphan", "in-progress"] {
+            let file = std::fs::File::create(uploads.join(name)).unwrap();
+            if name != "in-progress" {
+                file.set_modified(old).unwrap();
+            }
+        }
+        let referenced = uploads.join("referenced");
+        store
+            .create(
+                "referenced",
+                referenced.to_str().unwrap(),
+                None,
+                OutputFormat::Json,
+                false,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(store.sweep_orphan_uploads(&uploads, 1000).unwrap(), 1);
+        assert!(!uploads.join("orphan").exists());
+        assert!(referenced.exists(), "a job still references it");
+        assert!(
+            uploads.join("in-progress").exists(),
+            "recent file may be an upload that has no row yet"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
