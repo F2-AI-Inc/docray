@@ -19,10 +19,7 @@ From the repo root (works on any host with Docker):
 docker run --rm -v "$PWD":/w -w /w rust:1.88-slim bash -c '
 set -e
 apt-get update -qq >/dev/null && apt-get install -y -qq curl ca-certificates >/dev/null
-mkdir -p /tmp/pdfium
-case $(uname -m) in x86_64) A=linux-x64;; aarch64) A=linux-arm64;; esac
-V=$(grep -o "chromium/[0-9]*" scripts/fetch-pdfium.sh | head -1 | sed 's|/|%2F|')
-curl -fsL https://github.com/bblanchon/pdfium-binaries/releases/download/$V/pdfium-$A.tgz | tar -xz -C /tmp/pdfium
+PDFIUM_DIR=/tmp/pdfium ./scripts/fetch-pdfium.sh   # checksum-verified; keeps host .pdfium untouched
 export DOCRAY_PDFIUM_DIR=/tmp/pdfium/lib CARGO_TARGET_DIR=/tmp/target
 UPDATE_GOLDEN=1 cargo test -p docray-pdf --test golden 2>&1 | tail -3
 '

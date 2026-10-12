@@ -3,13 +3,18 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ["book/**", "web/**", "crates/docray-wasm/**", "crates/docray-server/assets/**", "scripts/build-wasm.sh", "scripts/build-try.sh", ".github/workflows/docs.yml"]
+    paths: ["book/**", "web/**", "crates/docray-wasm/**", "crates/docray-server/assets/**", "scripts/build-wasm.sh", "scripts/build-try.sh", "scripts/fetch-pdfium.sh", ".github/workflows/docs.yml"]
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
+
+env:
+  # Must match scripts/fetch-pdfium.sh (enforced by the script and CI `pins`);
+  # keyed into the cache below.
+  PDFIUM_VERSION: chromium/7934
 
 concurrency:
   group: pages
@@ -50,10 +55,10 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .pdfium
-          key: pdfium-${{ runner.os }}-docs-parity
+          key: pdfium-v2-${{ runner.os }}-${{ env.PDFIUM_VERSION }}
       - name: Runtime-gate the optimized module (never deploy broken wasm)
         run: |
-          test -d .pdfium/lib || ./scripts/fetch-pdfium.sh
+          ./scripts/fetch-pdfium.sh
           cargo build --release -p docray-cli
           ./scripts/build-wasm.sh --target nodejs
           node scripts/wasm-parity.cjs web/wasm-nodejs target/release/docray

@@ -45,7 +45,8 @@ library is bundled; `bin/docray` works out of the box.
   ./scripts/fetch-pdfium.sh
   ```
 
-  This downloads a pinned `bblanchon/pdfium-binaries` release into
+  This downloads a pinned `bblanchon/pdfium-binaries` release, verifies it
+  against a per-platform SHA-256 pinned in the script, and extracts it into
   `.pdfium/lib`. `docray-pdf` looks for the library in this order: the
   `DOCRAY_PDFIUM_DIR` env var, then `./.pdfium/lib` (relative to the process's
   current directory), then the system library. The integration tests under
