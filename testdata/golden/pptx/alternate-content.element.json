@@ -1,0 +1,124 @@
+{
+  "granularity": "element",
+  "schema_version": "1.6",
+  "source": {
+    "format": "pptx",
+    "sha256": "b6e5d21dc9b7b89d27c9bb550af0149e3df4e34faf8b4775d1827a202d500c0f",
+    "size_bytes": 9483
+  },
+  "document": {
+    "page_count": 1,
+    "metadata": {}
+  },
+  "warnings": [
+    "page 1: AlternateContent without a Fallback, content skipped"
+  ],
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 720.0,
+      "height": 540.0,
+      "rotation": 0,
+      "scanned": false,
+      "elements": [
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            72.0,
+            288.0,
+            144.0
+          ],
+          "text": "Before wrapper",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          },
+          "color": {
+            "fill": [
+              17,
+              34,
+              51
+            ]
+          },
+          "runs": [
+            {
+              "content": "Before wrapper",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 18.0
+              },
+              "color": {
+                "fill": [
+                  17,
+                  34,
+                  51
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "bbox": [
+            72.0,
+            180.0,
+            288.0,
+            252.0
+          ],
+          "text": "Fallback shape",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          },
+          "runs": [
+            {
+              "content": "Fallback shape",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 18.0
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "bbox": [
+            360.0,
+            72.0,
+            576.0,
+            144.0
+          ],
+          "text": "After wrapper",
+          "font": {
+            "name": "Fixture Sans",
+            "size": 18.0
+          },
+          "color": {
+            "fill": [
+              17,
+              34,
+              51
+            ]
+          },
+          "runs": [
+            {
+              "content": "After wrapper",
+              "font": {
+                "name": "Fixture Sans",
+                "size": 18.0
+              },
+              "color": {
+                "fill": [
+                  17,
+                  34,
+                  51
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
