@@ -3,11 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="web"
-PDFIUM_RELEASE="7902"
-PDFIUM_SHA256="153871da7e958a9440c84648eb45ddd9ad603efda9fcd8f021766dba5a9157a2"
-PDFIUM_URL="https://github.com/paulocoutinhox/pdfium-lib/releases/download/${PDFIUM_RELEASE}/wasm.tgz"
+# Same PDFium build as the native pin in scripts/fetch-pdfium.sh.
+PDFIUM_VERSION="chromium/8100"
+PDFIUM_BUILD="${PDFIUM_VERSION#chromium/}"
+PDFIUM_SHA256="0d68fef9aca2c69f20717c697f90f4fcb7d66a7a30307ad527769d18707394c8"
+PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION}/pdfium-wasm.tgz"
 CACHE_DIR="${ROOT}/.pdfium-wasm"
-ARCHIVE="${CACHE_DIR}/wasm-${PDFIUM_RELEASE}.tgz"
+ARCHIVE="${CACHE_DIR}/pdfium-wasm-${PDFIUM_BUILD}.tgz"
 EXTRACT_DIR="" # per-target, computed after arg parsing (parallel-build safe)
 OUT_DIR="" # computed after arg parsing: web and nodejs artifacts are
            # different module formats and must never overwrite each other
@@ -51,7 +53,7 @@ mkdir -p "$CACHE_DIR"
 if [[ ! -f "$ARCHIVE" ]]; then
   temp_archive="${ARCHIVE}.download"
   trap 'rm -f "$temp_archive"' EXIT
-  echo "downloading Pdfium WASM release ${PDFIUM_RELEASE}" >&2
+  echo "downloading Pdfium WASM ${PDFIUM_VERSION}" >&2
   curl -fL "$PDFIUM_URL" -o "$temp_archive"
   mv "$temp_archive" "$ARCHIVE"
   trap - EXIT
@@ -65,7 +67,7 @@ if [[ "$actual_sha256" != "$PDFIUM_SHA256" ]]; then
   exit 1
 fi
 
-EXTRACT_DIR="${CACHE_DIR}/${PDFIUM_RELEASE}-${TARGET}"
+EXTRACT_DIR="${CACHE_DIR}/${PDFIUM_BUILD}-${TARGET}"
 rm -rf "$EXTRACT_DIR"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
@@ -91,7 +93,34 @@ fi
 # Pdfium's JS and WASM files are one pinned runtime artifact. Keep them beside
 # the generated package so both browser workers and the Node parity gate load
 # the exact pair verified above.
-cp "${EXTRACT_DIR}/release/node/pdfium.js" "${OUT_DIR}/pdfium.js"
-cp "${EXTRACT_DIR}/release/node/pdfium.wasm" "${OUT_DIR}/pdfium.wasm"
+#
+# The upstream pdfium.js is not modularized: it starts running against a global
+# `Module` as soon as it is evaluated. Both loaders (web/worker.js through
+# importScripts, scripts/wasm-parity.cjs through require) call a
+# `PDFiumModule(moduleArg) => Promise<Module>` factory instead, so the script is
+# wrapped in one here. Inside the factory its top-level variables are function
+# scoped; pdfium-render finds the WASM function table through
+# `Module.wasmExports`, which is published once the runtime is initialized.
+# pdfium-render initializes the library through `PDFium_Init`, a pdfium-lib
+# export that calls FPDF_InitLibraryWithConfig with an all-default config; this
+# build has no such export, so it is aliased to FPDF_InitLibrary, which does the
+# same.
+{
+  printf '%s\n' "// PDFium ${PDFIUM_VERSION} (bblanchon/pdfium-binaries pdfium-wasm.tgz, sha256 ${PDFIUM_SHA256})."
+  printf '%s\n' "// Wrapped as a PDFiumModule factory by scripts/build-wasm.sh."
+  printf '%s\n' 'var PDFiumModule = (moduleArg = {}) => new Promise((resolve, reject) => {'
+  printf '%s\n' '  var Module = Object.assign({}, moduleArg, {'
+  printf '%s\n' '    onRuntimeInitialized: () => {'
+  printf '%s\n' '      Module.wasmExports = wasmExports;'
+  printf '%s\n' '      Module._PDFium_Init = Module._FPDF_InitLibrary;'
+  printf '%s\n' '      resolve(Module);'
+  printf '%s\n' '    },'
+  printf '%s\n' '    onAbort: reject,'
+  printf '%s\n' '  });'
+  cat "${EXTRACT_DIR}/lib/pdfium.js"
+  printf '\n%s\n' '});'
+  printf '%s\n' 'if (typeof module === "object" && module.exports) module.exports = PDFiumModule;'
+} > "${OUT_DIR}/pdfium.js"
+cp "${EXTRACT_DIR}/lib/pdfium.wasm" "${OUT_DIR}/pdfium.wasm"
 
 echo "built docray-wasm target=${TARGET} in ${OUT_DIR}" >&2
