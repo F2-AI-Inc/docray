@@ -4,7 +4,7 @@
 // by the CLI-subprocess isolation layer — the server spawns a fresh `docray-cli`
 // per document, so a worker abort surfaces as a 'crash' error by architecture
 // rather than taking down the service.
-use crate::{bind::pdfium, coords::PageSpace};
+use crate::{bind::pdfium, coords::PageSpace, jpx};
 use docray_core::{
     sniff_format, Capabilities, ExtractError, Extractor, Format, GeometryKind, PageSelection,
 };
@@ -656,25 +656,41 @@ fn image_element(
         _ => object_bbox_or_warn(object, ancestor, space, &id, warnings),
     };
     let quad = image_quad(matrix, &bbox, space, &id, warnings);
+    let raw = img.get_raw_image_data().ok().filter(|d| !d.is_empty());
+
+    // `width()`/`height()`/`color_space()` read pdfium's image metadata (the raw
+    // `FPDF_IMAGEOBJ_METADATA` accessor is `pub(crate)`), which loads the image.
+    // For JPEG 2000 that decodes the whole codestream, and pdfium aborts the
+    // process on some malformed ones (e.g. a colorspace with more components
+    // than the codestream), so JPX pixel size comes from the codestream header
+    // and its colorspace is not reported.
+    let (pixel_width, pixel_height, colorspace) = if is_jpx(img) {
+        let size = raw.as_deref().and_then(jpx::pixel_size);
+        (size.map(|s| s.0), size.map(|s| s.1), None)
+    } else {
+        (
+            img.width().ok().map(|w| w as u32),
+            img.height().ok().map(|h| h as u32),
+            img.color_space()
+                .ok()
+                .map(|cs| colorspace_name(cs as i32).to_string()),
+        )
+    };
 
     ImageElement {
         id,
         bbox,
         quad,
-        // `width()`/`height()` return the pixel dimensions from pdfium's image
-        // metadata (the raw `FPDF_IMAGEOBJ_METADATA` accessor is `pub(crate)`).
-        pixel_width: img.width().ok().map(|w| w as u32),
-        pixel_height: img.height().ok().map(|h| h as u32),
-        colorspace: img
-            .color_space()
-            .ok()
-            .map(|cs| colorspace_name(cs as i32).to_string()),
-        content_hash: img
-            .get_raw_image_data()
-            .ok()
-            .filter(|d| !d.is_empty())
-            .map(|d| hex(&Sha256::digest(&d))),
+        pixel_width,
+        pixel_height,
+        colorspace,
+        content_hash: raw.map(|d| hex(&Sha256::digest(&d))),
     }
+}
+
+fn is_jpx(img: &PdfPageImageObject) -> bool {
+    let filters = img.filters();
+    (0..filters.len()).any(|i| filters.get(i).is_ok_and(|f| f.name() == "JPXDecode"))
 }
 
 /// Image placement quad in top-left space. The entire quad policy lives here so

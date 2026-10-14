@@ -254,7 +254,8 @@ OOXML `formatCode`, so a stored `0.41` displayed as `0%` is returned as
 Bounding box plus a `quad` (four corner points — meaningful when the image is
 placed with rotation or skew), pixel dimensions, colorspace, and a
 `content_hash` (sha256 of the raw image data) for deduplication. Pixel data
-itself is never embedded.
+itself is never embedded. JPEG 2000 (`JPXDecode`) images are not decoded: their
+pixel dimensions come from the codestream header and `colorspace` is `null`.
 
 ### path
 
