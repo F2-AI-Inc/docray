@@ -105,7 +105,7 @@ impl Extractor for PdfExtractor {
         if page_count > 0 {
             for idx in first_idx..=last_idx {
                 let page_number = idx + 1;
-                match doc.pages().get(idx as u16) {
+                match doc.pages().get(idx as PdfPageIndex) {
                     Ok(page) => match extract_page(&page, page_number, &mut warnings) {
                         Ok(p) => out_pages.push(p),
                         Err(e) => {
@@ -240,7 +240,7 @@ fn extract_page(
 
     // Index-based object access rather than `objects().iter()`: a fused iterator
     // would silently drop the remainder of a page's objects if one failed to
-    // load. `get`/`len` come from `PdfPageObjectsCommon` in pdfium-render 0.8.37.
+    // load. `get`/`len` come from `PdfPageObjectsCommon` in pdfium-render 0.9.4.
     let objects = page.objects();
     let object_count = objects.len();
     for i in 0..object_count {
@@ -381,7 +381,7 @@ fn extract_object(
         };
 
         // `len()` is backed by FPDFFormObj_CountObjects(), whose error sentinel
-        // -1 is cast to usize by pdfium-render 0.8.37. Detect it explicitly so
+        // -1 is cast to usize by pdfium-render 0.9.4. Detect it explicitly so
         // malformed forms cannot turn an error into an effectively infinite loop.
         let child_count = form.len();
         if child_count == usize::MAX {
@@ -494,7 +494,7 @@ fn text_element(
 
     // Fill / stroke colour come from the text object itself: `PdfPageTextObject`
     // implements `PdfPageObjectCommon` (blanket impl over `PdfPageObjectPrivate`
-    // in pdfium-render 0.8.37), which exposes object-level `fill_color()` /
+    // in pdfium-render 0.9.4), which exposes object-level `fill_color()` /
     // `stroke_color()` backed by `FPDFPageObj_GetFillColor`.
     let fill = obj
         .fill_color()
@@ -533,7 +533,7 @@ fn text_element(
 
 /// Object bounding box in top-left space.
 ///
-/// `bounds()` returns a `PdfQuadPoints` in pdfium-render 0.8.37 (not a rect); its
+/// `bounds()` returns a `PdfQuadPoints` in pdfium-render 0.9.4 (not a rect); its
 /// `left()/bottom()/right()/top()` accessors give the axis-aligned extremes we
 /// need. Failure yields `None` so callers can fall back to a zero box rather than
 /// panic.
@@ -794,7 +794,7 @@ fn annotation_element(
     );
     let subtype = format!("{:?}", annotation.annotation_type()).to_lowercase();
     // Link URI chain: annotation -> link -> action -> URI action -> uri string.
-    // `PdfLink::action()` returns an `Option` (not a `Result`) in 0.8.37.
+    // `PdfLink::action()` returns an `Option` (not a `Result`) in 0.9.4.
     let uri = annotation.as_link_annotation().and_then(|link| {
         link.link()
             .ok()

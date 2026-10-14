@@ -4,7 +4,7 @@ use docray_model::{round3, BBox};
 /// promises ("coordinates ... after page rotation is applied", per the design
 /// spec).
 ///
-/// Empirically (pdfium-render 0.8.37): for a page carrying a `/Rotate` entry,
+/// Empirically (pdfium-render 0.9.4): for a page carrying a `/Rotate` entry,
 /// pdfium reports object/char geometry (`bounds`, `loose_bounds`, `origin_*`) in
 /// the *unrotated* PDF coordinate space — y-up, bottom-left origin, within the
 /// unrotated media box — exactly as if there were no rotation. It reports
