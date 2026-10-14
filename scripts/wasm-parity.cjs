@@ -40,6 +40,7 @@ const fixtures = [
   { file: "key-value-form.pdf", granularity: "" },
   { file: "three-column-prose.pdf", granularity: "" },
   { file: "owner-password-jpeg.pdf", granularity: "" },
+  { file: "malformed/jpx-component-mismatch.pdf", granularity: "" },
   { file: "simple.pdf", granularity: "", classify: true },
   { file: "scan.pdf", granularity: "", classify: true },
   { file: "image.pdf", granularity: "", classify: true },
