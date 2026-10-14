@@ -1,7 +1,10 @@
 //! Generates the committed test corpus. Run once and commit the outputs:
 //! cargo run -p docray-pdf --example gen_fixtures
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Dictionary, Document, Object, Stream, StringFormat};
+use lopdf::{
+    dictionary, Dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions,
+    Stream, StringFormat,
+};
 use std::fs;
 
 fn base_doc(content_ops: Vec<Operation>, extra_page_entries: Vec<(&str, Object)>) -> Document {
@@ -552,6 +555,11 @@ fn gray_image() -> Stream {
 }
 
 fn image() -> Document {
+    // 2x2 8-bit grayscale raw image.
+    image_page(gray_image())
+}
+
+fn image_page(image: Stream) -> Document {
     let mut doc = base_doc(
         vec![
             op("q", vec![]),
@@ -572,14 +580,74 @@ fn image() -> Document {
         ],
         vec![],
     );
-    // 2x2 8-bit grayscale raw image.
-    let img_id = doc.add_object(gray_image());
+    let img_id = doc.add_object(image);
     // Attach XObject to the page's resources.
     let page_id = doc.page_iter().next().unwrap();
     let resources_id = doc.get_page_resources(page_id).unwrap().1[0];
     if let Ok(Object::Dictionary(res)) = doc.get_object_mut(resources_id) {
         res.set("XObject", dictionary! { "Im1" => img_id });
     }
+    doc
+}
+
+/// A 1x1 8-bit grayscale baseline JPEG: an all-ones quantization table and a
+/// single one-bit Huffman code per table (DC difference 0, AC end-of-block).
+fn gray_jpeg() -> Vec<u8> {
+    let mut jpeg = vec![0xFF, 0xD8];
+    jpeg.extend([0xFF, 0xDB, 0x00, 0x43, 0x00]);
+    jpeg.extend([1u8; 64]);
+    jpeg.extend([
+        0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+    ]);
+    for table_class in [0x00, 0x10] {
+        jpeg.extend([0xFF, 0xC4, 0x00, 0x14, table_class, 0x01]);
+        jpeg.extend([0u8; 15]);
+        jpeg.push(0x00);
+    }
+    jpeg.extend([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00]);
+    // Two zero bits (the DC and EOB codes), padded with ones.
+    jpeg.push(0b0011_1111);
+    jpeg.extend([0xFF, 0xD9]);
+    jpeg
+}
+
+/// Owner-password-only encryption (RC4-128, empty user password): it opens
+/// without a password, and PDFium holds each decrypted stream in memory. The
+/// page draws one JPEG whose stream ends with a newline after the EOI marker.
+fn owner_password_jpeg() -> Document {
+    let mut jpeg = gray_jpeg();
+    jpeg.push(b'\n');
+    let mut doc = image_page(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image",
+            "Width" => 1, "Height" => 1,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+            "Filter" => "DCTDecode",
+        },
+        jpeg,
+    ));
+    let file_id = Object::String(b"docray-fixture-1".to_vec(), StringFormat::Hexadecimal);
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+    let state = EncryptionState::try_from(EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "owner",
+        user_password: "",
+        key_length: 128,
+        permissions: Permissions::all(),
+    })
+    .unwrap();
+    doc.encrypt(&state).unwrap();
+    // Revision 3 only checks the first 16 bytes of /U; lopdf fills the other 16
+    // with random padding, which would make the fixture non-deterministic.
+    let encrypt_id = doc.trailer.get(b"Encrypt").unwrap().as_reference().unwrap();
+    let encrypt = doc
+        .get_object_mut(encrypt_id)
+        .unwrap()
+        .as_dict_mut()
+        .unwrap();
+    let mut user = encrypt.get(b"U").unwrap().as_str().unwrap().to_vec();
+    user[16..].fill(0);
+    encrypt.set("U", Object::String(user, StringFormat::Hexadecimal));
     doc
 }
 
@@ -1112,6 +1180,9 @@ fn main() {
     cjk().save("testdata/cjk.pdf").unwrap();
     rotated().save("testdata/rotated.pdf").unwrap();
     image().save("testdata/image.pdf").unwrap();
+    owner_password_jpeg()
+        .save("testdata/owner-password-jpeg.pdf")
+        .unwrap();
     scan().save("testdata/scan.pdf").unwrap();
     mixed().save("testdata/mixed.pdf").unwrap();
     link().save("testdata/link.pdf").unwrap();
