@@ -35,6 +35,15 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: PDFium pins agree
+        run: |
+          native=$(sed -n 's/^VERSION="${PDFIUM_VERSION:-\(chromium\/[0-9]*\)}"$/\1/p' scripts/fetch-pdfium.sh)
+          release=$(sed -n 's/^  PDFIUM_VERSION: //p' .github/workflows/release.yml)
+          wasm=$(sed -n 's/^PDFIUM_VERSION="\(.*\)"$/\1/p' scripts/build-wasm.sh)
+          echo "fetch-pdfium.sh=$native ci.yml=$PDFIUM_VERSION release.yml=$release build-wasm.sh=$wasm"
+          test -n "$native" && test "$PDFIUM_VERSION" = "$native" && test "$release" = "$native" && test "$wasm" = "$native" \
+            || { echo "::error::PDFium pins disagree"; exit 1; }
+
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
 
