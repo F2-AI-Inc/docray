@@ -71,7 +71,10 @@ Docker build/smoke test.
    orphaned children, unbounded buffering are the historical bugs here).
 7. **Pinned native dependency.** `pdfium-render` is pinned with `=` and the
    pdfium binary build is pinned in `scripts/fetch-pdfium.sh` — bump both
-   together, deliberately, with the full suite + corpus spot-checks.
+   together, deliberately, with the full suite + corpus spot-checks. The same
+   build is pinned as `PDFIUM_VERSION` in `ci.yml` and `release.yml` and, with
+   its WASM archive SHA-256, in `scripts/build-wasm.sh`; CI fails if they
+   disagree.
 
 ## Testing philosophy
 

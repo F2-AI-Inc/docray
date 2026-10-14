@@ -1,6 +1,7 @@
 use docray_core::Extractor;
 use docray_model::Element;
 use docray_pdf::PdfExtractor;
+use sha2::{Digest, Sha256};
 
 /// cargo runs test binaries with CWD = crate dir, so bind()'s relative
 /// `./.pdfium/lib` candidate never resolves against the workspace-root lib.
@@ -58,6 +59,46 @@ fn extracts_image_with_quad_and_metadata() {
     assert_eq!(img.quad[1], [img.bbox.x1, img.bbox.y0]);
     assert_eq!(img.quad[2], [img.bbox.x1, img.bbox.y1]);
     assert_eq!(img.quad[3], [img.bbox.x0, img.bbox.y1]);
+}
+
+/// `content_hash` must hash the image stream bytes stored in the file. In an
+/// encrypted document PDFium decodes the JPEG from the same in-memory
+/// decrypted buffer the raw bytes are later read from, so a decoder that
+/// patches its input in place leaks into the hash.
+#[test]
+fn encrypted_jpeg_content_hash_is_stored_stream_bytes() {
+    let path = format!(
+        "{}/../../testdata/owner-password-jpeg.pdf",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = lopdf::Document::load_mem(&std::fs::read(path).unwrap()).unwrap();
+    assert!(source.was_encrypted());
+    let stream = source
+        .objects
+        .values()
+        .find_map(|object| match object {
+            lopdf::Object::Stream(s) if s.dict.has_type(b"XObject") => Some(s),
+            _ => None,
+        })
+        .expect("fixture has an image stream");
+    assert!(stream.content.starts_with(&[0xFF, 0xD8]));
+    assert!(!stream.content.ends_with(&[0xFF, 0xD9]));
+    let expected: String = Sha256::digest(&stream.content)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+
+    let out = extract("owner-password-jpeg.pdf");
+    let img = out.pages[0]
+        .elements
+        .iter()
+        .find_map(|e| match e {
+            Element::Image(i) => Some(i),
+            _ => None,
+        })
+        .expect("no image element found");
+    assert_eq!(img.colorspace.as_deref(), Some("DeviceGray"));
+    assert_eq!(img.content_hash.as_deref(), Some(expected.as_str()));
 }
 
 #[test]

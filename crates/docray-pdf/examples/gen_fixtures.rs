@@ -1,7 +1,10 @@
 //! Generates the committed test corpus. Run once and commit the outputs:
 //! cargo run -p docray-pdf --example gen_fixtures
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Dictionary, Document, Object, Stream, StringFormat};
+use lopdf::{
+    dictionary, Dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions,
+    Stream, StringFormat,
+};
 use std::fs;
 
 fn base_doc(content_ops: Vec<Operation>, extra_page_entries: Vec<(&str, Object)>) -> Document {
@@ -552,6 +555,11 @@ fn gray_image() -> Stream {
 }
 
 fn image() -> Document {
+    // 2x2 8-bit grayscale raw image.
+    image_page(gray_image())
+}
+
+fn image_page(image: Stream) -> Document {
     let mut doc = base_doc(
         vec![
             op("q", vec![]),
@@ -572,14 +580,74 @@ fn image() -> Document {
         ],
         vec![],
     );
-    // 2x2 8-bit grayscale raw image.
-    let img_id = doc.add_object(gray_image());
+    let img_id = doc.add_object(image);
     // Attach XObject to the page's resources.
     let page_id = doc.page_iter().next().unwrap();
     let resources_id = doc.get_page_resources(page_id).unwrap().1[0];
     if let Ok(Object::Dictionary(res)) = doc.get_object_mut(resources_id) {
         res.set("XObject", dictionary! { "Im1" => img_id });
     }
+    doc
+}
+
+/// A 1x1 8-bit grayscale baseline JPEG: an all-ones quantization table and a
+/// single one-bit Huffman code per table (DC difference 0, AC end-of-block).
+fn gray_jpeg() -> Vec<u8> {
+    let mut jpeg = vec![0xFF, 0xD8];
+    jpeg.extend([0xFF, 0xDB, 0x00, 0x43, 0x00]);
+    jpeg.extend([1u8; 64]);
+    jpeg.extend([
+        0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+    ]);
+    for table_class in [0x00, 0x10] {
+        jpeg.extend([0xFF, 0xC4, 0x00, 0x14, table_class, 0x01]);
+        jpeg.extend([0u8; 15]);
+        jpeg.push(0x00);
+    }
+    jpeg.extend([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00]);
+    // Two zero bits (the DC and EOB codes), padded with ones.
+    jpeg.push(0b0011_1111);
+    jpeg.extend([0xFF, 0xD9]);
+    jpeg
+}
+
+/// Owner-password-only encryption (RC4-128, empty user password): it opens
+/// without a password, and PDFium holds each decrypted stream in memory. The
+/// page draws one JPEG whose stream ends with a newline after the EOI marker.
+fn owner_password_jpeg() -> Document {
+    let mut jpeg = gray_jpeg();
+    jpeg.push(b'\n');
+    let mut doc = image_page(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image",
+            "Width" => 1, "Height" => 1,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+            "Filter" => "DCTDecode",
+        },
+        jpeg,
+    ));
+    let file_id = Object::String(b"docray-fixture-1".to_vec(), StringFormat::Hexadecimal);
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+    let state = EncryptionState::try_from(EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "owner",
+        user_password: "",
+        key_length: 128,
+        permissions: Permissions::all(),
+    })
+    .unwrap();
+    doc.encrypt(&state).unwrap();
+    // Revision 3 only checks the first 16 bytes of /U; lopdf fills the other 16
+    // with random padding, which would make the fixture non-deterministic.
+    let encrypt_id = doc.trailer.get(b"Encrypt").unwrap().as_reference().unwrap();
+    let encrypt = doc
+        .get_object_mut(encrypt_id)
+        .unwrap()
+        .as_dict_mut()
+        .unwrap();
+    let mut user = encrypt.get(b"U").unwrap().as_str().unwrap().to_vec();
+    user[16..].fill(0);
+    encrypt.set("U", Object::String(user, StringFormat::Hexadecimal));
     doc
 }
 
@@ -892,6 +960,95 @@ fn form() -> Document {
     doc
 }
 
+/// A 1x1, two-component, 8-bit JPEG 2000 codestream with no wavelet
+/// decomposition and one empty packet per component, so every sample decodes
+/// to 128.
+fn two_component_j2k() -> Vec<u8> {
+    let mut cs = vec![0xFF, 0x4F, 0xFF, 0x51, 0x00, 0x2C, 0x00, 0x00];
+    for value in [1u32, 1, 0, 0, 1, 1, 0, 0] {
+        cs.extend(value.to_be_bytes());
+    }
+    cs.extend([0x00, 0x02, 0x07, 0x01, 0x01, 0x07, 0x01, 0x01]);
+    cs.extend([
+        0xFF, 0x52, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01,
+    ]);
+    cs.extend([0xFF, 0x5C, 0x00, 0x04, 0x40, 0x40]);
+    cs.extend([
+        0xFF, 0x90, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01,
+    ]);
+    cs.extend([0xFF, 0x93, 0x00, 0x00, 0xFF, 0xD9]);
+    cs
+}
+
+/// `[/DeviceN [/C0 ..] /DeviceRGB tint]` with a PostScript tint function.
+fn devicen(doc: &mut Document, colorants: usize, tint: &str) -> Object {
+    let tint_id = doc.add_object(Stream::new(
+        dictionary! {
+            "FunctionType" => 4,
+            "Domain" => (0..colorants).flat_map(|_| [0.into(), 1.into()]).collect::<Vec<Object>>(),
+            "Range" => vec![0.into(), 1.into(), 0.into(), 1.into(), 0.into(), 1.into()],
+        },
+        tint.as_bytes().to_vec(),
+    ));
+    let names: Vec<Object> = (0..colorants)
+        .map(|i| Object::Name(format!("C{i}").into_bytes()))
+        .collect();
+    Object::Array(vec![
+        "DeviceN".into(),
+        names.into(),
+        "DeviceRGB".into(),
+        tint_id.into(),
+    ])
+}
+
+/// Two JPXDecode images over the same two-component codestream. The first has
+/// a two-colorant DeviceN colorspace; the second declares four colorants, and
+/// decoding it makes pdfium abort the process.
+fn jpx_component_mismatch() -> Document {
+    let draw = |x: i64, name: &str| {
+        vec![
+            op("q", vec![]),
+            op(
+                "cm",
+                vec![
+                    100.into(),
+                    0.into(),
+                    0.into(),
+                    100.into(),
+                    x.into(),
+                    500.into(),
+                ],
+            ),
+            op("Do", vec![name.into()]),
+            op("Q", vec![]),
+        ]
+    };
+    let mut doc = base_doc([draw(100, "Match"), draw(300, "Mismatch")].concat(), vec![]);
+    let two = devicen(&mut doc, 2, "{ pop pop 0 0 0 }");
+    let four = devicen(&mut doc, 4, "{ pop }");
+    let image = |colorspace: Object| {
+        Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image",
+                "Width" => 1, "Height" => 1, "BitsPerComponent" => 8,
+                "Filter" => "JPXDecode", "ColorSpace" => colorspace,
+            },
+            two_component_j2k(),
+        )
+    };
+    let match_id = doc.add_object(image(two));
+    let mismatch_id = doc.add_object(image(four));
+    let page_id = doc.page_iter().next().unwrap();
+    let resources_id = doc.get_page_resources(page_id).unwrap().1[0];
+    if let Ok(Object::Dictionary(res)) = doc.get_object_mut(resources_id) {
+        res.set(
+            "XObject",
+            dictionary! { "Match" => match_id, "Mismatch" => mismatch_id },
+        );
+    }
+    doc
+}
+
 /// A valid PDF with twenty successively nested Form XObjects. The terminal
 /// form contains text so a missing recursion cap would traverse the full tree.
 fn deep_forms() -> Document {
@@ -1112,6 +1269,9 @@ fn main() {
     cjk().save("testdata/cjk.pdf").unwrap();
     rotated().save("testdata/rotated.pdf").unwrap();
     image().save("testdata/image.pdf").unwrap();
+    owner_password_jpeg()
+        .save("testdata/owner-password-jpeg.pdf")
+        .unwrap();
     scan().save("testdata/scan.pdf").unwrap();
     mixed().save("testdata/mixed.pdf").unwrap();
     link().save("testdata/link.pdf").unwrap();
@@ -1166,6 +1326,9 @@ fn main() {
     corrupt_stream_containing("testdata/malformed/corrupt-page.pdf", b"PAGE_2_MARKER");
     deep_forms()
         .save("testdata/malformed/deep-forms.pdf")
+        .unwrap();
+    jpx_component_mismatch()
+        .save("testdata/malformed/jpx-component-mismatch.pdf")
         .unwrap();
 
     println!("fixtures written to testdata/");

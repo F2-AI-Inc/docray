@@ -4,7 +4,7 @@
 // by the CLI-subprocess isolation layer — the server spawns a fresh `docray-cli`
 // per document, so a worker abort surfaces as a 'crash' error by architecture
 // rather than taking down the service.
-use crate::{bind::pdfium, coords::PageSpace};
+use crate::{bind::pdfium, coords::PageSpace, jpx};
 use docray_core::{
     sniff_format, Capabilities, ExtractError, Extractor, Format, GeometryKind, PageSelection,
 };
@@ -105,7 +105,7 @@ impl Extractor for PdfExtractor {
         if page_count > 0 {
             for idx in first_idx..=last_idx {
                 let page_number = idx + 1;
-                match doc.pages().get(idx as u16) {
+                match doc.pages().get(idx as PdfPageIndex) {
                     Ok(page) => match extract_page(&page, page_number, &mut warnings) {
                         Ok(p) => out_pages.push(p),
                         Err(e) => {
@@ -240,7 +240,7 @@ fn extract_page(
 
     // Index-based object access rather than `objects().iter()`: a fused iterator
     // would silently drop the remainder of a page's objects if one failed to
-    // load. `get`/`len` come from `PdfPageObjectsCommon` in pdfium-render 0.8.37.
+    // load. `get`/`len` come from `PdfPageObjectsCommon` in pdfium-render 0.9.4.
     let objects = page.objects();
     let object_count = objects.len();
     for i in 0..object_count {
@@ -381,7 +381,7 @@ fn extract_object(
         };
 
         // `len()` is backed by FPDFFormObj_CountObjects(), whose error sentinel
-        // -1 is cast to usize by pdfium-render 0.8.37. Detect it explicitly so
+        // -1 is cast to usize by pdfium-render 0.9.4. Detect it explicitly so
         // malformed forms cannot turn an error into an effectively infinite loop.
         let child_count = form.len();
         if child_count == usize::MAX {
@@ -494,7 +494,7 @@ fn text_element(
 
     // Fill / stroke colour come from the text object itself: `PdfPageTextObject`
     // implements `PdfPageObjectCommon` (blanket impl over `PdfPageObjectPrivate`
-    // in pdfium-render 0.8.37), which exposes object-level `fill_color()` /
+    // in pdfium-render 0.9.4), which exposes object-level `fill_color()` /
     // `stroke_color()` backed by `FPDFPageObj_GetFillColor`.
     let fill = obj
         .fill_color()
@@ -533,7 +533,7 @@ fn text_element(
 
 /// Object bounding box in top-left space.
 ///
-/// `bounds()` returns a `PdfQuadPoints` in pdfium-render 0.8.37 (not a rect); its
+/// `bounds()` returns a `PdfQuadPoints` in pdfium-render 0.9.4 (not a rect); its
 /// `left()/bottom()/right()/top()` accessors give the axis-aligned extremes we
 /// need. Failure yields `None` so callers can fall back to a zero box rather than
 /// panic.
@@ -656,25 +656,41 @@ fn image_element(
         _ => object_bbox_or_warn(object, ancestor, space, &id, warnings),
     };
     let quad = image_quad(matrix, &bbox, space, &id, warnings);
+    let raw = img.get_raw_image_data().ok().filter(|d| !d.is_empty());
+
+    // `width()`/`height()`/`color_space()` read pdfium's image metadata (the raw
+    // `FPDF_IMAGEOBJ_METADATA` accessor is `pub(crate)`), which loads the image.
+    // For JPEG 2000 that decodes the whole codestream, and pdfium aborts the
+    // process on some malformed ones (e.g. a colorspace with more components
+    // than the codestream), so JPX pixel size comes from the codestream header
+    // and its colorspace is not reported.
+    let (pixel_width, pixel_height, colorspace) = if is_jpx(img) {
+        let size = raw.as_deref().and_then(jpx::pixel_size);
+        (size.map(|s| s.0), size.map(|s| s.1), None)
+    } else {
+        (
+            img.width().ok().map(|w| w as u32),
+            img.height().ok().map(|h| h as u32),
+            img.color_space()
+                .ok()
+                .map(|cs| colorspace_name(cs as i32).to_string()),
+        )
+    };
 
     ImageElement {
         id,
         bbox,
         quad,
-        // `width()`/`height()` return the pixel dimensions from pdfium's image
-        // metadata (the raw `FPDF_IMAGEOBJ_METADATA` accessor is `pub(crate)`).
-        pixel_width: img.width().ok().map(|w| w as u32),
-        pixel_height: img.height().ok().map(|h| h as u32),
-        colorspace: img
-            .color_space()
-            .ok()
-            .map(|cs| colorspace_name(cs as i32).to_string()),
-        content_hash: img
-            .get_raw_image_data()
-            .ok()
-            .filter(|d| !d.is_empty())
-            .map(|d| hex(&Sha256::digest(&d))),
+        pixel_width,
+        pixel_height,
+        colorspace,
+        content_hash: raw.map(|d| hex(&Sha256::digest(&d))),
     }
+}
+
+fn is_jpx(img: &PdfPageImageObject) -> bool {
+    let filters = img.filters();
+    (0..filters.len()).any(|i| filters.get(i).is_ok_and(|f| f.name() == "JPXDecode"))
 }
 
 /// Image placement quad in top-left space. The entire quad policy lives here so
@@ -794,7 +810,7 @@ fn annotation_element(
     );
     let subtype = format!("{:?}", annotation.annotation_type()).to_lowercase();
     // Link URI chain: annotation -> link -> action -> URI action -> uri string.
-    // `PdfLink::action()` returns an `Option` (not a `Result`) in 0.8.37.
+    // `PdfLink::action()` returns an `Option` (not a `Result`) in 0.9.4.
     let uri = annotation.as_link_annotation().and_then(|link| {
         link.link()
             .ok()
