@@ -10,7 +10,7 @@ permissions:
 
 env:
   # Must match scripts/fetch-pdfium.sh.
-  PDFIUM_VERSION: chromium/7934
+  PDFIUM_VERSION: chromium/8100
 
 jobs:
   verify-version:

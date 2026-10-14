@@ -12,7 +12,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # Must match the pin in scripts/fetch-pdfium.sh; keyed into the cache below.
-  PDFIUM_VERSION: chromium/7934
+  PDFIUM_VERSION: chromium/8100
 
 jobs:
   release-version:
