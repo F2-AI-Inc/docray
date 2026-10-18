@@ -240,14 +240,13 @@ pub fn preprocess_alternate_content(
     }
     let supported: std::collections::BTreeSet<&str> =
         supported_namespace_uris.iter().copied().collect();
-    let mut nodes = preprocess_node(&root, &supported, 0, max_depth, warnings);
-    match nodes.pop() {
-        Some(node) => node,
-        None => {
-            root.children.clear();
-            root
-        }
-    }
+    // Childless shell for the case where the root itself resolves to nothing.
+    let children = std::mem::take(&mut root.children);
+    let empty_root = root.clone();
+    root.children = children;
+    let mut nodes = Vec::new();
+    preprocess_node(root, &supported, 0, max_depth, warnings, &mut nodes);
+    nodes.pop().unwrap_or(empty_root)
 }
 
 fn contains_alternate_content(root: &Node) -> bool {
@@ -256,22 +255,27 @@ fn contains_alternate_content(root: &Node) -> bool {
         || root.children.iter().any(contains_alternate_content)
 }
 
+/// Takes the node by value and moves its subtree into `out`: every node is
+/// visited and moved once, so the pass is O(n) in time and allocation. (A
+/// per-node clone costs the sum of all subtree sizes — quadratic on a deep
+/// chain over wide leaves.)
 fn preprocess_node(
-    node: &Node,
+    mut node: Node,
     supported: &std::collections::BTreeSet<&str>,
     mc_depth: usize,
     max_depth: usize,
     warnings: &mut Vec<String>,
-) -> Vec<Node> {
+    out: &mut Vec<Node>,
+) {
     const MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
     if node.local_name() == "AlternateContent" && node.namespace_uri() == Some(MC) {
         if mc_depth >= max_depth {
             warnings.push(format!(
                 "markup-compatibility nesting depth limit {max_depth} exceeded; subtree skipped"
             ));
-            return Vec::new();
+            return;
         }
-        let choice = node.children.iter().find(|candidate| {
+        let choice = node.children.iter().position(|candidate| {
             if candidate.local_name() != "Choice" || candidate.namespace_uri() != Some(MC) {
                 return false;
             }
@@ -291,7 +295,7 @@ fn preprocess_node(
             any
         });
         let selected = choice.or_else(|| {
-            node.children.iter().find(|candidate| {
+            node.children.iter().position(|candidate| {
                 candidate.local_name() == "Fallback" && candidate.namespace_uri() == Some(MC)
             })
         });
@@ -300,22 +304,30 @@ fn preprocess_node(
                 "markup-compatibility AlternateContent has no supported Choice or Fallback; subtree skipped"
                     .into(),
             );
-            return Vec::new();
+            return;
         };
-        return selected
-            .children
-            .iter()
-            .flat_map(|child| preprocess_node(child, supported, mc_depth + 1, max_depth, warnings))
-            .collect();
+        // The unselected branches are dropped; sibling order no longer matters.
+        let selected = node.children.swap_remove(selected);
+        for child in selected.children {
+            preprocess_node(child, supported, mc_depth + 1, max_depth, warnings, out);
+        }
+        return;
     }
 
-    let mut clone = node.clone();
-    clone.children = node
-        .children
-        .iter()
-        .flat_map(|child| preprocess_node(child, supported, mc_depth, max_depth, warnings))
-        .collect();
-    vec![clone]
+    let children = std::mem::take(&mut node.children);
+    let mut processed = Vec::with_capacity(children.len());
+    for child in children {
+        preprocess_node(
+            child,
+            supported,
+            mc_depth,
+            max_depth,
+            warnings,
+            &mut processed,
+        );
+    }
+    node.children = processed;
+    out.push(node);
 }
 
 fn namespaces_for_element(
@@ -513,6 +525,49 @@ mod tests {
             children,
             "a document without mc:AlternateContent must not deep-clone its DOM"
         );
+    }
+
+    fn text_buffers(node: &Node, out: &mut Vec<(String, *const u8)>) {
+        if !node.text.is_empty() {
+            out.push((node.text.clone(), node.text.as_ptr()));
+        }
+        for child in &node.children {
+            text_buffers(child, out);
+        }
+    }
+
+    #[test]
+    fn preprocessing_with_alternate_content_moves_nodes_instead_of_cloning() {
+        // Any clone allocates a fresh text buffer, so every surviving node
+        // (outside and inside the selected branch) must keep its original
+        // buffer. A per-node subtree clone makes this pass O(sum of subtree
+        // sizes), which a deep chain over wide leaves turns into GBs.
+        let root = parse(
+            br#"<w:document xmlns:w="urn:word" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><w:body><w:p><w:t>kept-1</w:t><w:t>kept-2</w:t></w:p><mc:AlternateContent><mc:Fallback><w:p><w:t>fallback</w:t></w:p></mc:Fallback></mc:AlternateContent><mc:AlternateContent/></w:body></w:document>"#,
+            "test.xml",
+        )
+        .unwrap();
+        let mut before = Vec::new();
+        text_buffers(&root, &mut before);
+
+        let mut warnings = Vec::new();
+        let processed = preprocess_alternate_content(root, &["urn:word"], 32, &mut warnings);
+        let mut after = Vec::new();
+        text_buffers(&processed, &mut after);
+
+        let texts: Vec<&str> = after.iter().map(|(text, _)| text.as_str()).collect();
+        assert_eq!(texts, ["kept-1", "kept-2", "fallback"]);
+        assert_eq!(
+            after, before,
+            "preprocessing must move nodes, not clone them"
+        );
+        let body = processed.child("body").unwrap();
+        assert_eq!(
+            body.children.len(),
+            2,
+            "Fallback paragraph flattened into body"
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
     }
 
     #[test]
