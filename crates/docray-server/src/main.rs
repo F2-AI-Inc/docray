@@ -1,4 +1,5 @@
 mod config;
+mod disk;
 mod http;
 mod jobs;
 mod telemetry;
@@ -75,8 +76,9 @@ async fn main() {
                     &telemetry,
                 ));
                 if work.catch_unwind().await.is_err() {
-                    if let Err(e) = store.mark_failed(&id, "crash", "worker task panicked") {
-                        eprintln!("worker: mark_failed after panic for {id} failed: {e}");
+                    match store.mark_failed(&id, "crash", "worker task panicked") {
+                        Ok(_) => release_input(&input_path),
+                        Err(e) => eprintln!("worker: mark_failed after panic for {id} failed: {e}"),
                     }
                 }
             }
@@ -88,12 +90,28 @@ async fn main() {
         let cfg = cfg.clone();
         let store = store.clone();
         tokio::spawn(async move {
+            // A running job is never expired before its extraction could have
+            // timed out, and an unreferenced upload is never swept while it
+            // could still be arriving.
+            let min_running_secs = cfg.timeout_secs + 60;
+            let min_orphan_age_secs = cfg.result_ttl_secs.max(cfg.upload_timeout_secs + 60);
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+                match store.expire_stale(cfg.result_ttl_secs, min_running_secs) {
+                    Ok(n) if n > 0 => println!("expired {n} stuck jobs"),
+                    Ok(_) => {}
+                    Err(e) => eprintln!("sweeper: expire_stale failed: {e}"),
+                }
                 match store.sweep_expired(cfg.result_ttl_secs) {
                     Ok(n) if n > 0 => println!("swept {n} expired jobs"),
                     Ok(_) => {}
                     Err(e) => eprintln!("sweeper: sweep_expired failed: {e}"),
+                }
+                match store.sweep_orphan_uploads(&cfg.data_dir.join("uploads"), min_orphan_age_secs)
+                {
+                    Ok(n) if n > 0 => println!("swept {n} orphaned uploads"),
+                    Ok(_) => {}
+                    Err(e) => eprintln!("sweeper: sweep_orphan_uploads failed: {e}"),
                 }
             }
         });
@@ -179,9 +197,18 @@ async fn shutdown_signal() {
     }
 }
 
+/// Delete a job's upload once its outcome is recorded: the input is never read
+/// again, and holding it for the result TTL would let finished jobs pin disk.
+fn release_input(input_path: &str) {
+    if !jobs::remove_ok(input_path) {
+        eprintln!("worker: cannot delete upload {input_path}; the TTL sweep retries");
+    }
+}
+
 /// Run one claimed job to completion and record its outcome. Store errors while
 /// marking the result are logged (worst case the job is re-queued by startup
-/// running->queued recovery); they must not abort the worker loop.
+/// running->queued recovery, so its upload is kept); they must not abort the
+/// worker loop.
 #[allow(clippy::too_many_arguments)]
 async fn process_job(
     cfg: &Config,
@@ -225,13 +252,32 @@ async fn process_job(
                 docray_model::OutputFormat::Lean => "lean.txt",
                 docray_model::OutputFormat::Markdown => "md",
             };
-            let result_path = cfg
-                .data_dir
-                .join("results")
-                .join(format!("{id}.{extension}"));
-            match std::fs::write(&result_path, &bytes) {
-                Ok(()) => store.mark_succeeded(id, result_path.to_str().unwrap()),
-                Err(e) => store.mark_failed(id, "io_error", &e.to_string()),
+            let results_dir = cfg.data_dir.join("results");
+            let result_path = results_dir.join(format!("{id}.{extension}"));
+            match disk::ensure_room(&results_dir, cfg.min_free_bytes, bytes.len() as u64) {
+                Err(disk::RoomError::Full) => store.mark_failed(
+                    id,
+                    "insufficient_storage",
+                    "data volume is below its free-space floor; result not stored",
+                ),
+                Err(disk::RoomError::Io(e)) => {
+                    store.mark_failed(id, "io_error", &format!("cannot determine free space: {e}"))
+                }
+                Ok(()) => match std::fs::write(&result_path, &bytes) {
+                    Ok(()) => {
+                        let marked = store.mark_succeeded(id, result_path.to_str().unwrap());
+                        if let Ok(false) = marked {
+                            // Expired by the sweeper meanwhile: nothing
+                            // references this result.
+                            let _ = std::fs::remove_file(&result_path);
+                        }
+                        marked
+                    }
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&result_path);
+                        store.mark_failed(id, "io_error", &e.to_string())
+                    }
+                },
             }
         }
         WorkerOutcome::Failed { code, message } => store.mark_failed(id, &code, &message),
@@ -245,7 +291,8 @@ async fn process_job(
             store.mark_failed(id, "output_too_large", "output exceeded cap")
         }
     };
-    if let Err(e) = marked {
-        eprintln!("worker: recording outcome for job {id} failed: {e}");
+    match marked {
+        Ok(_) => release_input(input_path),
+        Err(e) => eprintln!("worker: recording outcome for job {id} failed: {e}"),
     }
 }

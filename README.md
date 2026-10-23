@@ -240,7 +240,10 @@ an invisible OCR text layer has text elements and is therefore
 | `DOCRAY_OUTPUT_CAP_BYTES`  | `536870912` (512 MiB)                   | Max stdout size read from a worker before it's killed as `output_too_large` |
 | `DOCRAY_MEM_LIMIT_BYTES`   | `2147483648` (2 GiB)                    | Per-worker memory rlimit (Linux only) |
 | `DOCRAY_WORKERS`           | number of CPU cores (min 1)             | Size of the async job worker pool; also bounds concurrent `/v1/extract` extractions. The sync path and the job pool share this knob but keep independent concurrency counts |
-| `DOCRAY_RESULT_TTL_SECS`   | `86400` (24 h)                          | Age at which succeeded/failed jobs and their results are swept |
+| `DOCRAY_RESULT_TTL_SECS`   | `86400` (24 h)                          | Age at which succeeded/failed jobs and their results are swept; jobs still queued or running at this age fail as `expired` |
+| `DOCRAY_MAX_PENDING_JOBS`  | `64` (min 1)                            | Max queued + running jobs plus job uploads in progress; further `POST /v1/jobs` requests get `503 queue_full` |
+| `DOCRAY_MIN_FREE_BYTES`    | `1073741824` (1 GiB)                    | Free space the data volume must keep after an upload or result write (`507 insufficient_storage`); `0` disables the check |
+| `DOCRAY_UPLOAD_TIMEOUT_SECS` | `600` (min 1)                         | Wall-clock deadline for receiving an upload body on either route (`408 upload_timeout`) |
 | `DOCRAY_TELEMETRY_LOGS`    | `off`                                    | Set to `json` to emit one bounded structured event for each completed extraction |
 | `OTEL_METRICS_EXPORTER`    | `none`                                   | Set to `otlp` to export service metrics over OTLP/HTTP protobuf |
 

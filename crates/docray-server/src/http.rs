@@ -1,21 +1,23 @@
 use crate::config::Config;
+use crate::disk::{ensure_room, RoomError};
 use crate::jobs::JobStore;
 use crate::telemetry::{ExtractionMetric, Telemetry};
 use crate::worker::{run_extraction, WorkerOutcome};
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use docray_core::PageSelection;
 use docray_model::{Granularity, OutputFormat};
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
 #[derive(Clone)]
@@ -27,6 +29,9 @@ pub struct AppState {
     /// `cfg.workers` — the sync path and the async job pool share the machine but
     /// keep independent concurrency counts, which is acceptable for v1.
     pub sync_slots: Arc<Semaphore>,
+    /// Job uploads being received. They hold disk before their row exists, so
+    /// they count against `max_pending_jobs` alongside queued/running rows.
+    pub uploads_in_flight: Arc<AtomicUsize>,
     pub telemetry: Telemetry,
 }
 
@@ -37,6 +42,7 @@ impl AppState {
             cfg,
             jobs,
             sync_slots,
+            uploads_in_flight: Arc::new(AtomicUsize::new(0)),
             telemetry,
         }
     }
@@ -316,11 +322,21 @@ async fn sync_extract(
             return finish_response(&state.telemetry, started, metric, response);
         }
     };
-    let bytes = match read_upload(&mut multipart, state.cfg.sync_max_bytes).await {
-        Ok(b) => b,
-        Err((code, resp)) => {
+    let deadline = Duration::from_secs(state.cfg.upload_timeout_secs);
+    let bytes = match tokio::time::timeout(
+        deadline,
+        read_upload(&mut multipart, state.cfg.sync_max_bytes),
+    )
+    .await
+    {
+        Ok(Ok(b)) => b,
+        Ok(Err((code, resp))) => {
             metric.fail(code);
             return finish_response(&state.telemetry, started, metric, *resp);
+        }
+        Err(_) => {
+            metric.fail("upload_timeout");
+            return finish_response(&state.telemetry, started, metric, upload_timeout_response());
         }
     };
     metric.input_bytes = Some(bytes.len() as u64);
@@ -396,14 +412,43 @@ fn finish_response(
     response
 }
 
+fn upload_timeout_response() -> Response {
+    error_response(
+        StatusCode::REQUEST_TIMEOUT,
+        "upload_timeout",
+        "upload was not received within the upload deadline",
+    )
+}
+
+fn room_error_response(error: RoomError) -> Response {
+    match error {
+        RoomError::Full => error_response(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "insufficient_storage",
+            "data volume is below its free-space floor; retry later",
+        ),
+        RoomError::Io(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "io_error",
+            &format!("cannot determine free space: {e}"),
+        ),
+    }
+}
+
+/// Free space is re-checked after every this many bytes written, bounding how
+/// far one upload can overshoot the floor between checks.
+const ROOM_CHECK_INTERVAL: u64 = 1024 * 1024;
+
 /// Stream the multipart `file` field straight to `path`, chunk by chunk, so a
 /// 1 GiB upload is never buffered whole in RAM. Bytes are counted against
-/// `max_bytes` (413 too_large on breach). Read/write errors are surfaced as
-/// io_error 500; the caller deletes any partial file on error.
+/// `max_bytes` (413 too_large on breach), and the volume's free space is kept
+/// above `min_free` (507 insufficient_storage). Read/write errors are surfaced
+/// as io_error 500; the caller deletes any partial file on error.
 async fn stream_upload_to_file(
     multipart: &mut Multipart,
     path: &Path,
     max_bytes: u64,
+    min_free: u64,
 ) -> Result<(), Box<Response>> {
     use std::io::Write;
     while let Some(mut field) = multipart.next_field().await.map_err(|e| {
@@ -423,7 +468,9 @@ async fn stream_upload_to_file(
                 &e.to_string(),
             ))
         })?;
+        let dir = path.parent().unwrap_or(Path::new("."));
         let mut written: u64 = 0;
+        let mut next_room_check: u64 = 0;
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             Box::new(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -438,6 +485,11 @@ async fn stream_upload_to_file(
                     "too_large",
                     "request exceeds job size cap",
                 )));
+            }
+            if written >= next_room_check {
+                ensure_room(dir, min_free, chunk.len() as u64)
+                    .map_err(|e| Box::new(room_error_response(e)))?;
+                next_room_check = written + ROOM_CHECK_INTERVAL;
             }
             file.write_all(&chunk).map_err(|e| {
                 Box::new(error_response(
@@ -463,8 +515,33 @@ async fn stream_upload_to_file(
     )))
 }
 
+/// Holds a slot against `max_pending_jobs` for an upload in progress and
+/// owns its partial file. Dropping it on any exit path — including the handler
+/// future being dropped when a client disconnects — releases the slot and
+/// deletes the file unless `keep` was called.
+struct UploadReservation {
+    in_flight: Arc<AtomicUsize>,
+    path: Option<PathBuf>,
+}
+
+impl UploadReservation {
+    fn keep(mut self) {
+        self.path = None;
+    }
+}
+
+impl Drop for UploadReservation {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 async fn create_job(
     State(state): State<AppState>,
+    headers: HeaderMap,
     query: Result<Query<OutputQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
@@ -488,23 +565,71 @@ async fn create_job(
         }
     };
 
+    // Admission happens before any body byte is read. The in-flight count is
+    // taken first so concurrent submissions cannot all pass the check.
+    let in_flight = state.uploads_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+    let mut reservation = UploadReservation {
+        in_flight: state.uploads_in_flight.clone(),
+        path: None,
+    };
+    match state.jobs.count_pending() {
+        Ok(pending) if pending + in_flight > state.cfg.max_pending_jobs => {
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "queue_full",
+                "too many pending jobs; retry later",
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "store_error",
+                &e.to_string(),
+            );
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
-    let input_path = state.cfg.data_dir.join("uploads").join(&id);
-    if let Err(e) = std::fs::create_dir_all(input_path.parent().unwrap()) {
+    let uploads_dir = state.cfg.data_dir.join("uploads");
+    if let Err(e) = std::fs::create_dir_all(&uploads_dir) {
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "io_error",
             &e.to_string(),
         );
     }
+    // A declared length is checked up front; the streaming checks below
+    // cover chunked bodies and a length that under-declares.
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    if let Err(e) = ensure_room(&uploads_dir, state.cfg.min_free_bytes, declared) {
+        return room_error_response(e);
+    }
 
     // Jobs accept larger inputs than sync: cap by the jobs body limit, streaming
-    // to disk. On any failure delete the partial file so we never leave orphans.
-    if let Err(resp) =
-        stream_upload_to_file(&mut multipart, &input_path, state.cfg.jobs_max_bytes).await
+    // to disk under the upload deadline. The reservation deletes the partial
+    // file on every failure path so we never leave orphans.
+    let input_path = uploads_dir.join(&id);
+    reservation.path = Some(input_path.clone());
+    let deadline = Duration::from_secs(state.cfg.upload_timeout_secs);
+    match tokio::time::timeout(
+        deadline,
+        stream_upload_to_file(
+            &mut multipart,
+            &input_path,
+            state.cfg.jobs_max_bytes,
+            state.cfg.min_free_bytes,
+        ),
+    )
+    .await
     {
-        let _ = std::fs::remove_file(&input_path);
-        return *resp;
+        Ok(Ok(())) => {}
+        Ok(Err(resp)) => return *resp,
+        Err(_) => return upload_timeout_response(),
     }
 
     if let Err(e) = state.jobs.create(
@@ -515,13 +640,14 @@ async fn create_job(
         classify,
         pages,
     ) {
-        let _ = std::fs::remove_file(&input_path);
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "store_error",
             &e.to_string(),
         );
     }
+    // The row now counts the job as pending and owns the upload.
+    reservation.keep();
     (
         StatusCode::ACCEPTED,
         Json(serde_json::json!({ "job_id": id })),

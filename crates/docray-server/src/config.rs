@@ -17,6 +17,9 @@ pub struct Config {
     pub mem_limit_bytes: u64,
     pub workers: usize,
     pub result_ttl_secs: u64,
+    pub max_pending_jobs: usize,
+    pub min_free_bytes: u64,
+    pub upload_timeout_secs: u64,
 }
 
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
@@ -53,6 +56,14 @@ impl Config {
             // Semaphore in http.rs non-zero.)
             workers: env_or("DOCRAY_WORKERS", num_cpus::get()).max(1),
             result_ttl_secs: env_or("DOCRAY_RESULT_TTL_SECS", 86_400),
+            // Queued + running jobs plus uploads in progress. With the 1 GiB
+            // upload cap this bounds how much input disk jobs can pin.
+            max_pending_jobs: env_or("DOCRAY_MAX_PENDING_JOBS", 64).max(1),
+            // Free space the data volume must keep after an upload or result
+            // write; 0 disables the check. Keeps SQLite clear of SQLITE_FULL.
+            min_free_bytes: env_or("DOCRAY_MIN_FREE_BYTES", 1_073_741_824), // 1 GiB
+            // Wall-clock deadline for receiving an upload body (sync and jobs).
+            upload_timeout_secs: env_or("DOCRAY_UPLOAD_TIMEOUT_SECS", 600).max(1),
         }
     }
 }
