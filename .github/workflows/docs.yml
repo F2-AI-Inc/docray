@@ -40,7 +40,7 @@ jobs:
           curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz \
             | sudo tar -xz -C /opt && sudo ln -sf /opt/binaryen-version_130/bin/wasm-opt /usr/local/bin/wasm-opt
           wasm-opt --version
-      - uses: Swatinem/rust-cache@a45951ff880207c249adf57334cf2e9bd81d6e1e # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
       - name: Build in-browser playground
         run: |
           ./scripts/build-wasm.sh
