@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "docray-cli"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "docray-core"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "docray-model",
  "serde",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "docray-docx"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "docray-core",
  "docray-model",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "docray-model"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "docray-ooxml"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "docray-core",
  "quick-xml",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "docray-pdf"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "docray-core",
  "docray-model",
@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "docray-pptx"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "docray-core",
  "docray-model",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "docray-server"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "axum",
  "docray-core",
@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "docray-wasm"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "docray-core",
  "docray-docx",
@@ -2305,9 +2305,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -3121,18 +3121,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
