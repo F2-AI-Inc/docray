@@ -30,11 +30,13 @@ impl<'a> Package<'a> {
             let entry = archive.by_index_raw(index).map_err(|e| {
                 ExtractError::ParseFailure(format!("cannot inspect ZIP entry {index}: {e}"))
             })?;
-            let name = entry.name();
+            let name = entry.name().map_err(|e| {
+                ExtractError::ParseFailure(format!("cannot decode ZIP entry {index} name: {e}"))
+            })?;
             if name.starts_with('/') || name.contains("..") {
                 return Err(limit(format!("unsafe OPC entry name rejected: {name:?}")));
             }
-            if !names.insert(name.to_owned()) {
+            if !names.insert(name.clone().into_owned()) {
                 return Err(ExtractError::ParseFailure(format!(
                     "duplicate OPC entry name rejected: {name:?}"
                 )));

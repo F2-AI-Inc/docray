@@ -12,4 +12,4 @@ sha2 = "0.11"
 
 [dev-dependencies]
 serde_json.workspace = true
-zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "=9.1.3", default-features = false, features = ["deflate"] }
